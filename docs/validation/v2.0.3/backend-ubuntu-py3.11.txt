@@ -1,0 +1,11 @@
+Fixed code SHA: c9cb8c9ecccfa5f59f89dd8e826a7fd1601ad950
+Run: https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38432491256
+Job: https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38432491256/job/115417984349
+Result: success
+Scope: automated/generated-media tests; no Windows real travel footage acceptance.
+Extracted log (timestamps UTC):
+2026-10-13T16:40:58.7072267Z Ubuntu
+2026-10-13T16:41:18.7010525Z ........................................................................ [ 30%]
+2026-10-13T16:41:20.3718310Z ........................................................................ [ 60%]
+2026-10-13T16:41:22.5425824Z ........................................................................ [ 91%]
+2026-10-13T16:41:23.0807319Z .....................                                                    [100%]

@@ -1,0 +1,21 @@
+{
+  "created": 1,
+  "errors": [
+    {
+      "index": 1,
+      "request_index": 1,
+      "segment_id": "00000000-0000-4000-8000-000000000003",
+      "error_code": "RANGE_OUTSIDE_TRIM",
+      "message": "请求超出最新镜头裁剪，请重新选择当前有效区间"
+    }
+  ],
+  "duplicates": [
+    {
+      "index": 2,
+      "request_index": 2,
+      "segment_id": "00000000-0000-4000-8000-000000000003",
+      "request_id": "00000000-0000-4000-8000-000000000005",
+      "message": "相同区间的请求已存在"
+    }
+  ]
+}

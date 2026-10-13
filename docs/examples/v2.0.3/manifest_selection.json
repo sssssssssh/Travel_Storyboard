@@ -1,0 +1,13 @@
+{
+  "rating_filter": "(all except excluded)",
+  "assets_included": 1,
+  "total_candidates": 4,
+  "included_segments": 1,
+  "excluded_by_rating": 1,
+  "excluded_needs_review": 1,
+  "excluded_invalid_source": 0,
+  "excluded_missing_frames": 1,
+  "excluded_by_budget": 0,
+  "package_truncated": false,
+  "note": "Only assets referenced by the selected segments are listed."
+}

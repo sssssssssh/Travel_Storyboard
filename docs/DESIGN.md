@@ -1,4 +1,4 @@
-# Travel Storyboard v2.0.2 — 实现设计文档
+# Travel Storyboard v2.0.3 — 实现设计文档
 
 > 本文档描述从需求方案到代码的实现设计，是 `backend/` 与 `frontend/` 的权威依据。
 > 需求来源：《Travel_Storyboard_v2.0_详细设计方案.md》。
@@ -348,3 +348,33 @@ Windows 平台兼容：用 birthtime_ns 统一 Windows path-stat/handle-fstat �
 Python 3.13 等版本的 ctime 语义差异；POSIX 仍保留 metadata-change ctime。大小、mtime、
 设备、inode、创建身份校验都保持，完整 SHA-256 不跳过。恢复测试使用显式 created_at，
 生产恢复仍按 created_at + ID 确定性排序，不假设 Windows 时钟提供唯一微秒时间戳。
+
+## v2.0.3 复核引用与发布协议（TSB-231～235）
+
+`services/review_validation.py` 是复核请求的统一准入契约：校验项目、Asset、Segment 的关联，拒绝 `needs_review/archived/invalid`，拒绝非有限数、负入点、反向或不足 0.2 秒的区间。请求必须包含于最新有效裁剪和素材时长；时间容差统一为 0.001 秒。导入按条返回失败和重复定位信息；直连模型只允许在内存里修正至多 0.05 秒的边界误差，并明确报告，落库再次严格校验。
+
+分析包在 SQL 查询时先排除评分和失效状态；同一批有效 ID 决定 JSON、代表帧和联系表。只包含最新有效区间内且能解码的代表帧，缺帧镜头连同不再使用的 Asset 一起排除。空选择报可操作错误。图片继续重编码去 EXIF；Manifest 统计采用依次排除口径：评分 → 失效状态 → 源文件/范围 → 缺帧/预算 → 实际入包。每次未提交的打包尝试使用独立目录，避免恢复时把旧快照文件带入 ZIP；已提交结果通过 Job.resume_token 复用。最终短写事务再次检查选择和源文件，变化时删除本次新包，保留历史包。
+
+代理任务只长期保留请求 ID；每条执行前重读请求、镜头和素材。FFmpeg 按精确 `end-start` 写入 `proxies/staging/<job-id>-<attempt>/`，SQLite 不持有写锁。FFprobe 验证输出可读后，再申请有 30 秒超时的短 `BEGIN IMMEDIATE`：重查取消、状态、裁剪、请求修订和源身份；成功才重命名为独立正式文件、提交请求引用及本作业发布清单/实际字节数。数据库失败回滚时仅删除本次文件。预算不足保留 `pending`，报告 `BUDGET_EXCEEDED`/`partial_failed`；恢复相同作业不会重置已提交预算。临时代理不能通过 media API 读取。
+
+`Asset.analyzed_source_signature` 保存检测时的轻量签名，独立于 quick/full 模式的 `analyzed_fingerprint`，从而能检查重新扫描后的素材是否仍与旧检测一致。新增列通过原 WAL 备份机制做幂等迁移；旧完整检测可从匹配精确分析摘要的 Job 检查点恢复轻量签名。旧快速检测可直接验证原签名；未知历史完整签名要求重新检测，不能猜测当前源仍对应旧结果。`ANALYSIS_VERSION` 保持 2.0.2，已有有效缓存不因应用升级强制重算。
+
+人工处置 API 在短事务中处理：显式选当前镜头和区间产生新 Request，新旧 Request 通过 `supersedes_request_id/superseded_by_request_id` 互相追溯；旧请求转为 `superseded`，旧 Segment ID、人工备注、收藏、用途、计划引用和历史预览不变。暂缓保留 `needs_review`，放弃为 `dismissed`，均不会清除人工镜头信息。重试只在当前引用和源验证通过后回到 pending。前端使用后端给出的有效候选和错误信息，不自动映射 ID。旧计划存在引用时链接到导出页，由用户人工更新。
+
+```mermaid
+flowchart TD
+    A[导入或模型输出] --> B[短事务：统一当前引用与时间校验]
+    B -->|通过与去重| C[pending 请求]
+    B -->|拒绝| E[逐条错误码与定位信息]
+    C --> F[重读当前数据及源身份]
+    F --> G[无写锁：FFmpeg 临时编码与 FFprobe]
+    G --> H[短写事务：重读取消、裁剪、状态、源身份]
+    H -->|有效且预算足够| I[独立正式文件与 DB 引用/发布计数同次提交]
+    H -->|失效或失败| J[保留旧引用与文件，清理本次临时产物]
+    J --> K[needs_review 或 failed]
+    K -->|明确选择有效镜头| L[新 pending Request；旧 Request superseded]
+    K -->|暂缓| M[needs_review；保留数据]
+    K -->|放弃| N[dismissed；保留计划和审计]
+```
+
+完整哈希是每个任务的成本：200GB 分别完整扫描和检测可能多读约 400GB；严格复核会再读，未完成文件重读另计，FFmpeg 解码 I/O 也另计。界面显示 hashing/processing/hash_recheck、取消、源变化、人工复核、字节进度和重读次数，不给固定 ETA。实际发布证据和未执行的 Windows 实机验收见 `RELEASE_V2_0_3.md`。

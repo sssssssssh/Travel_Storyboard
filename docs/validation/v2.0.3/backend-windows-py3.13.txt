@@ -1,0 +1,11 @@
+Fixed code SHA: c9cb8c9ecccfa5f59f89dd8e826a7fd1601ad950
+Run: https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38432491256
+Job: https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38432491256/job/115417983987
+Result: success
+Scope: automated/generated-media tests; no Windows real travel footage acceptance.
+Extracted log (timestamps UTC):
+2026-10-13T16:40:57.7242433Z Microsoft Windows Server 2025
+2026-10-13T16:41:39.5223391Z ........................................................................ [ 30%]
+2026-10-13T16:41:42.1851672Z ........................................................................ [ 60%]
+2026-10-13T16:41:46.2478638Z ........................................................................ [ 91%]
+2026-10-13T16:41:47.1938249Z .....................                                                    [100%]

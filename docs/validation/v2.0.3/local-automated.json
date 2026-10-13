@@ -1,0 +1,39 @@
+{
+  "code_sha": "c9cb8c9ecccfa5f59f89dd8e826a7fd1601ad950",
+  "platform": "macOS 15.7.7 arm64",
+  "python": "3.12.14",
+  "ffmpeg": "7.1",
+  "ffprobe": "4.4.1",
+  "required_media_env": "TSB_REQUIRE_FFMPEG=1",
+  "result": {
+    "tests": "258",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "time": "13.477",
+    "timestamp": "2026-10-14T00:39:01.528544+08:00"
+  },
+  "short_proxy_measurements": [
+    {
+      "test": "test_real_short_review_proxy_is_exact_readonly_and_project_scoped[False]",
+      "properties": {
+        "requested_duration_sec": "0.6",
+        "output_duration_sec": "0.6",
+        "output_bytes": "8626",
+        "source_sha256_before_after": "e61fb5cddf8527bcdf0b6a7aa04aece3507a5e770d7770c906619f4b0583fa7e",
+        "workspace": "default"
+      }
+    },
+    {
+      "test": "test_real_short_review_proxy_is_exact_readonly_and_project_scoped[True]",
+      "properties": {
+        "requested_duration_sec": "0.6",
+        "output_duration_sec": "0.6",
+        "output_bytes": "8626",
+        "source_sha256_before_after": "e61fb5cddf8527bcdf0b6a7aa04aece3507a5e770d7770c906619f4b0583fa7e",
+        "workspace": "custom"
+      }
+    }
+  ],
+  "scope": "Generated media only. No Windows real-footage or 200GB acceptance."
+}
