@@ -2,7 +2,13 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, downloadUrl, endpoints, reviewProxyUrl } from '../lib/api'
-import type { ImportResult, JobOut, ReviewPackageOut, ReviewRequestOut } from '../lib/types'
+import type {
+  DirectAnalysisResult,
+  ImportResult,
+  JobOut,
+  ReviewPackageOut,
+  ReviewRequestOut,
+} from '../lib/types'
 import { useJob } from '../lib/useJob'
 import { Badge, Button, Card, Field, inputClass } from '../components/ui'
 
@@ -15,7 +21,6 @@ export default function AIDirector() {
   const [jobId, setJobId] = useState<string | null>(null)
   const [importText, setImportText] = useState('')
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
-  const [analyzeResult, setAnalyzeResult] = useState<string | null>(null)
   const [jobKind, setJobKind] = useState('')
 
   const job = useJob(jobId)
@@ -61,8 +66,9 @@ export default function AIDirector() {
   })
 
   const analyze = useMutation({
-    mutationFn: () => api<Record<string, unknown>>(endpoints.analyzeStory(id), { method: 'POST' }),
-    onSuccess: (r) => setAnalyzeResult(JSON.stringify(r, null, 2)),
+    mutationFn: () =>
+      api<DirectAnalysisResult>(endpoints.analyzeStory(id), { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['review-requests', id] }),
   })
 
   const jobDone = job.data && job.data.status !== 'pending' && job.data.status !== 'running'
@@ -201,13 +207,114 @@ export default function AIDirector() {
       {/* Optional direct model */}
       <Card>
         <h2 className="mb-3 text-sm font-semibold text-slate-200">直连模型（可选）</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          模型只会看到抽样后的代表帧。下方会明确列出覆盖了多少镜头、哪些没被看到 ——
+          未覆盖的判断不可轻信。
+        </p>
         <Button variant="ghost" disabled={analyze.isPending} onClick={() => analyze.mutate()}>
           调用视觉模型分析
         </Button>
-        {analyzeResult && (
-          <pre className="mt-3 overflow-auto rounded bg-ink-800 p-3 text-xs text-slate-300">{analyzeResult}</pre>
-        )}
+
+        {analyze.data && <DirectAnalysisReport data={analyze.data} />}
       </Card>
+    </div>
+  )
+}
+
+function DirectAnalysisReport({ data }: { data: DirectAnalysisResult }) {
+  if (!data.configured) {
+    return (
+      <p className="mt-3 text-sm text-amber-300">
+        未配置模型，请改用离线分析包流程。
+      </p>
+    )
+  }
+
+  const c = data.coverage
+  return (
+    <div className="mt-4 space-y-4 text-sm">
+      {c && Object.keys(c).length > 0 && (
+        <div className="rounded border border-ink-700 p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="font-medium text-slate-200">覆盖情况</span>
+            <Badge tone={c.complete ? 'green' : 'yellow'}>
+              {c.complete ? '已覆盖全部候选镜头' : '部分覆盖'}
+            </Badge>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-400 sm:grid-cols-3">
+            <span>送出图片 {c.images_sent}</span>
+            <span>
+              覆盖镜头 {c.segments_covered_by_images}/{c.candidate_segments}
+            </span>
+            <span>
+              覆盖素材 {c.assets_covered_by_images}/{c.library_assets}
+            </span>
+          </div>
+          {!c.complete && (c.segments_not_covered ?? 0) > 0 && (
+            <p className="mt-2 text-xs text-amber-300">
+              有 {c.segments_not_covered} 个候选镜头未被模型看到，报告中的整体判断可能不成立。
+            </p>
+          )}
+        </div>
+      )}
+
+      {data.report && (
+        <div>
+          <div className="mb-1 font-medium text-slate-200">导演报告</div>
+          <p className="whitespace-pre-wrap text-slate-300">{data.report}</p>
+        </div>
+      )}
+
+      {data.stories && data.stories.length > 0 && (
+        <div>
+          <div className="mb-1 font-medium text-slate-200">候选故事线</div>
+          <ul className="space-y-1.5">
+            {data.stories.map((st, i) => (
+              <li key={i} className="rounded border border-ink-700 p-2">
+                <div className="text-slate-200">{st.title || '（无标题）'}</div>
+                {st.logline && <div className="text-xs text-slate-400">{st.logline}</div>}
+                <div className="mt-1 text-xs text-slate-500">
+                  引用镜头 {st.segment_ids.length} 个
+                  {st.unknown_segment_ids.length > 0 && (
+                    <span className="text-amber-400">
+                      （已剔除 {st.unknown_segment_ids.length} 个虚构引用）
+                    </span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div>
+        <div className="mb-1 font-medium text-slate-200">
+          复核请求（已入库 {data.created ?? 0} 条）
+        </div>
+        {data.review_requests && data.review_requests.length > 0 ? (
+          <ul className="space-y-1 text-xs text-slate-300">
+            {data.review_requests.map((r, i) => (
+              <li key={i}>
+                {r.priority} · {r.start_sec.toFixed(1)}–{r.end_sec.toFixed(1)}s ·{' '}
+                {r.reason || '（无说明）'}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-slate-500">没有通过校验的复核请求。</p>
+        )}
+      </div>
+
+      {data.problems && data.problems.length > 0 && (
+        <div>
+          <div className="mb-1 font-medium text-amber-300">被丢弃的模型输出</div>
+          <ul className="max-h-32 space-y-0.5 overflow-auto text-xs text-amber-300/80">
+            {data.problems.map((p, i) => (
+              <li key={i}>{p}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }

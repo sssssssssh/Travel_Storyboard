@@ -3,21 +3,32 @@
 Generates a self-contained upload package:
     packages/<version>/
         manifest.json
-        assets.json          (source paths REMOVED)
+        assets.json          (only assets actually used; no paths)
         segments.json
         README.txt
-        frames/<...>.jpg     (re-encoded thumbnails, EXIF stripped)
+        frames/<...>.jpg     (NEWLY RE-ENCODED thumbnails, EXIF/GPS stripped)
         contact_sheets/sheet_0001.jpg ...
 
-All paths in the package are sanitized; absolute source paths and EXIF/GPS
-metadata never leave the machine. The package is also zipped for upload.
+Privacy guarantees (audit P1-07). These are enforced, not merely advertised:
+
+* Frames are decoded and **re-encoded** with Pillow — never copied — so EXIF,
+  GPS, camera make/model and thumbnails cannot survive.
+* ``assets.json`` lists only the assets referenced by the selected segments;
+  the rest of the library is not disclosed.
+* No absolute paths anywhere: ``manifest.ffmpeg`` records the tool *name* and
+  version only.
+* A size budget is enforced; the package is marked as truncated rather than
+  silently growing past the limit.
+
+The package is also zipped for upload. Nothing here is a substitute for the
+user actually looking at the images: ``manifest.privacy.notes`` says so.
 """
 
 from __future__ import annotations
 
 import json
-import shutil
 import zipfile
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,33 +40,124 @@ from ..database import session_scope
 from ..ffmpeg import locate_ffmpeg
 from ..models import Asset, Frame, Job, ReviewPackage, Segment
 from ..paths import project_cache_dir, rel_to_data, resolve_in_project
-from .runner import register_task, update_job
+from .runner import JobFailures, raise_if_cancelled, register_task, update_job
+
+# Defaults; overridable per job via options.
+DEFAULT_MAX_PACKAGE_MB = 200
+DEFAULT_FRAME_QUALITY = 82
+MAX_FRAME_EDGE = 1280
 
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _contact_sheet(frame_files: list[tuple[int, Path]], out_path: Path, cols: int, rows: int) -> None:
-    cell_w, cell_h = 320, 180
-    sheet_w = cols * cell_w
-    sheet_h = rows * cell_h
-    sheet = Image.new("RGB", (sheet_w, sheet_h), (18, 18, 24))
+def _tool_label() -> str:
+    """Name of the ffmpeg binary only — never its local directory.
+
+    Audit P1-07: writing the resolved absolute path leaked the user's folder
+    layout into an upload. The executable name is enough for triage.
+    """
+    path = locate_ffmpeg()
+    return Path(path).name if path else "unavailable"
+
+
+def _sanitized_copy(src: Path, dst: Path, quality: int) -> None:
+    """Decode *src* and write a clean JPEG to *dst*.
+
+    Re-encoding is what removes EXIF/GPS: Pillow does not carry metadata over
+    unless explicitly asked, and we never ask. ``Image.new`` guarantees the
+    output has no ``info``/EXIF block even for an input that had one.
+    """
+    with Image.open(src) as im:
+        im = im.convert("RGB")
+        if max(im.size) > MAX_FRAME_EDGE:
+            im.thumbnail((MAX_FRAME_EDGE, MAX_FRAME_EDGE))
+        clean = Image.new("RGB", im.size)
+        clean.paste(im)
+    clean.save(dst, format="JPEG", quality=quality, optimize=True)
+
+
+@dataclass
+class _Budget:
+    """Tracks the running package size so the build can stop before it balloons."""
+
+    limit_bytes: int
+    #: Only files inside this directory may be deleted when over budget. Without
+    #: it, ``add()`` would happily unlink whatever path it was handed.
+    owned_dir: Path | None = None
+    used_bytes: int = 0
+    truncated: bool = False
+    skipped: int = 0
+    _files: list[tuple[Path, int]] = field(default_factory=list)
+
+    def _is_owned(self, path: Path) -> bool:
+        if self.owned_dir is None:
+            return False
+        try:
+            path.resolve().relative_to(self.owned_dir.resolve())
+        except (ValueError, OSError):
+            return False
+        return True
+
+    def add(self, path: Path) -> bool:
+        """Record a written file. Returns False when the budget is exhausted."""
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        if self.used_bytes + size > self.limit_bytes:
+            self.truncated = True
+            if self._is_owned(path):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+            return False
+        self.used_bytes += size
+        self._files.append((path, size))
+        return True
+
+    def remaining(self) -> int:
+        return max(0, self.limit_bytes - self.used_bytes)
+
+
+def _contact_sheet(
+    frame_files: list[tuple[int, Path]],
+    out_path: Path,
+    cols: int,
+    rows: int,
+    labels: dict[int, str] | None = None,
+) -> None:
+    """Montage frames, labelling each cell with something human-meaningful.
+
+    Audit P2-9: a bare ``#index`` does not let a reviewer connect a cell back to
+    a shot. Labels carry the asset alias, the time range and a stable id
+    fragment, so a recommendation can be traced to a real segment.
+    """
+    cell_w, cell_h = 320, 200
+    sheet = Image.new("RGB", (cols * cell_w, rows * cell_h), (18, 18, 24))
     draw = ImageDraw.Draw(sheet)
     for i in range(cols * rows):
         if i >= len(frame_files):
             break
         index, p = frame_files[i]
         try:
-            im = Image.open(p).convert("RGB")
-            im.thumbnail((cell_w - 8, cell_h - 8))
+            with Image.open(p) as raw:
+                im = raw.convert("RGB")
+            im.thumbnail((cell_w - 8, cell_h - 40))
         except OSError:
             continue
         x = (i % cols) * cell_w
         y = (i // cols) * cell_h
         sheet.paste(im, (x + 4, y + 4))
-        draw.text((x + 8, y + 6), f"#{index}", fill=(255, 224, 64))
-    sheet.save(out_path, quality=88)
+        label = (labels or {}).get(index) or f"#{index}"
+        # Two lines: alias + time range on the first, stable id on the second.
+        first, _, second = label.partition("\n")
+        draw.text((x + 8, y + cell_h - 34), first[:46], fill=(255, 224, 64))
+        if second:
+            draw.text((x + 8, y + cell_h - 18), second[:46], fill=(150, 200, 255))
+    sheet.save(out_path, format="JPEG", quality=88, optimize=True)
 
 
 def _build_package(project_id: str, options: dict) -> dict:
@@ -63,6 +165,9 @@ def _build_package(project_id: str, options: dict) -> dict:
     rating = options.get("rating", "")
     cols = int(options.get("contact_sheet_cols", 5))
     rows = int(options.get("contact_sheet_rows", 4))
+    max_mb = float(options.get("max_package_mb", DEFAULT_MAX_PACKAGE_MB))
+    quality = int(options.get("frame_quality", DEFAULT_FRAME_QUALITY))
+    budget = _Budget(limit_bytes=int(max_mb * 1024 * 1024))
 
     with session_scope() as s:
         stmt = select(Segment).where(Segment.project_id == project_id)
@@ -71,12 +176,19 @@ def _build_package(project_id: str, options: dict) -> dict:
         else:
             stmt = stmt.where(Segment.user_rating != "exclude")
         segments = s.scalars(stmt.order_by(Segment.created_at)).all()
-        assets = {a.id: a for a in s.scalars(select(Asset).where(Asset.project_id == project_id)).all()}
         seg_ids = [seg.id for seg in segments]
         frames_by_seg: dict[str, list[Frame]] = {}
         if seg_ids:
             for f in s.scalars(select(Frame).where(Frame.segment_id.in_(seg_ids)).order_by(Frame.time_sec)):
                 frames_by_seg.setdefault(f.segment_id, []).append(f)
+        # Audit P1-07: only the assets that the selected segments actually use.
+        # Listing the whole project disclosed the existence of footage the user
+        # deliberately left out of this round.
+        used_asset_ids = {seg.asset_id for seg in segments}
+        assets = {
+            a.id: a
+            for a in s.scalars(select(Asset).where(Asset.id.in_(used_asset_ids))).all()
+        } if used_asset_ids else {}
 
     version = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     pkg_dir = project_cache_dir(project_id) / "packages" / version
@@ -84,12 +196,17 @@ def _build_package(project_id: str, options: dict) -> dict:
     sheets_dir = pkg_dir / "contact_sheets"
     frames_dir.mkdir(parents=True, exist_ok=True)
     sheets_dir.mkdir(parents=True, exist_ok=True)
+    # From here on the budget may delete files it just wrote — but only inside
+    # the package directory.
+    budget.owned_dir = pkg_dir
 
     assets_json: list[dict] = []
     segments_json: list[dict] = []
     sheet_frames: list[tuple[int, Path]] = []
+    sheet_labels: dict[int, str] = {}
     frame_index = 0
     total_frames = 0
+    reencode_failures = 0
 
     for asset in assets.values():
         assets_json.append(
@@ -107,16 +224,42 @@ def _build_package(project_id: str, options: dict) -> dict:
 
     for seg in segments:
         seg_frames = frames_by_seg.get(seg.id, [])
+        alias = (assets.get(seg.asset_id).display_name if assets.get(seg.asset_id) else "unknown")
         frames_out: list[dict] = []
         for f in seg_frames:
-            src = resolve_in_project(project_id, f.image_path)
+            if budget.remaining() <= 0:
+                budget.skipped += 1
+                continue
+            try:
+                src = resolve_in_project(project_id, f.image_path)
+            except ValueError:
+                continue
             if not src.is_file():
                 continue
+
             name = f"{frame_index:04d}_{seg.id[:8]}_{int(round(f.time_sec * 1000)):08d}.jpg"
             dst = frames_dir / name
-            shutil.copyfile(src, dst)
-            frames_out.append({"file": f"frames/{name}", "time_sec": round(f.time_sec, 3), "index": frame_index})
+            try:
+                _sanitized_copy(src, dst, quality)
+            except (OSError, ValueError):
+                reencode_failures += 1
+                continue
+
+            if not budget.add(dst):
+                # Budget exhausted; stop adding frames but keep the JSON entry
+                # valid by simply not referencing a file we deleted.
+                budget.skipped += 1
+                continue
+
+            frames_out.append(
+                {"file": f"frames/{name}", "time_sec": round(f.time_sec, 3), "index": frame_index}
+            )
             sheet_frames.append((frame_index, dst))
+            # Cell label: alias + time range, then a stable id fragment.
+            sheet_labels[frame_index] = (
+                f"{alias} {seg.start_sec:.1f}-{seg.end_sec:.1f}s\n"
+                f"{seg.id[:8]} @{f.time_sec:.1f}s"
+            )
             frame_index += 1
             total_frames += 1
 
@@ -139,8 +282,14 @@ def _build_package(project_id: str, options: dict) -> dict:
     sheet_count = 0
     for i in range(0, len(sheet_frames), per_sheet):
         chunk = sheet_frames[i : i + per_sheet]
+        if budget.remaining() <= 0:
+            budget.skipped += len(chunk)
+            continue
         out = sheets_dir / f"sheet_{sheet_count + 1:04d}.jpg"
-        _contact_sheet(chunk, out, cols, rows)
+        _contact_sheet(chunk, out, cols, rows, sheet_labels)
+        if not budget.add(out):
+            budget.skipped += len(chunk)
+            continue
         sheet_count += 1
 
     manifest = {
@@ -150,20 +299,41 @@ def _build_package(project_id: str, options: dict) -> dict:
         "app_version": APP_VERSION,
         "analysis_version": ANALYSIS_VERSION,
         "created_at": _iso_now(),
-        "ffmpeg": locate_ffmpeg(),
+        # Tool NAME only — the resolved absolute path used to leak the user's
+        # folder layout into an upload (audit P1-07).
+        "ffmpeg": _tool_label(),
         "counts": {
             "assets": len(assets_json),
             "segments": len(segments_json),
             "frames": total_frames,
             "contact_sheets": sheet_count,
         },
+        "selection": {
+            "rating_filter": rating or "(all except excluded)",
+            "assets_included": len(assets_json),
+            "note": (
+                "Only assets referenced by the selected segments are listed. "
+                "Shots you excluded are not described here."
+            ),
+        },
+        "budget": {
+            "max_mb": max_mb,
+            "used_bytes": budget.used_bytes,
+            "truncated": budget.truncated,
+            "items_skipped": budget.skipped,
+        },
         "privacy": {
             "source_paths_removed": True,
             "exif_stripped": True,
+            "assets_limited_to_selection": True,
+            "absolute_paths_removed": True,
             "notes": [
                 "Absolute source file paths are NOT included.",
-                "Frames are re-encoded, so EXIF/GPS metadata is stripped.",
-                "Review faces / license plates / screens yourself before uploading.",
+                "Frames are decoded and re-encoded with Pillow, so EXIF/GPS/camera",
+                "metadata and embedded thumbnails cannot survive.",
+                "Only assets used by the selected segments are listed.",
+                "This does NOT make faces, plates, screens or documents anonymous —",
+                "review every contact sheet yourself before uploading.",
             ],
         },
         "package": {"contact_sheet_cols": cols, "contact_sheet_rows": rows},
@@ -189,10 +359,11 @@ def _build_package(project_id: str, options: dict) -> dict:
                 "",
                 "Files:",
                 "  manifest.json   package metadata & privacy notes",
-                "  assets.json     source videos (technical metadata only, no paths)",
+                "  assets.json     ONLY the videos used by the selected shots (no paths)",
                 "  segments.json   candidate segments + representative frames",
-                "  contact_sheets/ montaged representative frames (labeled with #index)",
-                "  frames/         individual representative frames",
+                "  contact_sheets/ montage, each cell labelled with alias, time range",
+                "                  and a stable segment id fragment",
+                "  frames/         individual representative frames (re-encoded)",
                 "",
                 "When you reply with review requests, return a JSON object:",
                 "  {",
@@ -239,17 +410,43 @@ def _build_package(project_id: str, options: dict) -> dict:
         "frames": total_frames,
         "contact_sheets": sheet_count,
         "zip": rel_to_data(zip_path),
+        "truncated": budget.truncated,
+        "items_skipped": budget.skipped,
+        "reencode_failures": reencode_failures,
+        "used_bytes": budget.used_bytes,
+        "max_bytes": budget.limit_bytes,
     }
 
 
 @register_task("package")
 def package_task(job_id: str) -> None:
+    failures = JobFailures(job_id)
     with session_scope() as s:
         job = s.get(Job, job_id)
         if job is None:
             return
         project_id = job.project_id
-        options = job.config_snapshot.get("options") or {}
+        options = (job.config_snapshot or {}).get("options") or {}
+        s.expunge(job)
 
+    raise_if_cancelled(job_id)
     result = _build_package(project_id, options)
-    update_job(job_id, stats={"total": 1, "done": 1, "failed": 0}, resume_token=result)
+
+    if result["reencode_failures"]:
+        failures.record(
+            kind="frame",
+            ref=project_id,
+            message=f"{result['reencode_failures']} 张分镜图重编码失败，已从包中排除",
+        )
+    if result["truncated"]:
+        # The package is still usable, but the user must know it is incomplete.
+        failures.record(
+            kind="budget",
+            ref=project_id,
+            message=(
+                f"分析包达到体积上限，跳过 {result['items_skipped']} 项（"
+                f"{result['used_bytes'] // 1024 // 1024}MB / {result['max_bytes'] // 1024 // 1024}MB）"
+            ),
+        )
+
+    update_job(job_id, stats={"total": 1, "done": 1, "failed": len(failures)}, resume_token=result)

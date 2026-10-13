@@ -73,6 +73,45 @@ export interface JobFailureItem {
   message: string
 }
 
+/** How much of the library the vision model actually saw (audit P1-06). */
+export interface DirectAnalysisCoverage {
+  library_assets?: number
+  candidate_segments?: number
+  candidate_assets?: number
+  segments_considered?: number
+  segments_covered_by_images?: number
+  assets_covered_by_images?: number
+  images_sent?: number
+  segments_not_covered?: number
+  complete?: boolean
+}
+
+export interface DirectAnalysisStory {
+  title: string
+  logline: string
+  segment_ids: string[]
+  unknown_segment_ids: string[]
+}
+
+export interface DirectAnalysisResult {
+  configured: boolean
+  report?: string
+  stories?: DirectAnalysisStory[]
+  review_requests?: {
+    asset_id: string
+    segment_id: string
+    start_sec: number
+    end_sec: number
+    priority: string
+    reason: string
+  }[]
+  coverage?: DirectAnalysisCoverage
+  problems?: string[]
+  retried?: boolean
+  created?: number
+  message?: string
+}
+
 export interface JobOut {
   id: string
   project_id: string
