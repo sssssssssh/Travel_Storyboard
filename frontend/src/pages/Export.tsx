@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, downloadUrl, endpoints, mediaUrl, roughcutUrl } from '../lib/api'
-import type { BuildPlanResult, EditPlanOut, JobOut, SegmentListItem, SegmentListOut } from '../lib/types'
+import { api, downloadUrl, endpoints, fetchAllSegments, mediaUrl, roughcutUrl } from '../lib/api'
+import type { BuildPlanResult, EditPlanOut, JobOut, SegmentListItem } from '../lib/types'
 import { formatTimeCode } from '../lib/format'
 import { useJob } from '../lib/useJob'
 import { Badge, Button, EmptyState, Spinner, inputClass } from '../components/ui'
@@ -31,7 +31,7 @@ export default function Export() {
 
   const segments = useQuery({
     queryKey: ['segments', id, 'export'],
-    queryFn: () => api<SegmentListOut>(endpoints.segments(id, '?offset=0&limit=500')),
+    queryFn: () => fetchAllSegments(id),
   })
 
   const plan = useQuery({
@@ -154,11 +154,11 @@ export default function Export() {
           <h2 className="mb-3 text-sm font-semibold text-slate-300">候选镜头</h2>
           {segments.isLoading ? (
             <Spinner />
-          ) : !segments.data || segments.data.items.length === 0 ? (
+          ) : !segments.data || segments.data.length === 0 ? (
             <EmptyState title="暂无片段" hint="先运行「检测片段」" />
           ) : (
             <ul className="space-y-2">
-              {segments.data.items.map((s) => (
+              {segments.data.map((s) => (
                 <li key={s.id} className="flex items-center gap-3 rounded-md border border-ink-700 bg-ink-900 p-2">
                   <div className="h-10 w-16 shrink-0 overflow-hidden rounded bg-ink-800">
                     {s.thumbnail ? <img src={mediaUrl(id, s.thumbnail)} alt="" className="h-full w-full object-cover" /> : null}

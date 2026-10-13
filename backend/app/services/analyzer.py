@@ -28,7 +28,7 @@ from ..config import ANALYSIS_VERSION, get_settings
 from ..database import session_scope
 from ..ffmpeg import extract_frame
 from ..models import Asset, Frame, Job, Project, Segment, utcnow
-from ..paths import frames_dir, rel_to_data, resolve_from_data, staging_dir
+from ..paths import frames_dir, rel_to_data, resolve_in_project, staging_dir
 from .detector import detect_segments
 from .frames import select_rep_times
 from .quality import analyze_frame, hamming, phash
@@ -267,7 +267,7 @@ def _analyze_asset(project_id: str, asset: Asset) -> dict:
     freed = 0
     for rel_path in previous_paths:
         try:
-            candidate = resolve_from_data(rel_path)
+            candidate = resolve_in_project(project_id, rel_path)
         except ValueError:
             continue
         if str(candidate) in kept:

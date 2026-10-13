@@ -28,7 +28,7 @@ from ..config import ANALYSIS_VERSION, APP_VERSION, get_settings
 from ..database import session_scope
 from ..ffmpeg import locate_ffmpeg
 from ..models import Asset, Frame, Job, ReviewPackage, Segment
-from ..paths import project_cache_dir, rel_to_data, resolve_from_data
+from ..paths import project_cache_dir, rel_to_data, resolve_in_project
 from .runner import register_task, update_job
 
 
@@ -109,7 +109,7 @@ def _build_package(project_id: str, options: dict) -> dict:
         seg_frames = frames_by_seg.get(seg.id, [])
         frames_out: list[dict] = []
         for f in seg_frames:
-            src = resolve_from_data(f.image_path)
+            src = resolve_in_project(project_id, f.image_path)
             if not src.is_file():
                 continue
             name = f"{frame_index:04d}_{seg.id[:8]}_{int(round(f.time_sec * 1000)):08d}.jpg"

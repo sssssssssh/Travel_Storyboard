@@ -207,9 +207,11 @@ def direct_analyze(project_id: str, max_images: int = 6) -> dict:
                 .limit(max_images)
             ).all()
 
-    from ..paths import resolve_from_data
+    from ..paths import resolve_in_project
 
-    image_paths = [resolve_from_data(f.image_path) for f in frames if f.image_path]
+    image_paths = [
+        resolve_in_project(project_id, f.image_path) for f in frames if f.image_path
+    ]
     prompt = (
         "You are a travel-film director. Given representative frames from candidate shots, "
         "propose at least two story lines and, for shots needing motion/audio verification, "

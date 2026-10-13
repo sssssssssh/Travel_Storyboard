@@ -7,6 +7,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import Asset, Project, Segment
+from ..paths import (
+    check_output_dir_safety,
+    forget_project_root,
+    project_cache_dir,
+    remember_project_root,
+)
 from ..schemas import ProjectCreate, ProjectDetail, ProjectStats, ProjectUpdate
 from .deps import get_db
 
@@ -60,6 +66,7 @@ def _detail(db: Session, project: Project) -> ProjectDetail:
         created_at=project.created_at,
         updated_at=project.updated_at,
         stats=_stats(db, project.id),
+        cache_dir=str(remember_project_root(project.id, project.output_dir)),
     )
 
 
@@ -71,6 +78,11 @@ def list_projects(db: Session = Depends(get_db)):
 
 @router.post("", response_model=ProjectDetail, status_code=201)
 def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
+    try:
+        check_output_dir_safety(payload.output_dir, payload.source_roots)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     project = Project(
         name=payload.name,
         source_roots=payload.source_roots,
@@ -80,6 +92,7 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
     db.add(project)
     db.commit()
     db.refresh(project)
+    remember_project_root(project.id, project.output_dir)
     return _detail(db, project)
 
 
@@ -96,12 +109,25 @@ def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depend
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    merged_roots = (
+        payload.source_roots if payload.source_roots is not None else project.source_roots
+    )
+    merged_output = payload.output_dir if payload.output_dir is not None else project.output_dir
+    try:
+        check_output_dir_safety(merged_output, merged_roots)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     for field in ("name", "source_roots", "output_dir", "settings"):
         value = getattr(payload, field)
         if value is not None:
             setattr(project, field, value)
     db.commit()
     db.refresh(project)
+    # The workspace root may have moved; drop stale entries and re-resolve.
+    forget_project_root(project_id)
+    remember_project_root(project.id, project.output_dir)
     return _detail(db, project)
 
 
@@ -112,3 +138,4 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Project not found")
     db.delete(project)
     db.commit()
+    forget_project_root(project_id)

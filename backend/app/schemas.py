@@ -49,6 +49,10 @@ class ProjectStats(BaseModel):
 
 class ProjectDetail(ProjectOut):
     stats: ProjectStats = Field(default_factory=ProjectStats)
+    #: Where derived artifacts actually land (audit P1-02). Equals
+    #: `<output_dir>/<project_id>` when an output dir is configured, otherwise
+    #: `<data_dir>/projects/<project_id>`.
+    cache_dir: str = ""
 
 
 # --- Assets -------------------------------------------------------------

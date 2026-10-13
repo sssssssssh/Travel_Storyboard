@@ -75,6 +75,15 @@ export default function Project() {
             <span>体积 {formatSize(stats.total_size_bytes)}</span>
             {stats.asset_failed > 0 && <span className="text-red-400">失败 {stats.asset_failed}</span>}
           </div>
+          {project.cache_dir && (
+            <div
+              className="mt-1 truncate text-xs text-slate-500"
+              title={`产物工作区：${project.cache_dir}`}
+            >
+              产物工作区：{project.cache_dir}
+              {project.output_dir ? '' : '（默认位置）'}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Link to={`/project/${id}/review`}>

@@ -1,3 +1,5 @@
+import type { SegmentListItem, SegmentListOut } from './types'
+
 let token: string | null = null
 
 const STORAGE_KEY = 'tsb.accessToken'
@@ -145,4 +147,30 @@ export const endpoints = {
 /** Download URL that appends the token correctly (& not a second ?). */
 export function downloadUrl(path: string): string {
   return withToken(path)
+}
+
+const PAGE_SIZE = 500
+
+/**
+ * Fetch every segment of a project by paging.
+ *
+ * The export view used to request `limit=500` and silently drop the rest, which
+ * a large library (a few dozen long clips) can exceed. Paging keeps the list
+ * complete; `max` is a safety valve against an unbounded loop.
+ */
+export async function fetchAllSegments(
+  projectId: string,
+  extraQuery = '',
+  max = 20000,
+): Promise<SegmentListItem[]> {
+  const all: SegmentListItem[] = []
+  let offset = 0
+  for (;;) {
+    const suffix = `${extraQuery ? `${extraQuery}&` : '?'}offset=${offset}&limit=${PAGE_SIZE}`
+    const page = await api<SegmentListOut>(endpoints.segments(projectId, suffix))
+    all.push(...page.items)
+    offset += page.items.length
+    if (page.items.length === 0 || offset >= page.total || all.length >= max) break
+  }
+  return all
 }

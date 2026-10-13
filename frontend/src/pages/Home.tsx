@@ -60,7 +60,7 @@ export default function Home() {
               placeholder={'D:\\TurkeyTrip\\原片\nD:\\TurkeyTrip\\原片2'}
             />
           </Field>
-          <Field label="输出工作区（留空使用默认）">
+          <Field label="输出工作区（留空使用默认，产物写入 <该目录>\<项目ID>）">
             <input
               className={inputClass}
               value={outputDir}
@@ -68,6 +68,10 @@ export default function Home() {
               placeholder="D:\\TurkeyTrip_Workspace"
             />
           </Field>
+          <p className="text-xs text-slate-500">
+            输出工作区不能与素材目录重叠，否则会拒绝创建 —— 这是为了避免产物覆盖原片。
+            分镜图、代理、分析包、粗剪都会写到这里，原片始终只读。
+          </p>
           {formError && <div className="text-sm text-red-400">{formError}</div>}
           <div>
             <Button disabled={!name.trim() || create.isPending} onClick={() => create.mutate()}>
@@ -99,6 +103,11 @@ export default function Home() {
                   <span>时长 {formatDuration(p.stats.total_duration_sec)}</span>
                   <span>体积 {formatSize(p.stats.total_size_bytes)}</span>
                 </div>
+                {p.cache_dir && (
+                  <div className="mt-2 truncate text-xs text-slate-600" title={`产物工作区：${p.cache_dir}`}>
+                    产物：{p.cache_dir}
+                  </div>
+                )}
               </Card>
             </Link>
           ))}

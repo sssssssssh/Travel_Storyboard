@@ -18,6 +18,8 @@ export interface ProjectDetail {
   created_at: string
   updated_at: string
   stats: ProjectStats
+  /** Where derived artifacts actually land (output_dir/<id> or data/projects/<id>). */
+  cache_dir: string
 }
 
 export interface AssetListItem {

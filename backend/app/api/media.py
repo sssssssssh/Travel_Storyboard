@@ -2,10 +2,14 @@
 
 Security model (audit P0-01): arbitrary relative paths are NOT accepted. A file
 is served only when it
-1. lives under ``projects/<project_id>/<artifact>/...`` in a whitelisted
-   artifact directory (``frames``, ``proxies``, ``packages``, ``roughcut``),
-2. is confirmed inside that project's cache directory (no ``..`` escapes), and
+1. resolves inside that project's cache directory (no ``..`` escapes, and a
+   project's own artifacts only — never another project's),
+2. sits under a whitelisted artifact sub-directory (``frames``, ``proxies``,
+   ``packages``, ``roughcut``, ``contact_sheets``), and
 3. has an extension in the allow-list below.
+
+The check is done on the *resolved* path, so it keeps working when a project
+uses a custom ``output_dir`` (audit P1-02) and stores absolute references.
 
 The SQLite database and ``token.txt`` sit at the data root, outside every
 project cache directory, so they can never be reached through these routes.
@@ -15,7 +19,7 @@ Video/audio responses support HTTP Range so ``<video>`` scrubbing works.
 from __future__ import annotations
 
 import mimetypes
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -54,24 +58,29 @@ def _media_type(path: Path) -> str:
     )
 
 
+def _artifact_dir_ok(resolved: Path, cache_root: Path) -> bool:
+    """True when *resolved* is inside an allowed artifact dir of *cache_root*."""
+    try:
+        rel = resolved.relative_to(cache_root)
+    except ValueError:
+        return False
+    return bool(rel.parts) and rel.parts[0] in ALLOWED_ARTIFACT_DIRS
+
+
 def _resolve_artifact(db: Session, project_id: str, rel: str) -> Path:
     """Validate + resolve a stored artifact path for *project_id*."""
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    parts = PurePosixPath(rel).parts
-    # Expect projects/<project_id>/<artifact dir>/...
-    if len(parts) < 3 or parts[0] != "projects" or parts[1] != project_id:
-        raise HTTPException(status_code=400, detail="Path is not a project artifact")
-    if parts[2] not in ALLOWED_ARTIFACT_DIRS:
-        raise HTTPException(status_code=400, detail="Artifact directory not allowed")
-
+    cache_root = project_cache_dir(project_id).resolve()
     try:
         resolved = resolve_in_project(project_id, rel)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    if not _artifact_dir_ok(resolved, cache_root):
+        raise HTTPException(status_code=400, detail="Artifact directory not allowed")
     if resolved.suffix.lower() not in ALLOWED_TYPES:
         raise HTTPException(status_code=400, detail="File type not allowed")
     if not resolved.is_file():
