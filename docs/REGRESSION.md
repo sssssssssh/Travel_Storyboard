@@ -3,8 +3,12 @@
 本清单对应代码审查报告中的 T01–T14 场景。**自动化部分**由 `backend/tests/`
 覆盖（`python -m pytest`）；**手动部分**需要 FFmpeg 与真实素材，按下面的步骤执行。
 
-自动化测试刻意不依赖 FFmpeg，因此可以在任意 CI 环境运行；涉及真实解码、
-抽帧、转码的场景保持手动，并记录在下方表格里。
+自动化测试**默认不需要 FFmpeg**，因此在任意 CI 环境都能运行。若本机配置了 FFmpeg
+（PATH 或 `backend/.env`），`tests/test_ffmpeg_integration.py` 会**自动启用**，额外覆盖
+真实解码路径（探测、建库、抽帧、检测、重跑保留标注、粗剪时长收敛）；
+未配置时这 8 项会 skip，不会让 CI 失败。
+
+涉及真实素材与播放器的主观判断仍保持手动，记录在下方表格里。
 
 ---
 
@@ -70,6 +74,7 @@ python -m pytest -q
 | `test_timeline_export.py::test_validation_is_all_or_nothing` | P1-05 | 校验失败不破坏既有计划 |
 | `test_timeline_export.py::test_json_csv_otio_agree_on_shots_and_duration` | P1-05 | 三种导出镜头数与时长一致 |
 | `test_timeline_export.py::test_otio_round_trips_through_opentimelineio` | P1-05 | OTIO 可被参考实现读回 |
+| `test_ffmpeg_integration.py`（8 项，需 FFmpeg，CI 中自动 skip） | M1/M2 | 真实解码：探测元数据、建库不重复、抽帧、带音频预览、检测出硬切、分析后重跑保留标注且帧数不增长、粗剪时长收敛 |
 
 ---
 
