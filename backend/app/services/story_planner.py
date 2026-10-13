@@ -29,7 +29,7 @@ from collections import deque
 from sqlalchemy import select
 
 from ..config import get_settings
-from ..database import session_scope
+from ..database import begin_write, session_scope
 from ..ffmpeg import extract_preview
 from ..models import Asset, Frame, Job, ReviewRequest, Segment
 from ..paths import project_cache_dir, rel_to_data, resolve_in_project
@@ -53,6 +53,7 @@ def import_review_requests(project_id: str, data: dict) -> dict:
     errors: list[dict] = []
 
     with session_scope() as s:
+        begin_write(s)
         assets = {
             a.id: a for a in s.scalars(select(Asset).where(Asset.project_id == project_id)).all()
         }
@@ -413,6 +414,7 @@ def _persist_requests(project_id: str, requests: list[dict]) -> int:
         return 0
     created = 0
     with session_scope() as s:
+        begin_write(s)
         existing = {
             (r.segment_id, round(r.start_sec, 2), round(r.end_sec, 2))
             for r in s.scalars(
@@ -420,6 +422,14 @@ def _persist_requests(project_id: str, requests: list[dict]) -> int:
             ).all()
         }
         for req in requests:
+            # Model work may take minutes. Validate the current reference under
+            # the same writer reservation used by analysis and plan saves.
+            segment = s.get(Segment, req['segment_id'])
+            if (segment is None or segment.project_id != project_id
+                    or segment.asset_id != req['asset_id'] or segment.status == 'needs_review'
+                    or req['start_sec'] < segment.start_sec or req['end_sec'] > segment.end_sec):
+                logger.warning('Direct review request rejected after concurrent source/segment changes')
+                continue
             key = (req["segment_id"], round(req["start_sec"], 2), round(req["end_sec"], 2))
             if key in existing:
                 continue
@@ -556,6 +566,8 @@ def direct_analyze(
 
     accepted, problems = _validate_analysis(data, allowed)
     created = _persist_requests(project_id, accepted)
+    if created < len(accepted):
+        problems.append('部分请求已存在或源镜头发生变化，未新增；请复核当前镜头与请求列表。')
 
     stories = data.get("stories")
     if not isinstance(stories, list):

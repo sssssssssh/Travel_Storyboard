@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import delete, select
 
-from ..database import session_scope
+from ..database import begin_write, session_scope
 from ..models import Asset, EditPlanShot, Segment
 
 #: A shot may be shortened for pacing, but not lengthened beyond its source
@@ -161,6 +161,9 @@ def build_edit_plan(project_id: str, shots: list[dict]) -> dict:
     overridden so the caller can explain the difference.
     """
     with session_scope() as s:
+        # Reserve the writer before validation, so analysis cannot delete/change
+        # a selected ID between this read and insertion of its plan reference.
+        begin_write(s)
         assets = {
             a.id: a for a in s.scalars(select(Asset).where(Asset.project_id == project_id)).all()
         }

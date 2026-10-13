@@ -428,3 +428,13 @@ def test_fairness_happens_before_candidate_cap(client):
     after, coverage = _select_representative_frames(pid, 12, 24)
     assert all(p['path'].is_file() for p in after)
     assert coverage['assets_covered_by_images'] == len({p['asset_id'] for p in after})
+
+
+def test_direct_request_persistence_rechecks_current_segment(seeded):
+    pid, _, segments = seeded
+    sid, aid, _ = segments[0]
+    with session_scope() as s: s.get(Segment, sid).status = 'needs_review'
+    assert _persist_requests(pid, [{'asset_id': aid, 'segment_id': sid, 'start_sec': 1,
+                                   'end_sec': 5, 'priority': 'high', 'reason': 'now stale'}]) == 0
+    with session_scope() as s:
+        assert not s.scalars(select(ReviewRequest).where(ReviewRequest.project_id == pid)).all()

@@ -180,3 +180,48 @@ def test_stale_plan_reference_requires_review_before_new_outputs(client, seeded,
     assert sid not in {p['segment_id'] for p in sampled}
     with session_scope() as s:
         assert s.scalars(select(EditPlanShot).where(EditPlanShot.project_id == pid)).one().segment_id == sid
+
+
+def test_plan_created_during_extraction_protects_old_id_at_commit(client, seeded, monkeypatch):
+    pid, asset, sid, fid, old, detection = seeded
+    with session_scope() as s: s.get(Segment, sid).status = 'candidate'
+    entered, release = Event(), Event()
+    original = analyzer.extract_frame
+    def paused(*a, **kw):
+        entered.set(); assert release.wait(5); original(*a, **kw)
+    monkeypatch.setattr(analyzer, 'extract_frame', paused)
+    monkeypatch.setattr(analyzer, 'detect_segments', lambda *a, **kw: detection(0, 6))
+    with ThreadPoolExecutor(1) as pool:
+        future = pool.submit(analyzer._analyze_asset, pid, asset)
+        assert entered.wait(5)
+        try:
+            result = client.post(f'/api/projects/{pid}/edit-plan', json={'shots': [{
+                'asset_id': asset.id, 'segment_id': sid, 'source_in_sec': 1, 'source_out_sec': 5, 'target_duration_sec': 4}]})
+            assert result.status_code == 200 and not result.json()['errors']
+        finally:
+            release.set()
+        future.result(5)
+    with session_scope() as s:
+        assert s.get(Segment, sid).status == 'needs_review'
+        assert s.get(Frame, fid) is not None and old.is_file()
+        assert s.scalars(select(EditPlanShot).where(EditPlanShot.project_id == pid)).one().segment_id == sid
+
+
+def test_plan_validation_reserves_sqlite_writer_before_reading_references(client, seeded, monkeypatch):
+    import sqlite3
+    from app.database import engine
+    from app.services import timeline_export
+    pid, asset, sid, _, _, _ = seeded
+    validate = timeline_export._validate_shot
+    def probe_lock(*args, **kwargs):
+        connection = sqlite3.connect(engine.url.database, timeout=0)
+        try:
+            with pytest.raises(sqlite3.OperationalError, match='locked'):
+                connection.execute('BEGIN IMMEDIATE')
+        finally:
+            connection.rollback(); connection.close()
+        return validate(*args, **kwargs)
+    monkeypatch.setattr(timeline_export, '_validate_shot', probe_lock)
+    result = timeline_export.build_edit_plan(pid, [{'asset_id': asset.id, 'segment_id': sid,
+                                                    'source_in_sec': 1, 'source_out_sec': 5}])
+    assert result['errors'] == []
