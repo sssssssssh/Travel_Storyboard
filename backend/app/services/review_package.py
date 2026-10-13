@@ -28,18 +28,21 @@ from __future__ import annotations
 
 import json
 import zipfile
+import uuid
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 from PIL import Image, ImageDraw
-from sqlalchemy import select
+from sqlalchemy import select, func
 
-from ..config import ANALYSIS_VERSION, APP_VERSION, get_settings
-from ..database import session_scope
+from ..config import ANALYSIS_VERSION, APP_VERSION
+from ..database import begin_write, session_scope
 from ..ffmpeg import locate_ffmpeg
 from ..models import Asset, Frame, Job, ReviewPackage, Segment
 from ..paths import project_cache_dir, rel_to_data, resolve_in_project
+from .review_validation import EPSILON_SEC, INVALID_SEGMENT_STATUSES, ReviewValidationError, validate_review, verified_source
 from .runner import JobFailures, raise_if_cancelled, register_task, update_job
 
 # Defaults; overridable per job via options.
@@ -161,7 +164,6 @@ def _contact_sheet(
 
 
 def _build_package(project_id: str, options: dict, job_id: str | None = None) -> dict:
-    settings = get_settings()
     rating = options.get("rating", "")
     cols = int(options.get("contact_sheet_cols", 5))
     rows = int(options.get("contact_sheet_rows", 4))
@@ -170,7 +172,14 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
     budget = _Budget(limit_bytes=int(max_mb * 1024 * 1024))
 
     with session_scope() as s:
-        stmt = select(Segment).where(Segment.project_id == project_id, Segment.status != "needs_review")
+        base = select(Segment).where(Segment.project_id == project_id)
+        total_candidates = s.scalar(select(func.count()).select_from(base.subquery())) or 0
+        excluded_by_rating = s.scalar(select(func.count()).select_from(base.where(
+            Segment.user_rating != rating if rating else Segment.user_rating == 'exclude').subquery())) or 0
+        rated = base.where(Segment.user_rating == rating if rating else Segment.user_rating != 'exclude')
+        excluded_needs_review = s.scalar(select(func.count()).select_from(rated.where(
+            Segment.status.in_(INVALID_SEGMENT_STATUSES)).subquery())) or 0
+        stmt = base.where(Segment.user_rating != 'exclude', Segment.status.not_in(INVALID_SEGMENT_STATUSES))
         if rating:
             stmt = stmt.where(Segment.user_rating == rating)
         else:
@@ -187,10 +196,29 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
         used_asset_ids = {seg.asset_id for seg in segments}
         assets = {
             a.id: a
-            for a in s.scalars(select(Asset).where(Asset.id.in_(used_asset_ids))).all()
+            for a in s.scalars(select(Asset).where(Asset.id.in_(used_asset_ids), Asset.project_id == project_id)).all()
         } if used_asset_ids else {}
 
-    version = job_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    # One immutable selection feeds JSON, images and sheets. Sources are read
+    # only; invalid/missing media cannot enter an AI package via old thumbnails.
+    eligible, excluded_invalid_source = [], 0
+    source_snapshots = {}
+    for seg in segments:
+        with session_scope() as s:
+            try:
+                asset, current, _, _ = validate_review(s, project_id, seg.asset_id, seg.id,
+                                                 seg.start_sec, seg.end_sec)
+                source_snapshots[asset.id] = verified_source(asset)
+                assets[asset.id] = asset
+            except ReviewValidationError:
+                excluded_invalid_source += 1
+                continue
+        eligible.append(current)
+    segments = eligible
+    if not segments:
+        raise ValueError('无当前有效镜头：请重新扫描/检测、人工复核镜头或调整评分筛选')
+
+    version = job_id or (datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + '-' + uuid.uuid4().hex[:8])
     pkg_dir = project_cache_dir(project_id) / "packages" / version
     frames_dir = pkg_dir / "frames"
     sheets_dir = pkg_dir / "contact_sheets"
@@ -207,27 +235,19 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
     frame_index = 0
     total_frames = 0
     reencode_failures = 0
-
-    for asset in assets.values():
-        assets_json.append(
-            {
-                "asset_id": asset.id,
-                "display_name": asset.display_name,
-                "duration_sec": round(asset.duration_sec, 3),
-                "width": asset.width,
-                "height": asset.height,
-                "fps": f"{asset.fps_num}/{asset.fps_den}" if asset.fps_den else "",
-                "vfr": asset.vfr_flag,
-                "has_audio": asset.has_audio,
-            }
-        )
+    excluded_missing_frames = 0
+    excluded_by_budget = 0
 
     for seg in segments:
         seg_frames = frames_by_seg.get(seg.id, [])
         alias = (assets.get(seg.asset_id).display_name if assets.get(seg.asset_id) else "unknown")
         frames_out: list[dict] = []
+        budget_omitted = False
         for f in seg_frames:
+            if not seg.start_sec - EPSILON_SEC <= f.time_sec <= seg.end_sec + EPSILON_SEC:
+                continue
             if budget.remaining() <= 0:
+                budget_omitted = budget.truncated = True
                 budget.skipped += 1
                 continue
             try:
@@ -246,6 +266,7 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
                 continue
 
             if not budget.add(dst):
+                budget_omitted = True
                 # Budget exhausted; stop adding frames but keep the JSON entry
                 # valid by simply not referencing a file we deleted.
                 budget.skipped += 1
@@ -263,6 +284,12 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
             frame_index += 1
             total_frames += 1
 
+        if not frames_out:
+            if budget_omitted:
+                excluded_by_budget += 1
+            else:
+                excluded_missing_frames += 1
+            continue
         segments_json.append(
             {
                 "segment_id": seg.id,
@@ -277,12 +304,24 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
             }
         )
 
+    included_asset_ids = {seg['asset_id'] for seg in segments_json}
+    assets_json = [{
+        'asset_id': a.id, 'display_name': a.display_name, 'duration_sec': round(a.duration_sec, 3),
+        'width': a.width, 'height': a.height,
+        'fps': f'{a.fps_num}/{a.fps_den}' if a.fps_den else '',
+        'vfr': a.vfr_flag, 'has_audio': a.has_audio,
+    } for a in assets.values() if a.id in included_asset_ids]
+    if not segments_json:
+        shutil.rmtree(pkg_dir)
+        raise ValueError('无当前有效镜头：代表帧缺失或预算不足，请重新检测或增加分析包预算')
+
     # Build contact sheets.
     per_sheet = cols * rows
     sheet_count = 0
     for i in range(0, len(sheet_frames), per_sheet):
         chunk = sheet_frames[i : i + per_sheet]
         if budget.remaining() <= 0:
+            budget.truncated = True
             budget.skipped += len(chunk)
             continue
         out = sheets_dir / f"sheet_{sheet_count + 1:04d}.jpg"
@@ -311,6 +350,14 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
         "selection": {
             "rating_filter": rating or "(all except excluded)",
             "assets_included": len(assets_json),
+            "total_candidates": total_candidates,
+            "included_segments": len(segments_json),
+            "excluded_by_rating": excluded_by_rating,
+            "excluded_needs_review": excluded_needs_review,
+            "excluded_invalid_source": excluded_invalid_source,
+            "excluded_missing_frames": excluded_missing_frames,
+            "excluded_by_budget": excluded_by_budget,
+            "package_truncated": budget.truncated,
             "note": (
                 "Only assets referenced by the selected segments are listed. "
                 "Shots you excluded are not described here."
@@ -406,21 +453,33 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
         "max_bytes": budget.limit_bytes,
     }
 
-    with session_scope() as s:
-        s.add(
-            ReviewPackage(
-                project_id=project_id,
-                version=version,
-                package_dir=rel_dir,
-                file_count=len(assets_json) + len(segments_json) + total_frames + sheet_count + 2,
-                total_size_bytes=total_size,
-            )
-        )
-
-        if job_id:
-            job = s.get(Job, job_id)
-            if job is not None:
-                job.resume_token = result
+    try:
+        with session_scope() as s:
+            begin_write(s)
+            if job_id:
+                raise_if_cancelled(job_id)
+            for seg in segments:
+                if seg.id not in {g['segment_id'] for g in segments_json}:
+                    continue
+                asset, current, _, _ = validate_review(s, project_id, seg.asset_id, seg.id,
+                                                        seg.start_sec, seg.end_sec)
+                fields = ('start_sec', 'end_sec', 'status', 'user_rating')
+                if any(getattr(seg, f) != getattr(current, f) for f in fields):
+                    raise ReviewValidationError('SELECTION_CHANGED', '镜头选择在打包期间变化，请重新生成分析包')
+                if verified_source(asset) != source_snapshots[asset.id]:
+                    raise ReviewValidationError('SOURCE_CHANGED', '源文件在打包期间变化，请重新扫描/检测')
+            s.add(ReviewPackage(project_id=project_id, version=version, package_dir=rel_dir,
+                                file_count=len(assets_json) + len(segments_json) + total_frames + sheet_count + 2,
+                                total_size_bytes=total_size))
+            if job_id:
+                job = s.get(Job, job_id)
+                if job is not None:
+                    job.resume_token = result
+    except Exception:
+        # Unique version/job attempt only; never remove historical packages.
+        zip_path.unlink(missing_ok=True)
+        shutil.rmtree(pkg_dir, ignore_errors=True)
+        raise
     return result
 
 

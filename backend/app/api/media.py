@@ -64,7 +64,8 @@ def _artifact_dir_ok(resolved: Path, cache_root: Path) -> bool:
         rel = resolved.relative_to(cache_root)
     except ValueError:
         return False
-    return bool(rel.parts) and rel.parts[0] in ALLOWED_ARTIFACT_DIRS
+    return (bool(rel.parts) and rel.parts[0] in ALLOWED_ARTIFACT_DIRS
+            and 'staging' not in rel.parts)
 
 
 def _resolve_artifact(db: Session, project_id: str, rel: str) -> Path:

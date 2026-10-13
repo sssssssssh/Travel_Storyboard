@@ -6,10 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Job, Project, ReviewRequest
-from ..schemas import ImportResult, JobCreate, JobOut, ReviewRequestOut, ReviewRequestsImport
+from ..database import begin_write
+from ..models import Asset, EditPlanShot, Job, Project, ReviewRequest, Segment, UserAnnotation, utcnow
+from ..schemas import ImportResult, JobCreate, JobOut, ReviewRequestOut, ReviewRequestsImport, ReviewDisposition
 from ..services.runner import runner
 from ..services.story_planner import direct_analyze, import_review_requests
+from ..services.review_validation import (ReviewValidationError, validate_review, verified_source,
+                                          INVALID_SEGMENT_STATUSES)
 from .deps import get_db
 
 router = APIRouter(tags=["story"])
@@ -25,13 +28,100 @@ def import_review_requests_ep(
     return import_review_requests(project_id, payload.model_dump())
 
 
+def _segment_context(segment: Segment, notes: dict, assets: dict) -> dict:
+    asset = assets.get(segment.asset_id)
+    return {'id': segment.id, 'asset_id': segment.asset_id,
+            'display_name': asset.display_name if asset else '',
+            'start_sec': segment.start_sec, 'end_sec': segment.end_sec,
+            'detected_start_sec': segment.detected_start_sec,
+            'detected_end_sec': segment.detected_end_sec,
+            'user_rating': segment.user_rating, 'story_role': segment.story_role,
+            'note': notes.get(segment.id, ''), 'status': segment.status,
+            'change_reason': (segment.quality_metrics or {}).get('analysis_warning', ''),
+            'thumbnail': (segment.frame_refs or [None])[0]}
+
+
 @router.get("/projects/{project_id}/review-requests", response_model=list[ReviewRequestOut])
 def list_review_requests(project_id: str, db: Session = Depends(get_db)):
-    return db.scalars(
-        select(ReviewRequest)
-        .where(ReviewRequest.project_id == project_id)
-        .order_by(ReviewRequest.created_at.desc())
-    ).all()
+    rows = db.scalars(select(ReviewRequest).where(ReviewRequest.project_id == project_id)
+                      .order_by(ReviewRequest.created_at.desc())).all()
+    segments = {g.id: g for g in db.scalars(select(Segment).where(Segment.project_id == project_id))}
+    assets = {a.id: a for a in db.scalars(select(Asset).where(Asset.project_id == project_id))}
+    notes = dict(db.execute(select(UserAnnotation.segment_id, UserAnnotation.note)
+                           .where(UserAnnotation.segment_id.in_(segments))).all())
+    plans: dict[str, list[str]] = {}
+    for shot in db.scalars(select(EditPlanShot).where(EditPlanShot.project_id == project_id)):
+        plans.setdefault(shot.segment_id, []).append(shot.id)
+    source_errors = {}
+    for asset in assets.values():
+        try:
+            verified_source(asset)
+        except ReviewValidationError as exc:
+            source_errors[asset.id] = {'error_code': exc.code, 'message': str(exc)}
+    candidates: dict[str, list[dict]] = {}
+    for seg in segments.values():
+        if seg.status in INVALID_SEGMENT_STATUSES or seg.asset_id in source_errors:
+            continue
+        try:
+            validate_review(db, project_id, seg.asset_id, seg.id, seg.start_sec, seg.end_sec)
+        except ReviewValidationError:
+            continue
+        candidates.setdefault(seg.asset_id, []).append(_segment_context(seg, notes, assets))
+    result = []
+    for row in rows:
+        error = source_errors.get(row.asset_id)
+        try:
+            validate_review(db, project_id, row.asset_id, row.segment_id, row.start_sec, row.end_sec)
+        except ReviewValidationError as exc:
+            error = {'error_code': exc.code, 'message': str(exc)}
+        segment = segments.get(row.segment_id)
+        result.append(ReviewRequestOut.model_validate(row).model_copy(update={
+            'validation_error': error,
+            'segment_context': _segment_context(segment, notes, assets) if segment else None,
+            'current_segments': candidates.get(row.asset_id, []),
+            'plan_shot_ids': plans.get(row.segment_id, []),
+        }))
+    return result
+
+
+@router.post('/projects/{project_id}/review-requests/{request_id}/disposition',
+             response_model=ReviewRequestOut)
+def dispose_review_request(project_id: str, request_id: str, payload: ReviewDisposition,
+                           db: Session = Depends(get_db)):
+    begin_write(db)
+    old = db.get(ReviewRequest, request_id)
+    if old is None or old.project_id != project_id:
+        raise HTTPException(status_code=404, detail='复核请求不存在')
+    if old.status in ('dismissed', 'superseded'):
+        raise HTTPException(status_code=409, detail='请求已关闭；历史数据与预览已保留')
+    try:
+        if payload.action == 'replace':
+            asset, segment, start, end = validate_review(
+                db, project_id, payload.asset_id, payload.segment_id, payload.start_sec, payload.end_sec)
+            verified_source(asset)
+            if segment.id == old.segment_id and start == old.start_sec and end == old.end_sec:
+                raise ReviewValidationError('UNCHANGED_REQUEST', '请选择新的镜头或区间；重试原请求请使用重试操作')
+            new = ReviewRequest(project_id=project_id, asset_id=asset.id, segment_id=segment.id,
+                                start_sec=start, end_sec=end, priority=old.priority,
+                                reason=old.reason, source='human', supersedes_request_id=old.id)
+            db.add(new); db.flush()
+            old.status, old.superseded_by_request_id = 'superseded', new.id
+            old.disposition_at = utcnow()
+            result = new
+        elif payload.action == 'retry':
+            asset, _, _, _ = validate_review(db, project_id, old.asset_id, old.segment_id,
+                                             old.start_sec, old.end_sec)
+            verified_source(asset)
+            old.status, old.disposition_at = 'pending', utcnow()
+            result = old
+        else:
+            old.status = 'needs_review' if payload.action == 'defer' else 'dismissed'
+            old.disposition_at = utcnow()
+            result = old
+    except ReviewValidationError as exc:
+        raise HTTPException(status_code=409, detail={'error_code': exc.code, 'message': str(exc)}) from exc
+    db.commit(); db.refresh(result)
+    return result
 
 
 @router.post("/projects/{project_id}/review-requests/proxies", response_model=JobOut, status_code=202)

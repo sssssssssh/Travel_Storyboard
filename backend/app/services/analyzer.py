@@ -381,6 +381,7 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
                 raise RuntimeError('Asset removed during analysis')
             row_asset.analysis_version = ANALYSIS_VERSION
             row_asset.analyzed_fingerprint = signature_before
+            row_asset.analyzed_source_signature = source_state['quick_signature']
             row_asset.analyzed_detect_config = _detect_config_key(settings)
 
     except Exception:
@@ -496,6 +497,12 @@ def detect_task(job_id: str) -> None:
                          and asset.analyzed_fingerprint == item['scan_signature']
                          and asset.analyzed_detect_config == config_key)
             if unchanged:
+                if not asset.analyzed_source_signature:
+                    with session_scope() as s:
+                        begin_write(s)
+                        row = s.get(Asset, aid)
+                        if row.analyzed_fingerprint == item['scan_signature']:
+                            row.analyzed_source_signature = item['quick_signature']
                 item['status'] = 'skipped'
             else:
                 settings.signature_context = {'item': item, 'items': items, 'token': token, 'config': config}

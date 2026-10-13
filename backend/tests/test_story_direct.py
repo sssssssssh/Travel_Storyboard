@@ -213,15 +213,13 @@ def test_validate_rejects_mismatched_asset_id():
     assert any("不匹配" in p for p in problems)
 
 
-def test_validate_clamps_out_of_range_times():
+def test_validate_rejects_unbounded_out_of_range_times():
     accepted, _ = _validate_analysis(
         {"review_requests": [{"segment_id": "seg-1", "asset_id": "asset-1",
                               "start_sec": -50, "end_sec": 999}]},
         _allowed("seg-1", "asset-1", 0.0, 10.0),
     )
-    assert len(accepted) == 1
-    assert accepted[0]["start_sec"] == 0.0
-    assert accepted[0]["end_sec"] == 10.0
+    assert accepted == []
 
 
 def test_validate_rejects_empty_and_nan_ranges():
@@ -444,3 +442,33 @@ def test_direct_persistence_rejects_ids_that_disappeared_after_model_request(see
     pid, assets, _ = seeded
     assert _persist_requests(pid, [{'asset_id': assets['alpha.mp4'], 'segment_id': 'removed-id',
                                    'start_sec': 1, 'end_sec': 3, 'priority': 'high', 'reason': 'disappeared'}]) == 0
+
+
+def test_validate_model_correction_is_bounded_and_reported():
+    accepted, problems = _validate_analysis({'review_requests': [
+        {'segment_id': 's', 'asset_id': 'a', 'start_sec': .98, 'end_sec': 4.02},
+        {'segment_id': 's', 'asset_id': 'a', 'start_sec': 0, 'end_sec': 999},
+        {'segment_id': 's', 'asset_id': 'a', 'start_sec': 1, 'end_sec': 'Infinity'},
+    ]}, _allowed('s', 'a', 1, 4))
+    assert len(accepted) == 1 and accepted[0]['start_sec'] == 1 and accepted[0]['end_sec'] == 4
+    assert any('修正' in problem for problem in problems)
+    assert len(problems) == 3
+
+
+def test_direct_analysis_reports_concurrent_trim_rejection(seeded, monkeypatch):
+    pid, _, _ = seeded
+    monkeypatch.setattr(story_planner.model_client, 'is_configured', lambda: True)
+    def change_during_model(messages, **kwargs):
+        text = messages[-1]['content'][0]['text']
+        line = next(l for l in text.splitlines() if 'segment_id=' in l)
+        sid = line.split('segment_id=')[1].split()[0]
+        aid = line.split('asset_id=')[1].split()[0]
+        with session_scope() as s:
+            row = s.get(Segment, sid); row.start_sec = 5; row.end_sec = 8
+        return json.dumps({'review_requests': [{'asset_id': aid, 'segment_id': sid, 'start_sec': 1, 'end_sec': 3}]})
+    monkeypatch.setattr(story_planner.model_client, 'chat', change_during_model)
+    result = direct_analyze(pid, max_images=1)
+    assert result['created'] == 0
+    assert any('RANGE_OUTSIDE_TRIM' in p for p in result['problems'])
+    with session_scope() as s:
+        assert not s.scalars(select(ReviewRequest).where(ReviewRequest.project_id == pid)).all()

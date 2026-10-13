@@ -58,10 +58,14 @@ ADDITIVE_MIGRATIONS: list[tuple[str, str, str]] = [
     ("assets", "analyzed_fingerprint", "VARCHAR(128) DEFAULT ''"),
     ("assets", "analyzed_detect_config", "VARCHAR(255) DEFAULT ''"),
     ("assets", "analyzed_at", "DATETIME"),
+    ('assets', 'analyzed_source_signature', "VARCHAR(128) DEFAULT ''"),
     ("segments", "detected_start_sec", "FLOAT DEFAULT 0"),
     ("segments", "detected_end_sec", "FLOAT DEFAULT 0"),
     ("segments", "is_trimmed", "BOOLEAN DEFAULT 0"),
     ("jobs", "failures", "JSON DEFAULT '{}'"),
+    ('review_requests', 'supersedes_request_id', "VARCHAR(36) DEFAULT ''"),
+    ('review_requests', 'superseded_by_request_id', "VARCHAR(36) DEFAULT ''"),
+    ('review_requests', 'disposition_at', 'DATETIME'),
 ]
 
 
@@ -137,6 +141,21 @@ def _legacy_backfill(applied: list[str] | None = None) -> None:
     """Backfill only newly added bounds; an existing detected zero is valid."""
     added = set(applied or [])
     with engine.begin() as conn:
+        if 'assets.analyzed_source_signature' in added:
+            # Recover only from a checkpoint tied to the exact analyzed digest;
+            # never infer that the current scanned source was also the detected one.
+            from .models import Asset, Job
+            from sqlalchemy import select
+            signatures = {}
+            for project_id, token in conn.execute(select(Job.project_id, Job.resume_token).where(Job.job_type == 'detect')):
+                for item in (token or {}).get('items', []):
+                    if item.get('quick_signature'):
+                        signatures[(project_id, item.get('key'), item.get('scan_signature'))] = item['quick_signature']
+            for aid, pid, digest in conn.execute(select(Asset.id, Asset.project_id, Asset.analyzed_fingerprint)):
+                signature = signatures.get((pid, aid, digest))
+                if signature:
+                    conn.execute(text('UPDATE assets SET analyzed_source_signature=:signature WHERE id=:aid'),
+                                 {'signature': signature, 'aid': aid})
         for column, source in (("detected_start_sec", "start_sec"),
                                ("detected_end_sec", "end_sec")):
             if f"segments.{column}" in added:

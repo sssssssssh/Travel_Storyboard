@@ -22,6 +22,9 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import shutil
+import uuid
 import re
 from pathlib import Path
 from collections import deque
@@ -30,11 +33,13 @@ from sqlalchemy import select
 
 from ..config import get_settings
 from ..database import begin_write, session_scope
-from ..ffmpeg import extract_preview
+from ..ffmpeg import extract_preview, probe_media
 from ..models import Asset, Frame, Job, ReviewRequest, Segment
 from ..paths import project_cache_dir, rel_to_data, resolve_in_project
 from . import model_client
-from .runner import JobFailures, raise_if_cancelled, register_task, update_job
+from .review_validation import (ReviewValidationError, validate_review, validate_range,
+                                verified_source, review_revision, INVALID_SEGMENT_STATUSES)
+from .runner import JobCancelled, JobFailures, raise_if_cancelled, register_task, update_job
 
 logger = logging.getLogger(__name__)
 
@@ -46,70 +51,41 @@ DEFAULT_MAX_SEGMENTS = 60
 DEFAULT_MAX_SEGMENTS_SAMPLED = 24
 
 
-def import_review_requests(project_id: str, data: dict) -> dict:
-    """Validate and persist review_requests.json (doc §1.5 / §3.3)."""
-    requests = data.get("requests") or []
-    created = 0
-    errors: list[dict] = []
-
+def import_review_requests(project_id: str, data: dict, *, source: str = "ai") -> dict:
+    """Partially accept a batch; every rejected/duplicate item remains traceable."""
+    created, errors, duplicates = 0, [], []
     with session_scope() as s:
         begin_write(s)
-        assets = {
-            a.id: a for a in s.scalars(select(Asset).where(Asset.project_id == project_id)).all()
-        }
-        segments = {
-            g.id: g for g in s.scalars(select(Segment).where(Segment.project_id == project_id)).all()
-        }
-        for i, item in enumerate(requests):
-            if not isinstance(item, dict):
-                errors.append({"index": i, "message": "request must be an object"})
-                continue
-
-            problems: list[str] = []
-            asset = assets.get(item.get("asset_id", ""))
-            seg = segments.get(item.get("segment_id", ""))
-            if not asset:
-                problems.append("asset_id not found")
-            if not seg:
-                problems.append("segment_id not found")
-            elif seg.status == "needs_review":
-                problems.append("segment needs review after detection changes")
-
-            start = item.get("start_sec")
-            end = item.get("end_sec")
+        existing = {(r.asset_id, r.segment_id, round(r.start_sec, 3), round(r.end_sec, 3)): r.id
+                    for r in s.scalars(select(ReviewRequest).where(ReviewRequest.project_id == project_id))
+                    if r.status not in ('dismissed', 'superseded')}
+        for i, item in enumerate(data.get("requests") or []):
+            segment_id = item.get('segment_id', '') if isinstance(item, dict) else ''
             try:
-                start = float(start)
-                end = float(end)
-            except (TypeError, ValueError):
-                start = end = None
-                problems.append("start_sec/end_sec must be numbers")
-
-            if start is not None and end is not None and start >= end:
-                problems.append("start_sec must be < end_sec")
-            if asset and start is not None and end is not None:
-                if start < 0 or end > asset.duration_sec + 1e-3:
-                    problems.append("time range exceeds source duration")
-            if asset and seg and seg.asset_id != asset.id:
-                problems.append("segment does not belong to asset")
-
-            if problems:
-                errors.append({"index": i, "message": "; ".join(problems)})
-                continue
-
-            s.add(
-                ReviewRequest(
-                    project_id=project_id,
-                    asset_id=item["asset_id"],
-                    segment_id=item["segment_id"],
-                    start_sec=start,
-                    end_sec=end,
-                    priority=item.get("priority", "medium"),
-                    reason=item.get("reason", ""),
-                )
-            )
-            created += 1
-
-    return {"created": created, "errors": errors}
+                if not isinstance(item, dict):
+                    raise ReviewValidationError('INVALID_REQUEST', '请求必须是对象')
+                if data.get('project_id') and data['project_id'] != project_id:
+                    raise ReviewValidationError('PROJECT_MISMATCH', '导入文件不属于当前项目')
+                asset, segment, start, end = validate_review(
+                    s, project_id, item.get('asset_id', ''), segment_id,
+                    item.get('start_sec'), item.get('end_sec'))
+                key = (asset.id, segment.id, start, end)
+                if key in existing:
+                    duplicates.append({'index': i, 'request_index': i, 'segment_id': segment_id,
+                                       'request_id': existing[key], 'message': '相同区间的请求已存在'})
+                    continue
+                priority = str(item.get('priority') or 'medium').lower()
+                row = ReviewRequest(project_id=project_id, asset_id=asset.id, segment_id=segment.id,
+                                    start_sec=start, end_sec=end, source=source,
+                                    priority=priority if priority in _PRIORITY_ORDER else 'medium',
+                                    reason=str(item.get('reason') or '')[:500])
+                s.add(row); s.flush()
+                existing[key] = row.id
+                created += 1
+            except ReviewValidationError as exc:
+                errors.append({'index': i, 'request_index': i, 'segment_id': str(segment_id),
+                               'error_code': exc.code, 'message': str(exc)})
+    return {'created': created, 'errors': errors, 'duplicates': duplicates}
 
 
 @register_task("proxies")
@@ -120,102 +96,123 @@ def proxies_task(job_id: str) -> None:
         if job is None:
             return
         project_id = job.project_id
-        max_total_mb = float((job.config_snapshot or {}).get("max_total_mb", 300))
-        s.expunge(job)
-
-    settings = get_settings()
-    (project_cache_dir(project_id) / "proxies").mkdir(parents=True, exist_ok=True)
-    with session_scope() as s:
-        reqs = s.scalars(
-            select(ReviewRequest).where(
-                ReviewRequest.project_id == project_id, ReviewRequest.status == "pending"
-            )
-        ).all()
-        assets = {
-            a.id: a for a in s.scalars(select(Asset).where(Asset.project_id == project_id)).all()
-        }
-        segments = {g.id: g for g in s.scalars(select(Segment).where(Segment.project_id == project_id))}
-        reqs = sorted(reqs, key=lambda r: _PRIORITY_ORDER.get(r.priority, 1))
-        plan = [(r.id, r.asset_id, r.segment_id, r.start_sec, r.end_sec, r.priority) for r in reqs]
-
-    total = len(plan)
-    done = 0
-    failed = 0
-    skipped_budget = 0
-    total_bytes = 0
-    budget = max_total_mb * 1024 * 1024
-
-    for req_id, asset_id, segment_id, start_sec, end_sec, _priority in plan:
-        raise_if_cancelled(job_id)
-        asset = assets.get(asset_id)
-        if asset is None:
-            failed += 1
-            failures.record(
-                kind="review_request", ref=req_id, message=f"asset {asset_id} not found"
-            )
-            done += 1
-            update_job(
-                job_id,
-                stats={"total": total, "done": done, "failed": failed, "bytes": total_bytes},
-            )
-            continue
-        if total_bytes >= budget:
-            # Budget exhausted: leave the request pending rather than silently
-            # dropping it (audit P2-3).
-            skipped_budget += 1
-            continue
-        segment = segments.get(segment_id)
-        if segment is None or segment.asset_id != asset_id or segment.status == 'needs_review':
-            failures.record(kind='review_request', ref=req_id,
-                            message='镜头引用已变化或需要复核，旧代理已保留；请使用当前镜头重新提交复核请求')
-            with session_scope() as s:
-                request = s.get(ReviewRequest, req_id)
-                if request is not None:
-                    request.status = 'needs_review'
-            failed += 1
-            done += 1
-            update_job(job_id, stats={'total': total, 'done': done, 'failed': failed, 'bytes': total_bytes})
-            continue
-        dur = max(1.0, end_sec - start_sec)
-        out = project_cache_dir(project_id) / "proxies" / f"{req_id}.mp4"
-        try:
-            extract_preview(
-                asset.source_path,
-                start_sec,
-                dur,
-                out,
-                width=settings.proxy_width,
-                keep_audio=True,
-            )
-            size = out.stat().st_size
-            total_bytes += size
-            with session_scope() as s:
-                rr = s.get(ReviewRequest, req_id)
-                rr.proxy_ref = rel_to_data(out)
-                rr.status = "proxied"
-        except Exception as exc:  # noqa: BLE001 - per-request isolation
-            logger.exception("Proxy failed for request %s", req_id)
-            failed += 1
-            failures.record(
-                kind="review_request",
-                ref=req_id,
-                message=f"{asset.display_name} {start_sec:.1f}-{end_sec:.1f}s: {exc}",
-            )
-            with session_scope() as s:
-                rr = s.get(ReviewRequest, req_id)
-                rr.status = "failed"
-                rr.reason = (rr.reason or "") + f" [proxy failed: {str(exc)[:200]}]"
-        done += 1
-        update_job(
-            job_id,
-            stats={
-                "total": total,
-                "done": done,
-                "failed": failed,
-                "bytes": total_bytes,
-                "skipped_budget": skipped_budget,
-            },
-        )
+        publications = list((job.resume_token or {}).get('proxy_publications', []))
+        prior_done = int((job.stats or {}).get('done', 0))
+        budget = float((job.config_snapshot or {}).get('max_total_mb', 300)) * 1024 * 1024
+        plan = [r.id for r in sorted(s.scalars(select(ReviewRequest).where(
+            ReviewRequest.project_id == project_id, ReviewRequest.status == 'pending')).all(),
+            key=lambda r: (_PRIORITY_ORDER.get(r.priority, 1), r.created_at, r.id))]
+    if not math.isfinite(budget) or budget <= 0:
+        raise ValueError('预览预算须为正数')
+    root = project_cache_dir(project_id) / 'proxies'
+    staging = root / 'staging' / f'{job_id}-{uuid.uuid4().hex}'
+    staging.mkdir(parents=True, exist_ok=True)
+    done, failed, skipped_budget = prior_done, failures.total, 0
+    total = prior_done + len(plan)
+    total_bytes = sum(p['bytes'] for p in publications)
+    files_generated = len(publications)
+    requested_duration = sum(p['requested_duration_sec'] for p in publications)
+    output_duration = sum(p['output_duration_sec'] for p in publications)
+    try:
+        for req_id in plan:
+            raise_if_cancelled(job_id)
+            temp = staging / f'{req_id}.mp4'
+            final = None
+            published = False
+            try:
+                # Fresh read per item, with no SQLite writer held during encoding.
+                with session_scope() as s:
+                    rr = s.get(ReviewRequest, req_id)
+                    if rr is None or rr.project_id != project_id or rr.status != 'pending':
+                        continue
+                    asset, segment, start, end = validate_review(
+                        s, project_id, rr.asset_id, rr.segment_id, rr.start_sec, rr.end_sec)
+                    revision = review_revision(rr, asset, segment)
+                    before = verified_source(asset)
+                    source_path = asset.source_path
+                if total_bytes >= budget:
+                    skipped_budget += 1
+                    failed += 1
+                    failures.record(kind='review_request', ref=req_id,
+                                    message='[BUDGET_EXCEEDED] 预览预算已用尽，请增加预算或新建任务；请求仍待处理')
+                    failed = failures.total
+                    continue
+                extract_preview(source_path, start, end - start, temp,
+                                width=get_settings().proxy_width, keep_audio=True)
+                raise_if_cancelled(job_id)
+                size = temp.stat().st_size
+                media = probe_media(temp)
+                if size <= 0 or media.video.width <= 0 or not math.isfinite(media.duration_sec) or media.duration_sec <= 0:
+                    raise ValueError('生成的预览不可读取')
+                if size > budget - total_bytes:
+                    skipped_budget += 1
+                    failed += 1
+                    failures.record(kind='review_request', ref=req_id,
+                                    message='[BUDGET_EXCEEDED] 实际预览超过剩余预算，请增加预算；请求仍待处理')
+                    failed = failures.total
+                    continue
+                # Unique final name: rollback can remove only this attempt;
+                # historical previews are never overwritten, including DB failure.
+                final = root / f'{req_id}-{uuid.uuid4().hex}.mp4'
+                with session_scope() as s:
+                    begin_write(s)
+                    raise_if_cancelled(job_id)
+                    rr = s.get(ReviewRequest, req_id)
+                    if rr is None or rr.project_id != project_id or rr.status != 'pending':
+                        raise ReviewValidationError('REQUEST_CHANGED', '请求已被暂缓、撤回或替代，旧预览已保留')
+                    asset, segment, _, _ = validate_review(
+                        s, project_id, rr.asset_id, rr.segment_id, rr.start_sec, rr.end_sec)
+                    after = verified_source(asset)
+                    if before != after:
+                        raise ReviewValidationError('SOURCE_CHANGED', '编码期间源文件发生变化，旧预览已保留')
+                    if review_revision(rr, asset, segment) != revision:
+                        raise ReviewValidationError('REQUEST_CHANGED', '编码期间镜头或请求发生变化，请重新提交')
+                    temp.replace(final)
+                    rr.proxy_ref, rr.status = rel_to_data(final), 'proxied'
+                    publication = {'request_id': req_id, 'path': rr.proxy_ref, 'bytes': size,
+                                   'requested_duration_sec': end - start, 'output_duration_sec': media.duration_sec}
+                    current_job = s.get(Job, job_id)
+                    current_job.resume_token = {**(current_job.resume_token or {}),
+                                                'proxy_publications': publications + [publication]}
+                    # Persist counters with the reference: crash recovery cannot
+                    # reset a job's budget after a published request disappears
+                    # from its pending queue.
+                    current_job.stats = {**(current_job.stats or {}), 'total': total,
+                        'done': done + 1, 'failed': failed, 'bytes': total_bytes + size,
+                        'files_generated': files_generated + 1,
+                        'requested_duration_sec': requested_duration + end - start,
+                        'output_duration_sec': output_duration + media.duration_sec}
+                published = True
+                publications.append(publication)
+                total_bytes += size
+                files_generated += 1
+                requested_duration += end - start
+                output_duration += media.duration_sec
+                failures.resolve(kind='review_request', ref=req_id)
+                failed = failures.total
+            except JobCancelled:
+                raise
+            except Exception as exc:  # per-request isolation, including final DB failure
+                failed += 1
+                code = getattr(exc, 'code', 'PROXY_FAILED')
+                failures.record(kind='review_request', ref=req_id, message=f'[{code}] {exc}')
+                failed = failures.total
+                with session_scope() as s:
+                    begin_write(s)
+                    rr = s.get(ReviewRequest, req_id)
+                    # Never resurrect/overwrite a user disposition.
+                    if rr is not None and rr.status == 'pending':
+                        rr.status = 'needs_review' if isinstance(exc, ReviewValidationError) else 'failed'
+            finally:
+                temp.unlink(missing_ok=True)
+                if final is not None and not published:
+                    final.unlink(missing_ok=True)
+                done += 1
+                update_job(job_id, stats={'total': total, 'done': done, 'failed': failed,
+                    'bytes': total_bytes, 'skipped_budget': skipped_budget, 'files_generated': files_generated,
+                    'requested_duration_sec': requested_duration, 'output_duration_sec': output_duration})
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def _select_representative_frames(
@@ -240,7 +237,7 @@ def _select_representative_frames(
     with session_scope() as s:
         segments = s.scalars(
             select(Segment)
-            .where(Segment.project_id == project_id, Segment.user_rating != "exclude", Segment.status != "needs_review")
+            .where(Segment.project_id == project_id, Segment.user_rating != "exclude", Segment.status.not_in(INVALID_SEGMENT_STATUSES))
             .order_by(Segment.created_at)
         ).all()
         total_segments = len(segments)
@@ -392,14 +389,22 @@ def _validate_analysis(data: dict, allowed: dict[str, dict]) -> tuple[list[dict]
         except (TypeError, ValueError):
             problems.append(f"第 {i} 条时间不是数字（已丢弃）")
             continue
-        if not (start == start and end == end):  # NaN guard
-            problems.append(f"第 {i} 条时间为 NaN（已丢弃）")
+        if not (math.isfinite(start) and math.isfinite(end)) or start < 0 or end <= start:
+            problems.append(f"第 {i} 条时间非法或非有限数字（已丢弃）")
             continue
-        # Clamp into the segment's own range rather than trusting the model.
+        # Model-only correction is bounded to 50 ms and always reported.
+        # The subsequent DB transaction applies the strict current validator.
+        if start < meta['start_sec'] - .05 or end > meta['end_sec'] + .05:
+            problems.append(f'第 {i} 条超出所见镜头范围（已丢弃）')
+            continue
+        if start < meta['start_sec'] or end > meta['end_sec']:
+            problems.append(f'第 {i} 条模型时间在 0.05 秒内修正至所见镜头边界')
         start = max(meta["start_sec"], min(start, meta["end_sec"]))
         end = max(meta["start_sec"], min(end, meta["end_sec"]))
-        if end - start <= 0.05:
-            problems.append(f"第 {i} 条时间区间为空（已丢弃）")
+        try:
+            start, end = validate_range(start, end, meta['start_sec'], meta['end_sec'], meta['end_sec'])
+        except ReviewValidationError as exc:
+            problems.append(f'第 {i} 条 [{exc.code}] {exc}')
             continue
         key = (seg_id, round(start, 2), round(end, 2))
         if key in seen:
@@ -422,46 +427,8 @@ def _validate_analysis(data: dict, allowed: dict[str, dict]) -> tuple[list[dict]
 
 
 def _persist_requests(project_id: str, requests: list[dict]) -> int:
-    """Store accepted requests so the user can generate proxies for them."""
-    if not requests:
-        return 0
-    created = 0
-    with session_scope() as s:
-        begin_write(s)
-        existing = {
-            (r.segment_id, round(r.start_sec, 2), round(r.end_sec, 2))
-            for r in s.scalars(
-                select(ReviewRequest).where(ReviewRequest.project_id == project_id)
-            ).all()
-        }
-        for req in requests:
-            # Model work may take minutes. Validate the current reference under
-            # the same writer reservation used by analysis and plan saves.
-            segment = s.get(Segment, req['segment_id'])
-            if (segment is None or segment.project_id != project_id
-                    or segment.asset_id != req['asset_id'] or segment.status == 'needs_review'
-                    or req['start_sec'] < segment.start_sec or req['end_sec'] > segment.end_sec):
-                logger.warning('Direct review request rejected after concurrent source/segment changes')
-                continue
-            key = (req["segment_id"], round(req["start_sec"], 2), round(req["end_sec"], 2))
-            if key in existing:
-                continue
-            s.add(
-                ReviewRequest(
-                    project_id=project_id,
-                    asset_id=req["asset_id"],
-                    segment_id=req["segment_id"],
-                    start_sec=req["start_sec"],
-                    end_sec=req["end_sec"],
-                    priority=req["priority"],
-                    reason=req["reason"],
-                    source="direct",
-                    status="pending",
-                )
-            )
-            existing.add(key)
-            created += 1
-    return created
+    """Compatibility helper; direct and imported requests share strict admission."""
+    return import_review_requests(project_id, {'requests': requests}, source='direct')['created']
 
 
 def direct_analyze(
@@ -578,9 +545,11 @@ def direct_analyze(
         }
 
     accepted, problems = _validate_analysis(data, allowed)
-    created = _persist_requests(project_id, accepted)
-    if created < len(accepted):
-        problems.append('部分请求已存在或源镜头发生变化，未新增；请复核当前镜头与请求列表。')
+    persistence = import_review_requests(project_id, {'requests': accepted}, source='direct')
+    created = persistence['created']
+    problems.extend(f"第 {e['index']} 条 [{e['error_code']}] {e['message']}" for e in persistence['errors'])
+    if persistence['duplicates']:
+        problems.append('部分请求已存在，未重复新增。')
 
     stories = data.get("stories")
     if not isinstance(stories, list):

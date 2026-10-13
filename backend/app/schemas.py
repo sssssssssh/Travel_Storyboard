@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from datetime import datetime
 from typing import Any
 
@@ -242,17 +244,31 @@ class ReviewRequestItem(BaseModel):
 class ReviewRequestsImport(BaseModel):
     schema_version: str = "2.0"
     project_id: str = ""
-    requests: list[ReviewRequestItem] = Field(default_factory=list)
+    # Validate each item inside the short admission transaction so one bad row
+    # does not turn a useful batch into a blanket Pydantic 422.
+    requests: list[Any] = Field(default_factory=list)
 
 
 class ImportErrorItem(BaseModel):
     index: int
+    request_index: int
+    segment_id: str = ''
+    error_code: str
     message: str
 
 
 class ImportResult(BaseModel):
     created: int
     errors: list[ImportErrorItem] = Field(default_factory=list)
+    duplicates: list[dict] = Field(default_factory=list)
+
+
+class ReviewDisposition(BaseModel):
+    action: Literal['replace', 'defer', 'dismiss', 'retry']
+    asset_id: str = ''
+    segment_id: str = ''
+    start_sec: float | None = None
+    end_sec: float | None = None
 
 
 class ReviewRequestOut(ORMModel):
@@ -268,6 +284,13 @@ class ReviewRequestOut(ORMModel):
     status: str
     proxy_ref: str
     created_at: datetime
+    supersedes_request_id: str = ''
+    superseded_by_request_id: str = ''
+    disposition_at: datetime | None = None
+    validation_error: dict | None = None
+    segment_context: dict | None = None
+    current_segments: list[dict] = Field(default_factory=list)
+    plan_shot_ids: list[str] = Field(default_factory=list)
 
 
 # --- Edit plan (M4) ------------------------------------------------------

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from ..database import begin_write
 from ..models import Asset, Segment, UserAnnotation
 from ..schemas import AnnotateRequest, SegmentListItem, SegmentListOut, SegmentOut
+from ..services.review_validation import EPSILON_SEC, MIN_REVIEW_SEC
 from .deps import get_db
 
 router = APIRouter(tags=["segments"])
@@ -24,7 +25,7 @@ router = APIRouter(tags=["segments"])
 RATING_VALUES = {"like", "favorite", "exclude", "pending"}
 
 # A trimmed range shorter than this is rejected as degenerate.
-MIN_TRIM_SEC = 0.2
+MIN_TRIM_SEC = MIN_REVIEW_SEC
 
 
 def _thumbnail(segment: Segment) -> str | None:
@@ -40,7 +41,7 @@ def _validate_trim(segment: Segment, in_sec: float | None, out_sec: float | None
 
     low = in_sec if in_sec is not None else segment.start_sec
     high = out_sec if out_sec is not None else segment.end_sec
-    if high - low < MIN_TRIM_SEC:
+    if low < 0 or high - low < MIN_TRIM_SEC - EPSILON_SEC:
         raise HTTPException(
             status_code=422,
             detail=f"Selected range must be at least {MIN_TRIM_SEC}s (got {high - low:.3f}s)",
@@ -53,7 +54,7 @@ def _validate_trim(segment: Segment, in_sec: float | None, out_sec: float | None
         det_start = segment.start_sec
     if det_end is None:
         det_end = segment.end_sec
-    tolerance = 1e-6
+    tolerance = EPSILON_SEC
     if low < det_start - tolerance or high > det_end + tolerance:
         raise HTTPException(
             status_code=422,

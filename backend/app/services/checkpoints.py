@@ -217,7 +217,9 @@ def persist(job_id: str, items: list[dict], token: dict) -> None:
     stats = {'total': len(items), 'done': sum(i['status'] in finished for i in items),
              'failed': sum(i['status'] == 'failed' for i in items),
              'skipped': sum(i['status'] == 'skipped' for i in items),
-             'source_changed': len(token.get('source_changed_items', [])),
+             'source_changed': len(set(token.get('source_changed_items', [])) |
+                                   {i['key'] for i in items if i.get('error_code') == 'source_changed'}),
+             'needs_review': sum(int(i.get('needs_review', 0)) for i in items),
              'forced_reprobe': sum(bool(i.get('forced_reprobe')) for i in items),
              'skipped_unchanged': sum(i['status'] == 'skipped' for i in items),
              'signature_mode': token.get('signature_mode', 'quick'),

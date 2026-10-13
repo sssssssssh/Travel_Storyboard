@@ -51,7 +51,9 @@ def _seed_project(client, name: str, n_assets: int = 1, frames_per_seg: int = 2)
     for a in range(n_assets):
         asset_id = str(uuid.uuid4())
         # A source path that looks like a private absolute location.
-        src = f"C:/Users/private/Footage/album_{a}.mp4"
+        src = str(project_cache_dir(project_id) / f'private album_{a}.mp4')
+        Path(src).parent.mkdir(parents=True, exist_ok=True)
+        Path(src).write_bytes(b'generated-source-placeholder')
         with session_scope() as s:
             s.add(
                 Asset(
@@ -97,7 +99,7 @@ def _seed_project(client, name: str, n_assets: int = 1, frames_per_seg: int = 2)
                         id=frame_id,
                         segment_id=seg_id,
                         asset_id=asset_id,
-                        time_sec=float(i),
+                        time_sec=float(i + 2),
                         image_path=rel,
                     )
                 )
@@ -151,6 +153,7 @@ def test_package_contains_no_source_paths_or_exif(client):
     blob = b"".join(p.read_bytes() for p in pkg_dir.rglob("*") if p.is_file())
 
     assert b"C:/Users/private" not in blob
+    assert b"private album_" not in blob
     assert b"C:\\Users" not in blob
     for needle in (b"SecretCameraMake", b"SecretCameraModel", b"SecretUserComment"):
         assert needle not in blob
@@ -235,10 +238,9 @@ def test_budget_deletes_only_owned_files(tmp_path: Path):
 
 def test_tiny_budget_truncates_package(client):
     project_id, _, _ = _seed_project(client, "tiny-budget", frames_per_seg=2)
-    result = _build_package(project_id, {"max_package_mb": 1 / 1024})
-    assert result["truncated"] is True
-    assert result["items_skipped"] > 0
-    assert result["used_bytes"] <= result["max_bytes"]
+    with pytest.raises(ValueError, match='无当前有效镜头.*预算'):
+        _build_package(project_id, {"max_package_mb": 1 / 1024})
+    assert not list((project_cache_dir(project_id) / 'packages').glob('*.zip'))
 
 
 def test_generous_budget_does_not_truncate(client):

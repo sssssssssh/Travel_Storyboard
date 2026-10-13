@@ -90,6 +90,8 @@ class Asset(Base):
     # Fingerprint/config actually used for the last successful detect run, so an
     # unchanged file is not re-analysed (audit P1-04).
     analyzed_fingerprint: Mapped[str] = mapped_column(String(128), default="")
+    # Lightweight identity of the detected source, independent of hash mode.
+    analyzed_source_signature: Mapped[str] = mapped_column(String(128), default='')
     analyzed_detect_config: Mapped[str] = mapped_column(String(255), default="")
     analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -221,6 +223,9 @@ class ReviewRequest(Base):
     source: Mapped[str] = mapped_column(String(16), default="ai")
     status: Mapped[str] = mapped_column(String(32), default="pending")
     proxy_ref: Mapped[str] = mapped_column(Text, default="")
+    supersedes_request_id: Mapped[str] = mapped_column(String(36), default='')
+    superseded_by_request_id: Mapped[str] = mapped_column(String(36), default='')
+    disposition_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
