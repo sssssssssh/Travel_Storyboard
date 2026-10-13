@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { SetStateAction } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, downloadUrl, endpoints, fetchAllSegments, mediaUrl, roughcutUrl } from '../lib/api'
@@ -15,6 +16,10 @@ interface DraftShot {
   target_duration_sec: number
   story_role: string
   transition_hint: string
+  music_cue: string
+  audio_hint: string
+  color_hint: string
+  review_status: string
   evidence: string
   confidence: number
 }
@@ -23,8 +28,19 @@ const ROLES = ['', '开场', '铺垫', '过渡', '高潮', '结尾']
 
 export default function Export() {
   const { id = '' } = useParams()
+  return <ExportEditor key={id} id={id} />
+}
+
+function ExportEditor({ id }: { id: string }) {
   const qc = useQueryClient()
-  const [draft, setDraft] = useState<DraftShot[]>([])
+  const [editor, setEditor] = useState<{draft: DraftShot[]; dirty: boolean; server: EditPlanOut | null}>({
+    draft: [], dirty: false, server: null,
+  })
+  const { draft, dirty } = editor
+  function setDraft(value: SetStateAction<DraftShot[]>) {
+    setEditor((current) => ({ ...current, dirty: true,
+      draft: typeof value === 'function' ? value(current.draft) : value }))
+  }
   const [result, setResult] = useState<BuildPlanResult | null>(null)
   const [roughcutJobId, setRoughcutJobId] = useState<string | null>(null)
   const roughcutJob = useJob(roughcutJobId)
@@ -39,15 +55,32 @@ export default function Export() {
     queryFn: () => api<EditPlanOut>(endpoints.editPlan(id)),
   })
 
+  function loadServer(data: EditPlanOut) {
+    // Keep every persisted edit field; array position remains authoritative.
+    return [...data.shots].sort((a, b) => a.order - b.order).map((shot) => ({
+      asset_id: shot.asset_id, segment_id: shot.segment_id,
+      source_in_sec: shot.source_in_sec, source_out_sec: shot.source_out_sec,
+      target_duration_sec: shot.target_duration_sec, story_role: shot.story_role,
+      transition_hint: shot.transition_hint, music_cue: shot.music_cue,
+      audio_hint: shot.audio_hint, color_hint: shot.color_hint,
+      evidence: shot.evidence, confidence: shot.confidence, review_status: shot.review_status,
+    }))
+  }
+  if (plan.data && plan.data !== editor.server && !dirty) {
+    setEditor({ draft: loadServer(plan.data), dirty: false, server: plan.data })
+  }
+
   const save = useMutation({
     mutationFn: (shots: DraftShot[]) =>
       api<BuildPlanResult>(endpoints.editPlan(id), {
         method: 'POST',
         body: JSON.stringify({ shots: shots.map((s, i) => ({ order: i, ...s })) }),
       }),
-    onSuccess: (r) => {
+    onSuccess: async (r, submitted) => {
       setResult(r)
-      qc.invalidateQueries({ queryKey: ['edit-plan', id] })
+      if (r.errors.length) return
+      await qc.invalidateQueries({ queryKey: ['edit-plan', id] })
+      setEditor((current) => current.draft === submitted ? { ...current, dirty: false } : current)
     },
   })
 
@@ -67,6 +100,7 @@ export default function Export() {
         target_duration_sec: Math.round((s.end_sec - s.start_sec) * 10) / 10,
         story_role: '',
         transition_hint: '',
+        music_cue: '', audio_hint: '', color_hint: '', review_status: 'pending',
         evidence: 'static',
         confidence: 0.8,
       },
@@ -98,7 +132,10 @@ export default function Export() {
           <a className="rounded-md border border-ink-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-ink-800" href={downloadUrl(endpoints.exportCsv(id))}>CSV</a>
           <a className="rounded-md border border-ink-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-ink-800" href={downloadUrl(endpoints.exportJson(id))}>JSON</a>
           <a className="rounded-md border border-ink-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-ink-800" href={downloadUrl(endpoints.exportOtio(id))}>OTIO</a>
-          <Button disabled={draft.length === 0 || save.isPending} onClick={() => save.mutate(draft)}>
+          <Button variant="ghost" disabled={!plan.data || save.isPending} onClick={() => {
+            if (plan.data) setEditor({ draft: loadServer(plan.data), dirty: false, server: plan.data })
+          }}>重新加载服务端版本</Button>
+          <Button disabled={plan.isLoading || save.isPending} onClick={() => save.mutate(draft)}>
             保存剪辑计划
           </Button>
           <Button variant="ghost" disabled={roughcut.isPending || roughcutJob.data?.status === 'running'} onClick={() => roughcut.mutate()}>
@@ -138,6 +175,8 @@ export default function Export() {
         </div>
       )}
 
+      {save.error && <div className="px-6 py-2 text-sm text-red-400">保存失败，草稿已保留：{save.error.message}</div>}
+      {dirty && <div className="px-6 py-2 text-xs text-amber-300">草稿有未保存修改</div>}
       {result && (
         <div className="border-b border-ink-800 px-6 py-2 text-sm">
           {result.errors.length === 0 ? (
@@ -216,7 +255,7 @@ export default function Export() {
               <h3 className="mb-2 text-xs font-medium uppercase text-slate-500">已保存的计划（{plan.data.shots.length} 镜头）</h3>
               <ol className="space-y-1 text-xs text-slate-400">
                 {plan.data.shots.map((s) => (
-                  <li key={s.id}>
+                  <li key={s.order}>
                     <Badge tone="blue">#{s.order}</Badge> {s.source_name} {s.source_in_sec}s–{s.source_out_sec}s · {s.story_role || '未设用途'}
                   </li>
                 ))}

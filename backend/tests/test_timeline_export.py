@@ -361,3 +361,21 @@ def test_empty_plan_exports_cleanly(seeded):
     assert export_otio_document(project_id)["tracks"]["children"][0]["children"] == []
     # CSV still has its header row.
     assert "序号" in export_csv(project_id)
+
+
+def test_outpoint_cannot_cross_segment_and_old_plan_survives(seeded):
+    pid, ids = seeded
+    good = _shot(ids, 'first.mp4', 1, 5)
+    assert build_edit_plan(pid, [good])['created'] == 1
+    before = export_json(pid)['shots']
+    with session_scope() as s:
+        s.get(Segment, ids['first.mp4']['segment_id']).end_sec = 8
+    bad = _shot(ids, 'first.mp4', 1, 9)
+    assert build_edit_plan(pid, [good, bad])['errors']
+    assert export_json(pid)['shots'] == before
+
+
+@pytest.mark.parametrize('duration', [float('nan'), float('inf'), 'bad'])
+def test_invalid_target_duration_rejected(seeded, duration):
+    pid, ids = seeded
+    assert build_edit_plan(pid, [_shot(ids, 'first.mp4', 1, 5, target_duration_sec=duration)])['errors']

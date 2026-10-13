@@ -104,9 +104,13 @@ def _validate_shot(
         # Stay inside the annotated segment when one is known.
         if segment is not None and sin < min(segment.start_sec, segment.end_sec) - DURATION_TOLERANCE:
             problems.append("source_in_sec is before the segment start")
+        if segment is not None and sout > segment.end_sec + DURATION_TOLERANCE:
+            problems.append("source_out_sec is after the segment end")
 
     dur_raw = raw.get("target_duration_sec")
     dur = _finite(dur_raw) if dur_raw not in (None, "") else None
+    if dur_raw not in (None, "") and dur is None:
+        problems.append("target_duration_sec must be a finite number")
     if dur is not None:
         if dur < MIN_SHOT_SEC:
             problems.append("target_duration_sec must be positive")
