@@ -163,3 +163,68 @@ class UserAnnotation(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class ReviewPackage(Base):
+    """A generated, privacy-safe upload package (round-1 contact sheets etc.)."""
+
+    __tablename__ = "review_packages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    version: Mapped[str] = mapped_column(String(32), default="")
+    package_dir: Mapped[str] = mapped_column(Text, default="")  # relative to data dir
+    status: Mapped[str] = mapped_column(String(32), default="ready")
+    file_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ReviewRequest(Base):
+    """AI round-2 dynamic review request (imported from review_requests.json)."""
+
+    __tablename__ = "review_requests"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    asset_id: Mapped[str] = mapped_column(String(36), index=True)
+    segment_id: Mapped[str] = mapped_column(String(36), index=True)
+    start_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    end_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    priority: Mapped[str] = mapped_column(String(16), default="medium")
+    reason: Mapped[str] = mapped_column(Text, default="")
+    source: Mapped[str] = mapped_column(String(16), default="ai")
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    proxy_ref: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EditPlanShot(Base):
+    """One confirmed shot in the final edit plan (M4)."""
+
+    __tablename__ = "edit_plan_shots"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    order: Mapped[int] = mapped_column(Integer, default=0)
+    asset_id: Mapped[str] = mapped_column(String(36), default="")
+    segment_id: Mapped[str] = mapped_column(String(36), default="")
+    source_in_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    source_out_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    target_duration_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    timeline_start_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    story_role: Mapped[str] = mapped_column(String(32), default="")
+    transition_hint: Mapped[str] = mapped_column(String(64), default="")
+    music_cue: Mapped[str] = mapped_column(String(128), default="")
+    audio_hint: Mapped[str] = mapped_column(String(128), default="")
+    color_hint: Mapped[str] = mapped_column(String(128), default="")
+    evidence: Mapped[str] = mapped_column(String(32), default="")
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    review_status: Mapped[str] = mapped_column(String(32), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

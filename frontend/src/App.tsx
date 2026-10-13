@@ -5,6 +5,8 @@ import { Spinner } from './components/ui'
 import Home from './pages/Home'
 import Project from './pages/Project'
 import Review from './pages/Review'
+import AIDirector from './pages/AIDirector'
+import Export from './pages/Export'
 import Settings from './pages/Settings'
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
@@ -35,6 +37,8 @@ function Shell() {
           <Route path="/" element={<Home />} />
           <Route path="/project/:id" element={<Project />} />
           <Route path="/project/:id/review" element={<Review />} />
+          <Route path="/project/:id/ai" element={<AIDirector />} />
+          <Route path="/project/:id/export" element={<Export />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>

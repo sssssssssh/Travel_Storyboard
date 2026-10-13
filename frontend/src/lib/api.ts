@@ -55,4 +55,18 @@ export const endpoints = {
   jobs: (id: string) => `/api/projects/${id}/jobs`,
   createJob: (id: string, type: string) => `/api/projects/${id}/jobs/${type}`,
   job: (id: string) => `/api/jobs/${id}`,
+  packages: (id: string) => `/api/projects/${id}/packages`,
+  packageDownload: (id: string) => `/api/packages/${id}/download`,
+  reviewRequests: (id: string) => `/api/projects/${id}/review-requests`,
+  importReviewRequests: (id: string) => `/api/projects/${id}/review-requests/import`,
+  buildProxies: (id: string) => `/api/projects/${id}/review-requests/proxies`,
+  analyzeStory: (id: string) => `/api/projects/${id}/story/analyze`,
+  editPlan: (id: string) => `/api/projects/${id}/edit-plan`,
+  exportJson: (id: string) => `/api/projects/${id}/export/json`,
+  exportCsv: (id: string) => `/api/projects/${id}/export/csv`,
+  exportOtio: (id: string) => `/api/projects/${id}/export/otio`,
+}
+
+export function downloadUrl(path: string): string {
+  return `${path}?token=${encodeURIComponent(token ?? '')}`
 }

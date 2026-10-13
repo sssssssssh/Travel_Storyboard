@@ -80,6 +80,12 @@ export default function Project() {
           <Link to={`/project/${id}/review`}>
             <Button variant="ghost">分镜审阅</Button>
           </Link>
+          <Link to={`/project/${id}/ai`}>
+            <Button variant="ghost">AI 导演</Button>
+          </Link>
+          <Link to={`/project/${id}/export`}>
+            <Button variant="ghost">导出</Button>
+          </Link>
           <Button disabled={hasActive} onClick={() => startJob.mutate('scan')}>
             扫描建库
           </Button>

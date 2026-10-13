@@ -93,3 +93,69 @@ export interface SystemConfigOut {
   model_name: string
   model_configured: boolean
 }
+
+export interface ReviewPackageOut {
+  id: string
+  project_id: string
+  version: string
+  package_dir: string
+  status: string
+  file_count: number
+  total_size_bytes: number
+  created_at: string
+}
+
+export interface ReviewRequestOut {
+  id: string
+  project_id: string
+  asset_id: string
+  segment_id: string
+  start_sec: number
+  end_sec: number
+  priority: string
+  reason: string
+  source: string
+  status: string
+  proxy_ref: string
+  created_at: string
+}
+
+export interface ImportResult {
+  created: number
+  errors: { index: number; message: string }[]
+}
+
+export interface EditPlanShotOut {
+  id: string
+  project_id: string
+  order: number
+  asset_id: string
+  segment_id: string
+  source_in_sec: number
+  source_out_sec: number
+  target_duration_sec: number
+  timeline_start_sec: number
+  story_role: string
+  transition_hint: string
+  music_cue: string
+  audio_hint: string
+  color_hint: string
+  evidence: string
+  confidence: number
+  review_status: string
+  source_name: string
+}
+
+export interface EditPlanOut {
+  schema_version: string
+  project_id: string
+  generated_at: string
+  total_duration_sec: number
+  shots: EditPlanShotOut[]
+}
+
+export interface BuildPlanResult {
+  created: number
+  errors: { index: number; message: string }[]
+  total_duration_sec?: number
+}

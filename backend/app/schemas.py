@@ -153,6 +153,10 @@ class AnnotateRequest(BaseModel):
 
 # --- Jobs ---------------------------------------------------------------
 
+class JobCreate(BaseModel):
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
 class JobOut(ORMModel):
     id: str
     project_id: str
@@ -185,3 +189,108 @@ class SystemConfigOut(BaseModel):
     proxy_width: int
     model_name: str
     model_configured: bool
+
+
+# --- Review packages (M3) ------------------------------------------------
+
+class PackageBuildOptions(BaseModel):
+    # Restrict the package to segments with this rating ('' = all except 'exclude').
+    rating: str = ""
+    contact_sheet_cols: int = 5
+    contact_sheet_rows: int = 4
+
+
+class ReviewPackageOut(ORMModel):
+    id: str
+    project_id: str
+    version: str
+    package_dir: str
+    status: str
+    file_count: int
+    total_size_bytes: int
+    created_at: datetime
+
+
+# --- Review requests (M3) ------------------------------------------------
+
+class ReviewRequestItem(BaseModel):
+    asset_id: str
+    segment_id: str
+    start_sec: float
+    end_sec: float
+    priority: str = "medium"
+    reason: str = ""
+
+
+class ReviewRequestsImport(BaseModel):
+    schema_version: str = "2.0"
+    project_id: str = ""
+    requests: list[ReviewRequestItem] = Field(default_factory=list)
+
+
+class ImportErrorItem(BaseModel):
+    index: int
+    message: str
+
+
+class ImportResult(BaseModel):
+    created: int
+    errors: list[ImportErrorItem] = Field(default_factory=list)
+
+
+class ReviewRequestOut(ORMModel):
+    id: str
+    project_id: str
+    asset_id: str
+    segment_id: str
+    start_sec: float
+    end_sec: float
+    priority: str
+    reason: str
+    source: str
+    status: str
+    proxy_ref: str
+    created_at: datetime
+
+
+# --- Edit plan (M4) ------------------------------------------------------
+
+class EditPlanShotIn(BaseModel):
+    order: int
+    asset_id: str
+    segment_id: str
+    source_in_sec: float
+    source_out_sec: float
+    target_duration_sec: float = 0.0
+    story_role: str = ""
+    transition_hint: str = ""
+    music_cue: str = ""
+    audio_hint: str = ""
+    color_hint: str = ""
+    evidence: str = ""
+    confidence: float = 0.0
+    review_status: str = "pending"
+
+
+class EditPlanBuild(BaseModel):
+    shots: list[EditPlanShotIn] = Field(default_factory=list)
+
+
+class EditPlanShotOut(ORMModel):
+    id: str
+    project_id: str
+    order: int
+    asset_id: str
+    segment_id: str
+    source_in_sec: float
+    source_out_sec: float
+    target_duration_sec: float
+    timeline_start_sec: float
+    story_role: str
+    transition_hint: str
+    music_cue: str
+    audio_hint: str
+    color_hint: str
+    evidence: str
+    confidence: float
+    review_status: str

@@ -13,11 +13,17 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
-from .api import assets, jobs, media, projects, segments, system
+from .api import assets, export, jobs, media, packages, projects, segments, story, system
 from .config import get_settings
 from .database import init_db
 from .security import extract_token, get_token
-from .services import analyzer, indexer  # noqa: F401 - registers job tasks
+from .services import (  # noqa: F401 - registers job tasks
+    analyzer,
+    indexer,
+    review_package,
+    roughcut,
+    story_planner,
+)
 from .services.runner import runner
 
 logger = logging.getLogger(__name__)
@@ -71,6 +77,9 @@ app.include_router(assets.router, prefix="/api")
 app.include_router(segments.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(media.router, prefix="/api")
+app.include_router(packages.router, prefix="/api")
+app.include_router(story.router, prefix="/api")
+app.include_router(export.router, prefix="/api")
 
 
 @app.get("/api", include_in_schema=False)

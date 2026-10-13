@@ -185,6 +185,17 @@ frontend/
 | POST | `/api/segments/{id}/annotate` | 人工标注（收藏/排除/备注/in-out） |
 | GET | `/api/frames/{id}/image` | 代表帧图片 |
 | GET | `/api/media/proxy/{...}` | 代理/缩略图文件 |
+| POST | `/api/projects/{id}/jobs/package` | 生成第一轮脱敏分析包 |
+| GET | `/api/projects/{id}/packages` | 列出分析包 |
+| GET | `/api/packages/{id}/download` | 下载分析包 zip |
+| POST | `/api/projects/{id}/review-requests/import` | 导入 `review_requests.json`（严格校验） |
+| GET | `/api/projects/{id}/review-requests` | 列出复核请求 |
+| POST | `/api/projects/{id}/review-requests/proxies` | 生成第二轮低清预览 |
+| POST | `/api/projects/{id}/story/analyze` | 可选直连模型分析 |
+| POST | `/api/projects/{id}/edit-plan` | 保存剪辑计划（校验） |
+| GET | `/api/projects/{id}/edit-plan` | 读取剪辑计划 |
+| GET | `/api/projects/{id}/export/{json,csv,otio}` | 导出时间线 |
+| POST | `/api/projects/{id}/jobs/roughcut` | 生成 720P 代理粗剪 |
 
 ## 10. 里程碑与验收对照
 
