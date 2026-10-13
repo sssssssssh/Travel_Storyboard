@@ -277,7 +277,7 @@ def resume_interrupted_jobs() -> list[str]:
         rows = s.scalars(
             select(Job)
             .where(Job.status.in_(ACTIVE_STATUSES))
-            .order_by(Job.created_at)
+            .order_by(Job.created_at, Job.id)
         ).all()
         candidates = [(j.id, j.job_type, j.project_id) for j in rows]
 

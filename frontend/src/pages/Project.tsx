@@ -137,6 +137,7 @@ export default function Project() {
                   {job.stats.failed ? ` · 失败 ${job.stats.failed}` : ''}
                 </span>
                 {job.error && <span className="truncate text-red-400">{job.error}</span>}
+                {typeof job.resume_token.warning === 'string' && <span className="text-xs text-amber-300">{job.resume_token.warning}</span>}
               </li>
             ))}
           </ul>

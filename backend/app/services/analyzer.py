@@ -421,8 +421,13 @@ def detect_task(job_id: str) -> None:
                 s.expunge(asset)
             # Refresh duration/codec metadata too when an indexed source changed.
             # Legacy/mocked assets with no completed scan retain their old path.
-            if (asset.scanned_at is not None and asset.analyzed_fingerprint
-                    and asset.analyzed_fingerprint != item['scan_signature']):
+            from .indexer import quick_fingerprint
+            stat = Path(asset.source_path).stat()
+            metadata_changed = (asset.file_size_bytes != stat.st_size
+                                or asset.mtime_ns != stat.st_mtime_ns
+                                or asset.quick_fingerprint != quick_fingerprint(Path(asset.source_path), stat.st_size))
+            if (asset.scanned_at is not None and (metadata_changed or
+                    (asset.analyzed_fingerprint and asset.analyzed_fingerprint != item['scan_signature']))):
                 from .indexer import index_one
                 _, action = index_one(project_id, Path(asset.source_path), force=True)
                 if action == 'failed':
