@@ -255,3 +255,18 @@ def test_workspace_with_artifacts_cannot_change(client, tmp_path, artifact):
     assert client.get(f'/api/projects/{pid}/media', params={'path': str(path)}).content == b'preserved'
     assert client.patch(f'/api/projects/{pid}', json={'name': 'renamed'}).status_code == 200
     assert client.patch(f'/api/projects/{pid}', json={'output_dir': str(tmp_path / 'old' / '.')}).status_code == 200
+
+
+@pytest.mark.parametrize('custom', [False, True])
+@pytest.mark.parametrize('name', ['roughcut.mp4', 'roughcut_INCOMPLETE.mp4'])
+def test_roughcut_preview_in_any_workspace(client, tmp_path, custom, name):
+    project = _make_project(client, 'preview', str(tmp_path / '自定义') if custom else '')
+    pid = project['id']
+    assert client.get(f'/api/projects/{pid}/roughcut').status_code == 404
+    path = roughcut_dir(pid) / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b'video-test')
+    response = client.get(f'/api/projects/{pid}/roughcut')
+    assert response.status_code == 200, response.text
+    assert response.headers['content-type'] == 'video/mp4'
+    assert response.headers['x-roughcut-incomplete'] == str(name != 'roughcut.mp4').lower()

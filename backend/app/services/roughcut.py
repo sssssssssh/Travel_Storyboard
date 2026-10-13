@@ -10,6 +10,8 @@ track of matching length, because ``concat`` requires uniform streams.
 from __future__ import annotations
 
 import logging
+import uuid
+import shutil
 from pathlib import Path
 
 from sqlalchemy import select
@@ -109,6 +111,8 @@ def roughcut_task(job_id: str) -> None:
     work = project_cache_dir(project_id) / "roughcut"
     work.mkdir(parents=True, exist_ok=True)
 
+    stage = work / ("staging-" + str(uuid.uuid4()))
+    stage.mkdir()
     clips: list[Path] = []
     total = len(pairs)
     done = 0
@@ -145,7 +149,7 @@ def roughcut_task(job_id: str) -> None:
             done += 1
             update_job(job_id, stats={"total": total, "done": done, "failed": failed})
             continue
-        clip = work / f"clip_{i:04d}.mp4"
+        clip = stage / f"clip_{i:04d}.mp4"
         try:
             _extract_normalized(
                 asset.source_path, sh.source_in_sec, duration, clip, bool(asset.has_audio)
@@ -174,15 +178,18 @@ def roughcut_task(job_id: str) -> None:
     if not clips:
         raise RuntimeError("No clips were produced for the rough cut")
 
-    list_file = work / "concat.txt"
+    list_file = stage / "concat.txt"
     with open(list_file, "w", encoding="utf-8") as f:
         for c in clips:
-            f.write(f"file '{c.as_posix()}'\n")
+            escaped = c.as_posix().replace("'", "'\\''")
+            f.write(f"file '{escaped}'\n")
 
     # A rough cut missing shots must never look like the finished edit
     # (audit P1-08): the filename says so and the job ends partial_failed.
     incomplete = failed > 0
     out = work / ("roughcut_INCOMPLETE.mp4" if incomplete else "roughcut.mp4")
+    temporary = stage / out.name
+    raise_if_cancelled(job_id)
     run(
         [
             locate_ffmpeg(),
@@ -191,9 +198,12 @@ def roughcut_task(job_id: str) -> None:
             "-safe", "0",
             "-i", str(list_file),
             "-c", "copy",
-            str(out),
+            str(temporary),
         ]
     )
+    raise_if_cancelled(job_id)
+    temporary.replace(out)
+    shutil.rmtree(stage, ignore_errors=True)
     # Drop any stale file from the other naming variant so /roughcut is unambiguous.
     stale = work / ("roughcut.mp4" if incomplete else "roughcut_INCOMPLETE.mp4")
     if stale.exists():

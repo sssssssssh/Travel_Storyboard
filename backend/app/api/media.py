@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from ..models import Frame, Project, ReviewRequest
-from ..paths import project_cache_dir, resolve_in_project
+from ..paths import project_cache_dir, rel_to_data, resolve_in_project
 from .deps import get_db
 
 router = APIRouter(tags=["media"])
@@ -142,6 +142,8 @@ def get_roughcut(project_id: str, db: Session = Depends(get_db)):
     work = project_cache_dir(project_id) / "roughcut"
     for name in ("roughcut.mp4", "roughcut_INCOMPLETE.mp4"):
         if (work / name).is_file():
-            resolved = _resolve_artifact(db, project_id, f"projects/{project_id}/roughcut/{name}")
-            return FileResponse(resolved, media_type="video/mp4")
+            resolved = _resolve_artifact(db, project_id, rel_to_data(work / name))
+            return FileResponse(resolved, media_type="video/mp4", filename=name,
+                                content_disposition_type="inline",
+                                headers={"X-Roughcut-Incomplete": str(name != "roughcut.mp4").lower()})
     raise HTTPException(status_code=404, detail="Rough cut not generated yet")
