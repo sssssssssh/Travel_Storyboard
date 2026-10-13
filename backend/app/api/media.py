@@ -1,53 +1,133 @@
-"""Protected media file serving (thumbnails, proxies)."""
+"""Protected media serving (representative frames, proxies, rough cuts).
+
+Security model (audit P0-01): arbitrary relative paths are NOT accepted. A file
+is served only when it
+1. lives under ``projects/<project_id>/<artifact>/...`` in a whitelisted
+   artifact directory (``frames``, ``proxies``, ``packages``, ``roughcut``),
+2. is confirmed inside that project's cache directory (no ``..`` escapes), and
+3. has an extension in the allow-list below.
+
+The SQLite database and ``token.txt`` sit at the data root, outside every
+project cache directory, so they can never be reached through these routes.
+Video/audio responses support HTTP Range so ``<video>`` scrubbing works.
+"""
 
 from __future__ import annotations
 
 import mimetypes
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from ..models import Frame
-from ..paths import resolve_from_data
+from ..models import Frame, Project, ReviewRequest
+from ..paths import project_cache_dir, resolve_in_project
 from .deps import get_db
 
 router = APIRouter(tags=["media"])
 
-_IMAGE_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
-_VIDEO_TYPES = {".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime"}
+IMAGE_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+VIDEO_TYPES = {
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+}
+ARCHIVE_TYPES = {".zip": "application/zip"}
+
+ALLOWED_TYPES = {**IMAGE_TYPES, **VIDEO_TYPES, **ARCHIVE_TYPES}
+
+# Only these sub-directories of a project cache may ever be served.
+ALLOWED_ARTIFACT_DIRS = {"frames", "proxies", "packages", "roughcut", "contact_sheets"}
 
 
 def _media_type(path: Path) -> str:
-    suffix = path.suffix.lower()
-    if suffix in _IMAGE_TYPES:
-        return _IMAGE_TYPES[suffix]
-    if suffix in _VIDEO_TYPES:
-        return _VIDEO_TYPES[suffix]
-    return mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+    return (
+        ALLOWED_TYPES.get(path.suffix.lower())
+        or mimetypes.guess_type(str(path))[0]
+        or "application/octet-stream"
+    )
 
 
-@router.get("/media/file")
-def get_media_file(path: str = Query(..., description="Relative path under data dir")):
+def _resolve_artifact(db: Session, project_id: str, rel: str) -> Path:
+    """Validate + resolve a stored artifact path for *project_id*."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    parts = PurePosixPath(rel).parts
+    # Expect projects/<project_id>/<artifact dir>/...
+    if len(parts) < 3 or parts[0] != "projects" or parts[1] != project_id:
+        raise HTTPException(status_code=400, detail="Path is not a project artifact")
+    if parts[2] not in ALLOWED_ARTIFACT_DIRS:
+        raise HTTPException(status_code=400, detail="Artifact directory not allowed")
+
     try:
-        resolved = resolve_from_data(path)
+        resolved = resolve_in_project(project_id, rel)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if resolved.suffix.lower() not in ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="File type not allowed")
     if not resolved.is_file():
         raise HTTPException(status_code=404, detail="File not found")
+    return resolved
+
+
+@router.get("/projects/{project_id}/media")
+def get_project_media(
+    project_id: str,
+    path: str = Query(..., description="Stored artifact path under this project"),
+    db: Session = Depends(get_db),
+):
+    """Serve a whitelisted project artifact (frames / proxies / packages)."""
+    resolved = _resolve_artifact(db, project_id, path)
     return FileResponse(resolved, media_type=_media_type(resolved))
 
 
 @router.get("/frames/{frame_id}/image")
 def get_frame_image(frame_id: str, db: Session = Depends(get_db)):
+    """Serve a representative frame by its database id."""
     frame = db.get(Frame, frame_id)
     if frame is None or not frame.image_path:
         raise HTTPException(status_code=404, detail="Frame not found")
-    try:
-        resolved = resolve_from_data(frame.image_path)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Frame path invalid") from exc
-    if not resolved.is_file():
-        raise HTTPException(status_code=404, detail="Frame file missing")
-    return FileResponse(resolved, media_type="image/jpeg")
+    # The frame's own asset determines the owning project.
+    from ..models import Asset  # local import avoids a cycle at module load
+
+    asset = db.get(Asset, frame.asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Frame asset not found")
+    resolved = _resolve_artifact(db, asset.project_id, frame.image_path)
+    return FileResponse(resolved, media_type=_media_type(resolved))
+
+
+@router.get("/projects/{project_id}/review-requests/{request_id}/proxy")
+def get_review_proxy(project_id: str, request_id: str, db: Session = Depends(get_db)):
+    """Serve the round-2 low-res proxy for one review request."""
+    req = db.get(ReviewRequest, request_id)
+    if req is None or req.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Review request not found")
+    if not req.proxy_ref:
+        raise HTTPException(status_code=404, detail="Proxy not generated yet")
+    resolved = _resolve_artifact(db, project_id, req.proxy_ref)
+    return FileResponse(resolved, media_type=_media_type(resolved))
+
+
+@router.get("/projects/{project_id}/roughcut")
+def get_roughcut(project_id: str, db: Session = Depends(get_db)):
+    """Serve the generated proxy rough cut for a project (if any)."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    candidate = project_cache_dir(project_id) / "roughcut" / "roughcut.mp4"
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Rough cut not generated yet")
+    resolved = _resolve_artifact(
+        db, project_id, f"projects/{project_id}/roughcut/roughcut.mp4"
+    )
+    return FileResponse(resolved, media_type="video/mp4")

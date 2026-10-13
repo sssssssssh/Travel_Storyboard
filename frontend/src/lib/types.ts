@@ -45,6 +45,9 @@ export interface SegmentListItem {
   asset_id: string
   start_sec: number
   end_sec: number
+  detected_start_sec: number
+  detected_end_sec: number
+  is_trimmed: boolean
   duration_sec: number
   boundary_reason: string
   user_rating: string
@@ -62,12 +65,19 @@ export interface SegmentListOut {
   limit: number
 }
 
+export interface JobFailureItem {
+  kind: string
+  ref: string
+  message: string
+}
+
 export interface JobOut {
   id: string
   project_id: string
   job_type: string
   status: string
-  stats: { total?: number; done?: number; failed?: number }
+  stats: { total?: number; done?: number; failed?: number; skipped?: number }
+  failures?: { count?: number; items?: JobFailureItem[] }
   resume_token: Record<string, unknown>
   error: string
   created_at: string

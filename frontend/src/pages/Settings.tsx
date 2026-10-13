@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { api, endpoints } from '../lib/api'
+import { api, endpoints, getToken } from '../lib/api'
 import type { HealthOut, SystemConfigOut } from '../lib/types'
 import { Badge, Card, Spinner } from '../components/ui'
 
@@ -12,7 +12,7 @@ export default function Settings() {
     queryKey: ['config'],
     queryFn: () => api<SystemConfigOut>(endpoints.config),
   })
-  const token = useAppToken()
+  const token = getToken()
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
@@ -59,19 +59,16 @@ export default function Settings() {
       </Card>
 
       <Card>
-        <h2 className="mb-2 text-sm font-semibold text-slate-200">本地访问令牌</h2>
+        <h2 className="mb-2 text-sm font-semibold text-slate-200">本地访问会话</h2>
         <p className="mb-2 text-xs text-slate-500">
-          所有 API 请求需携带此令牌。服务仅绑定 127.0.0.1，请勿对外暴露。
+          令牌不再由 API 下发。它保存在数据目录的 <code>token.txt</code>，启动器通过
+          <code> ?token=… </code>打开本页，前端读取一次后即从地址栏移除并存入 sessionStorage。
+          服务仅绑定 127.0.0.1，请勿对外暴露。
         </p>
         <code className="block break-all rounded bg-ink-800 px-3 py-2 text-xs text-slate-300">
-          {token ?? '—'}
+          {token ? `${token.slice(0, 6)}…${token.slice(-4)}（已加载）` : '未加载 —— 请通过启动器提供的链接打开'}
         </code>
       </Card>
     </div>
   )
-}
-
-function useAppToken() {
-  return useQuery({ queryKey: ['token'], queryFn: () => api<{ token: string }>(endpoints.token) }).data
-    ?.token
 }

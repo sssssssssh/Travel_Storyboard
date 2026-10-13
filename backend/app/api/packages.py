@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import ReviewPackage
-from ..paths import resolve_from_data
+from ..paths import resolve_in_project
 from ..schemas import ReviewPackageOut
 from .deps import get_db
 
@@ -30,7 +30,7 @@ def download_package(package_id: str, db: Session = Depends(get_db)):
     if pkg is None:
         raise HTTPException(status_code=404, detail="Package not found")
     try:
-        zip_path = resolve_from_data(pkg.package_dir).with_suffix(".zip")
+        zip_path = resolve_in_project(pkg.project_id, pkg.package_dir).with_suffix(".zip")
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Package path invalid") from exc
     if not zip_path.is_file():

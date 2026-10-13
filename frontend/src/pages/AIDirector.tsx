@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, downloadUrl, endpoints } from '../lib/api'
+import { api, downloadUrl, endpoints, reviewProxyUrl } from '../lib/api'
 import type { ImportResult, JobOut, ReviewPackageOut, ReviewRequestOut } from '../lib/types'
 import { useJob } from '../lib/useJob'
 import { Badge, Button, Card, Field, inputClass } from '../components/ui'
@@ -66,6 +66,7 @@ export default function AIDirector() {
   })
 
   const jobDone = job.data && job.data.status !== 'pending' && job.data.status !== 'running'
+  const fjobs = job.data?.failures?.items ?? []
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-8">
@@ -77,7 +78,17 @@ export default function AIDirector() {
       {job.data && (
         <Card className="mb-6">
           <div className="flex items-center gap-3 text-sm">
-            <Badge tone={job.data.status === 'succeeded' ? 'green' : job.data.status === 'failed' ? 'red' : 'blue'}>
+            <Badge
+              tone={
+                job.data.status === 'succeeded'
+                  ? 'green'
+                  : job.data.status === 'partial_failed'
+                    ? 'yellow'
+                    : job.data.status === 'failed'
+                      ? 'red'
+                      : 'blue'
+              }
+            >
               {job.data.status}
             </Badge>
             <span className="text-slate-300">
@@ -88,6 +99,15 @@ export default function AIDirector() {
               <Button variant="ghost" onClick={() => { setJobId(null); qc.invalidateQueries() }}>关闭</Button>
             )}
           </div>
+          {fjobs.length > 0 && (
+            <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-xs text-amber-300">
+              {fjobs.map((f, i) => (
+                <li key={`${f.ref}-${i}`} className="truncate" title={f.message}>
+                  [{f.kind}] {f.message}
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
       )}
 
@@ -163,7 +183,14 @@ export default function AIDirector() {
                 <span className="truncate text-slate-500">{r.reason}</span>
                 <Badge tone={r.status === 'proxied' ? 'green' : r.status === 'failed' ? 'red' : 'slate'}>{r.status}</Badge>
                 {r.proxy_ref && (
-                  <a className="text-accent hover:underline" href={downloadUrl(`/api/media/file?path=${encodeURIComponent(r.proxy_ref)}`)}>预览</a>
+                  <a
+                    className="text-accent hover:underline"
+                    href={reviewProxyUrl(id, r.id)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    预览
+                  </a>
                 )}
               </li>
             ))}

@@ -109,6 +109,9 @@ class SegmentOut(ORMModel):
     project_id: str
     start_sec: float
     end_sec: float
+    detected_start_sec: float = 0.0
+    detected_end_sec: float = 0.0
+    is_trimmed: bool = False
     boundary_reason: str
     quality_metrics: dict
     content_tags: dict
@@ -126,6 +129,9 @@ class SegmentListItem(BaseModel):
     asset_id: str
     start_sec: float
     end_sec: float
+    detected_start_sec: float = 0.0
+    detected_end_sec: float = 0.0
+    is_trimmed: bool = False
     duration_sec: float
     boundary_reason: str
     user_rating: str
@@ -155,6 +161,7 @@ class AnnotateRequest(BaseModel):
 
 class JobCreate(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
+    force: bool = False
 
 
 class JobOut(ORMModel):
@@ -163,6 +170,7 @@ class JobOut(ORMModel):
     job_type: str
     status: str
     stats: dict
+    failures: dict = Field(default_factory=dict)
     resume_token: dict
     error: str
     created_at: datetime

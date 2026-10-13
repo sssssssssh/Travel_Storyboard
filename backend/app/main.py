@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import logging
-import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +15,7 @@ from . import __version__
 from .api import assets, export, jobs, media, packages, projects, segments, story, system
 from .config import get_settings
 from .database import init_db
-from .security import extract_token, get_token
+from .security import check_request_origin, extract_token, get_token, token_matches
 from .services import (  # noqa: F401 - registers job tasks
     analyzer,
     indexer,
@@ -24,14 +23,16 @@ from .services import (  # noqa: F401 - registers job tasks
     roughcut,
     story_planner,
 )
-from .services.runner import runner
+from .services.runner import runner, resume_interrupted_jobs
 
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-# Paths that must stay reachable before the token is known.
-EXEMPT_PATHS = {"/api/system/health", "/api/system/token", "/api/system/config"}
+# Only liveness/config introspection stays reachable without the token; neither
+# reveals the token or any user data. `/api/system/token` is deliberately NOT
+# here — handing out the token unauthenticated would defeat the whole boundary.
+EXEMPT_PATHS = {"/api/system/health", "/api/system/config"}
 
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
@@ -42,8 +43,14 @@ async def lifespan(app: FastAPI):
     token = get_token()
     logger.info("=" * 60)
     logger.info("Travel Storyboard v%s", __version__)
-    logger.info("Local access token: %s", token)
+    logger.info(
+        "Open: http://%s:%s/?token=%s", settings.bind_host, settings.bind_port, token
+    )
+    logger.info("(Token is also stored in %s)", settings.data_path / "token.txt")
     logger.info("=" * 60)
+    resumed = resume_interrupted_jobs()
+    if resumed:
+        logger.info("Re-dispatched %d interrupted job(s): %s", len(resumed), resumed)
     yield
     runner.shutdown()
 
@@ -52,11 +59,16 @@ app = FastAPI(title="Travel Storyboard", version=__version__, lifespan=lifespan)
 
 
 @app.middleware("http")
-async def auth_middleware(request: Request, call_next):
+async def security_middleware(request: Request, call_next):
+    """Loopback-only origin validation + token auth for /api/*."""
+    try:
+        check_request_origin(request)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
     path = request.url.path
     if path.startswith("/api") and path not in EXEMPT_PATHS:
-        supplied = extract_token(request)
-        if not supplied or not secrets.compare_digest(supplied, get_token()):
+        if not token_matches(extract_token(request)):
             return JSONResponse(
                 status_code=401, content={"detail": "Invalid or missing access token"}
             )

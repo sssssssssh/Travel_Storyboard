@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, downloadUrl, endpoints, mediaUrl } from '../lib/api'
+import { api, downloadUrl, endpoints, mediaUrl, roughcutUrl } from '../lib/api'
 import type { BuildPlanResult, EditPlanOut, JobOut, SegmentListItem, SegmentListOut } from '../lib/types'
 import { formatTimeCode } from '../lib/format'
 import { useJob } from '../lib/useJob'
@@ -84,6 +84,7 @@ export default function Export() {
 
   const total = draft.reduce((acc, s) => acc + s.target_duration_sec, 0)
   const rcPath = roughcutJob.data?.resume_token?.path as string | undefined
+  const rcIncomplete = Boolean(roughcutJob.data?.resume_token?.incomplete)
 
   return (
     <div className="flex h-full flex-col">
@@ -108,15 +109,26 @@ export default function Export() {
 
       {roughcutJob.data && (
         <div className="border-b border-ink-800 px-6 py-2 text-sm">
-          <Badge tone={roughcutJob.data.status === 'succeeded' ? 'green' : roughcutJob.data.status === 'failed' ? 'red' : 'blue'}>
+          <Badge
+            tone={
+              roughcutJob.data.status === 'succeeded'
+                ? 'green'
+                : roughcutJob.data.status === 'partial_failed'
+                  ? 'yellow'
+                  : roughcutJob.data.status === 'failed'
+                    ? 'red'
+                    : 'blue'
+            }
+          >
             {roughcutJob.data.status}
           </Badge>
           {' '}粗剪 {roughcutJob.data.stats.done ?? 0}/{roughcutJob.data.stats.total ?? 0}
+          {rcIncomplete && <span className="ml-2 text-amber-400">⚠ 缺镜头，仅为不完整预览</span>}
           {roughcutJob.data.error && <span className="ml-2 text-red-400">{roughcutJob.data.error}</span>}
-          {roughcutJob.data.status === 'succeeded' && rcPath && (
+          {rcPath && (
             <a
               className="ml-2 text-accent hover:underline"
-              href={mediaUrl(rcPath)}
+              href={roughcutUrl(id)}
               target="_blank"
               rel="noreferrer"
             >
@@ -149,7 +161,7 @@ export default function Export() {
               {segments.data.items.map((s) => (
                 <li key={s.id} className="flex items-center gap-3 rounded-md border border-ink-700 bg-ink-900 p-2">
                   <div className="h-10 w-16 shrink-0 overflow-hidden rounded bg-ink-800">
-                    {s.thumbnail ? <img src={mediaUrl(s.thumbnail)} alt="" className="h-full w-full object-cover" /> : null}
+                    {s.thumbnail ? <img src={mediaUrl(id, s.thumbnail)} alt="" className="h-full w-full object-cover" /> : null}
                   </div>
                   <div className="min-w-0 flex-1 text-xs text-slate-400">
                     <div className="truncate text-slate-300">{s.asset_display_name}</div>

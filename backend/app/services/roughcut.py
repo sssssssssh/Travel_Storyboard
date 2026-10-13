@@ -14,7 +14,7 @@ from ..database import session_scope
 from ..ffmpeg import locate_ffmpeg, run
 from ..models import Asset, EditPlanShot, Job
 from ..paths import project_cache_dir, rel_to_data
-from .runner import register_task, update_job
+from .runner import JobFailures, raise_if_cancelled, register_task, update_job
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,7 @@ def _extract_normalized(source: str, start: float, dur: float, out: Path) -> Non
 
 @register_task("roughcut")
 def roughcut_task(job_id: str) -> None:
+    failures = JobFailures(job_id)
     with session_scope() as s:
         job = s.get(Job, job_id)
         if job is None:
@@ -69,9 +70,16 @@ def roughcut_task(job_id: str) -> None:
     done = 0
     failed = 0
     for i, (sh, asset) in enumerate(pairs):
+        raise_if_cancelled(job_id)
         if asset is None:
             failed += 1
+            failures.record(
+                kind="shot",
+                ref=sh.id,
+                message=f"shot #{sh.order}: referenced asset {sh.asset_id} is missing",
+            )
             done += 1
+            update_job(job_id, stats={"total": total, "done": done, "failed": failed})
             continue
         dur = sh.target_duration_sec or (sh.source_out_sec - sh.source_in_sec)
         clip = work / f"clip_{i:04d}.mp4"
@@ -81,6 +89,11 @@ def roughcut_task(job_id: str) -> None:
         except Exception as exc:  # noqa: BLE001 - keep going on other clips
             logger.exception("Rough-cut clip failed for shot %s", sh.id)
             failed += 1
+            failures.record(
+                kind="shot",
+                ref=sh.id,
+                message=f"shot #{sh.order} ({asset.display_name}): {exc}",
+            )
         done += 1
         update_job(job_id, stats={"total": total, "done": done, "failed": failed})
 
@@ -92,7 +105,10 @@ def roughcut_task(job_id: str) -> None:
         for c in clips:
             f.write(f"file '{c.as_posix()}'\n")
 
-    out = work / "roughcut.mp4"
+    # A rough cut missing shots must never look like the finished edit
+    # (audit P1-08): the filename says so and the job ends partial_failed.
+    incomplete = failed > 0
+    out = work / ("roughcut_INCOMPLETE.mp4" if incomplete else "roughcut.mp4")
     run(
         [
             locate_ffmpeg(),
@@ -104,4 +120,22 @@ def roughcut_task(job_id: str) -> None:
             str(out),
         ]
     )
-    update_job(job_id, resume_token={"path": rel_to_data(out), "size": out.stat().st_size})
+    # Drop any stale file from the other naming variant so /roughcut is unambiguous.
+    stale = work / ("roughcut.mp4" if incomplete else "roughcut_INCOMPLETE.mp4")
+    if stale.exists():
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+
+    update_job(
+        job_id,
+        resume_token={
+            "path": rel_to_data(out),
+            "size": out.stat().st_size,
+            "incomplete": incomplete,
+            "shots_included": len(clips),
+            "shots_total": total,
+            "missing_shots": [item["ref"] for item in failures.items],
+        },
+    )

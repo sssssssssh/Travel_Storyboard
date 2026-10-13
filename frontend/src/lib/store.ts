@@ -1,6 +1,5 @@
 import { create } from 'zustand'
-import { api, setToken } from './api'
-import { endpoints } from './api'
+import { bootstrapToken, getToken } from './api'
 
 interface AppState {
   token: string | null
@@ -9,17 +8,24 @@ interface AppState {
   boot: () => Promise<void>
 }
 
+/**
+ * Bootstrap state. The token is no longer fetched from an unauthenticated API
+ * (audit P0-01): it comes from the launcher URL (`?token=…`) or sessionStorage
+ * via `bootstrapToken()`. `ready` simply reports whether we have one, so pages
+ * can show a "reopen via the launcher link" hint instead of a 401 storm.
+ */
 export const useApp = create<AppState>((set) => ({
   token: null,
   ready: false,
   error: null,
   boot: async () => {
-    try {
-      const data = await api<{ token: string }>(endpoints.token)
-      setToken(data.token)
-      set({ token: data.token, ready: true, error: null })
-    } catch (err) {
-      set({ ready: true, error: err instanceof Error ? err.message : String(err) })
-    }
+    const token = bootstrapToken() ?? getToken()
+    set({
+      token,
+      ready: true,
+      error: token
+        ? null
+        : '未加载访问令牌 —— 请通过启动器输出/ token.txt 中的 ?token=… 链接打开本页面',
+    })
   },
 }))

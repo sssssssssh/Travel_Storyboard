@@ -18,7 +18,7 @@ from ..ffmpeg import extract_preview
 from ..models import Asset, Frame, Job, ReviewRequest, Segment
 from ..paths import project_cache_dir, rel_to_data
 from . import model_client
-from .runner import register_task, update_job
+from .runner import JobFailures, raise_if_cancelled, register_task, update_job
 
 logger = logging.getLogger(__name__)
 
@@ -90,14 +90,17 @@ def import_review_requests(project_id: str, data: dict) -> dict:
 
 @register_task("proxies")
 def proxies_task(job_id: str) -> None:
+    failures = JobFailures(job_id)
     with session_scope() as s:
         job = s.get(Job, job_id)
         if job is None:
             return
         project_id = job.project_id
-        max_total_mb = float(job.config_snapshot.get("max_total_mb", 300))
+        max_total_mb = float((job.config_snapshot or {}).get("max_total_mb", 300))
+        s.expunge(job)
 
     settings = get_settings()
+    (project_cache_dir(project_id) / "proxies").mkdir(parents=True, exist_ok=True)
     with session_scope() as s:
         reqs = s.scalars(
             select(ReviewRequest).where(
@@ -108,27 +111,40 @@ def proxies_task(job_id: str) -> None:
             a.id: a for a in s.scalars(select(Asset).where(Asset.project_id == project_id)).all()
         }
         reqs = sorted(reqs, key=lambda r: _PRIORITY_ORDER.get(r.priority, 1))
+        plan = [(r.id, r.asset_id, r.start_sec, r.end_sec, r.priority) for r in reqs]
 
-    total = len(reqs)
+    total = len(plan)
     done = 0
     failed = 0
+    skipped_budget = 0
     total_bytes = 0
     budget = max_total_mb * 1024 * 1024
 
-    for req in reqs:
-        if total_bytes >= budget:
-            break
-        asset = assets.get(req.asset_id)
+    for req_id, asset_id, start_sec, end_sec, _priority in plan:
+        raise_if_cancelled(job_id)
+        asset = assets.get(asset_id)
         if asset is None:
             failed += 1
+            failures.record(
+                kind="review_request", ref=req_id, message=f"asset {asset_id} not found"
+            )
             done += 1
+            update_job(
+                job_id,
+                stats={"total": total, "done": done, "failed": failed, "bytes": total_bytes},
+            )
             continue
-        dur = max(1.0, req.end_sec - req.start_sec)
-        out = project_cache_dir(project_id) / "proxies" / f"{req.id}.mp4"
+        if total_bytes >= budget:
+            # Budget exhausted: leave the request pending rather than silently
+            # dropping it (audit P2-3).
+            skipped_budget += 1
+            continue
+        dur = max(1.0, end_sec - start_sec)
+        out = project_cache_dir(project_id) / "proxies" / f"{req_id}.mp4"
         try:
             extract_preview(
                 asset.source_path,
-                req.start_sec,
+                start_sec,
                 dur,
                 out,
                 width=settings.proxy_width,
@@ -137,20 +153,31 @@ def proxies_task(job_id: str) -> None:
             size = out.stat().st_size
             total_bytes += size
             with session_scope() as s:
-                rr = s.get(ReviewRequest, req.id)
+                rr = s.get(ReviewRequest, req_id)
                 rr.proxy_ref = rel_to_data(out)
                 rr.status = "proxied"
         except Exception as exc:  # noqa: BLE001 - per-request isolation
-            logger.exception("Proxy failed for request %s", req.id)
+            logger.exception("Proxy failed for request %s", req_id)
             failed += 1
+            failures.record(
+                kind="review_request",
+                ref=req_id,
+                message=f"{asset.display_name} {start_sec:.1f}-{end_sec:.1f}s: {exc}",
+            )
             with session_scope() as s:
-                rr = s.get(ReviewRequest, req.id)
+                rr = s.get(ReviewRequest, req_id)
                 rr.status = "failed"
                 rr.reason = (rr.reason or "") + f" [proxy failed: {str(exc)[:200]}]"
         done += 1
         update_job(
             job_id,
-            stats={"total": total, "done": done, "failed": failed, "bytes": total_bytes},
+            stats={
+                "total": total,
+                "done": done,
+                "failed": failed,
+                "bytes": total_bytes,
+                "skipped_budget": skipped_budget,
+            },
         )
 
 

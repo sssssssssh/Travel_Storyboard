@@ -1,4 +1,9 @@
-"""System status / config / token endpoints."""
+"""System status / config endpoints.
+
+Note: there is intentionally no unauthenticated token-issuing endpoint. The
+token is written to ``<data_dir>/token.txt`` at startup and surfaced to the
+browser by the launcher URL (``/?token=...``); see ``app.security``.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +13,6 @@ from .. import __version__
 from ..config import get_settings
 from ..ffmpeg import ffmpeg_available, ffprobe_available
 from ..schemas import HealthOut, SystemConfigOut
-from ..security import get_token
 
 router = APIRouter(tags=["system"])
 
@@ -39,8 +43,3 @@ def system_config() -> SystemConfigOut:
         model_name=s.model_name,
         model_configured=bool(s.model_base_url and s.model_api_key),
     )
-
-
-@router.get("/system/token")
-def system_token() -> dict:
-    return {"token": get_token()}

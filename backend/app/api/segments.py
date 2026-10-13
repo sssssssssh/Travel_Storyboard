@@ -1,6 +1,14 @@
-"""Segment listing / detail / annotation endpoints."""
+"""Segment listing / detail / annotation endpoints.
+
+Trimming is stored separately from detection output (audit P0-03):
+``detected_start_sec``/``detected_end_sec`` stay immutable and identify the
+segment across re-analysis, while ``start_sec``/``end_sec`` hold the effective
+(user-trimmed) range. ``is_trimmed`` records that the user overrode the bounds.
+"""
 
 from __future__ import annotations
+
+import math
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
@@ -14,10 +22,64 @@ router = APIRouter(tags=["segments"])
 
 RATING_VALUES = {"like", "favorite", "exclude", "pending"}
 
+# A trimmed range shorter than this is rejected as degenerate.
+MIN_TRIM_SEC = 0.2
+
 
 def _thumbnail(segment: Segment) -> str | None:
     refs = segment.frame_refs or []
     return refs[0] if refs else None
+
+
+def _validate_trim(segment: Segment, in_sec: float | None, out_sec: float | None) -> None:
+    """Reject non-finite / inverted / out-of-detected-window trims."""
+    for label, value in (("in_sec", in_sec), ("out_sec", out_sec)):
+        if value is not None and not math.isfinite(value):
+            raise HTTPException(status_code=422, detail=f"{label} must be a finite number")
+
+    low = in_sec if in_sec is not None else segment.start_sec
+    high = out_sec if out_sec is not None else segment.end_sec
+    if high - low < MIN_TRIM_SEC:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Selected range must be at least {MIN_TRIM_SEC}s (got {high - low:.3f}s)",
+        )
+
+    # `is None` (not truthiness): a detected start of 0.0 is legitimate.
+    det_start = segment.detected_start_sec
+    det_end = segment.detected_end_sec
+    if det_start is None:
+        det_start = segment.start_sec
+    if det_end is None:
+        det_end = segment.end_sec
+    tolerance = 1e-6
+    if low < det_start - tolerance or high > det_end + tolerance:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Trim {low:.3f}-{high:.3f}s must stay inside the detected segment "
+                f"{det_start:.3f}-{det_end:.3f}s"
+            ),
+        )
+
+
+def _apply_annotation(segment: Segment, payload: AnnotateRequest) -> None:
+    if payload.rating is not None:
+        if payload.rating not in RATING_VALUES:
+            raise HTTPException(
+                status_code=422, detail=f"rating must be one of {sorted(RATING_VALUES)}"
+            )
+        segment.user_rating = payload.rating
+    if payload.story_role is not None:
+        segment.story_role = payload.story_role
+
+    if payload.in_sec is not None or payload.out_sec is not None:
+        _validate_trim(segment, payload.in_sec, payload.out_sec)
+        if payload.in_sec is not None:
+            segment.start_sec = payload.in_sec
+        if payload.out_sec is not None:
+            segment.end_sec = payload.out_sec
+        segment.is_trimmed = True
 
 
 @router.get("/projects/{project_id}/segments", response_model=SegmentListOut)
@@ -60,6 +122,9 @@ def list_segments(
             asset_id=r.asset_id,
             start_sec=r.start_sec,
             end_sec=r.end_sec,
+            detected_start_sec=r.detected_start_sec if r.detected_start_sec is not None else r.start_sec,
+            detected_end_sec=r.detected_end_sec if r.detected_end_sec is not None else r.end_sec,
+            is_trimmed=bool(r.is_trimmed),
             duration_sec=round(max(0.0, r.end_sec - r.start_sec), 3),
             boundary_reason=r.boundary_reason,
             user_rating=r.user_rating,
@@ -87,16 +152,7 @@ def update_segment(segment_id: str, payload: AnnotateRequest, db: Session = Depe
     segment = db.get(Segment, segment_id)
     if segment is None:
         raise HTTPException(status_code=404, detail="Segment not found")
-    if payload.rating is not None:
-        if payload.rating not in RATING_VALUES:
-            raise HTTPException(status_code=422, detail=f"rating must be one of {sorted(RATING_VALUES)}")
-        segment.user_rating = payload.rating
-    if payload.story_role is not None:
-        segment.story_role = payload.story_role
-    if payload.in_sec is not None:
-        segment.start_sec = payload.in_sec
-    if payload.out_sec is not None:
-        segment.end_sec = payload.out_sec
+    _apply_annotation(segment, payload)
     db.commit()
     db.refresh(segment)
     return segment
@@ -108,16 +164,7 @@ def annotate_segment(segment_id: str, payload: AnnotateRequest, db: Session = De
     if segment is None:
         raise HTTPException(status_code=404, detail="Segment not found")
 
-    if payload.rating is not None:
-        if payload.rating not in RATING_VALUES:
-            raise HTTPException(status_code=422, detail=f"rating must be one of {sorted(RATING_VALUES)}")
-        segment.user_rating = payload.rating
-    if payload.story_role is not None:
-        segment.story_role = payload.story_role
-    if payload.in_sec is not None:
-        segment.start_sec = payload.in_sec
-    if payload.out_sec is not None:
-        segment.end_sec = payload.out_sec
+    _apply_annotation(segment, payload)
 
     annotation = db.scalars(
         select(UserAnnotation).where(UserAnnotation.segment_id == segment_id)
@@ -136,3 +183,17 @@ def annotate_segment(segment_id: str, payload: AnnotateRequest, db: Session = De
 
     db.commit()
     return {"ok": True}
+
+
+@router.post("/segments/{segment_id}/reset-trim", response_model=SegmentOut)
+def reset_trim(segment_id: str, db: Session = Depends(get_db)):
+    """Restore the effective bounds to the detected ones."""
+    segment = db.get(Segment, segment_id)
+    if segment is None:
+        raise HTTPException(status_code=404, detail="Segment not found")
+    segment.start_sec = segment.detected_start_sec if segment.detected_start_sec is not None else segment.start_sec
+    segment.end_sec = segment.detected_end_sec if segment.detected_end_sec is not None else segment.end_sec
+    segment.is_trimmed = False
+    db.commit()
+    db.refresh(segment)
+    return segment

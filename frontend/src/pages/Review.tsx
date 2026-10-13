@@ -126,7 +126,7 @@ export default function Review() {
                     >
                       <div className="relative aspect-video w-full bg-ink-800">
                         {s.thumbnail ? (
-                          <img src={mediaUrl(s.thumbnail)} alt="" className="h-full w-full object-cover" loading="lazy" />
+                          <img src={mediaUrl(id, s.thumbnail)} alt="" className="h-full w-full object-cover" loading="lazy" />
                         ) : (
                           <div className="flex h-full items-center justify-center text-xs text-slate-600">无预览</div>
                         )}
@@ -175,7 +175,7 @@ export default function Review() {
             </div>
             <div className="mb-3 aspect-video w-full overflow-hidden rounded-lg bg-ink-800">
               {selected.thumbnail ? (
-                <img src={mediaUrl(selected.thumbnail)} alt="" className="h-full w-full object-contain" />
+                <img src={mediaUrl(id, selected.thumbnail)} alt="" className="h-full w-full object-contain" />
               ) : (
                 <div className="flex h-full items-center justify-center text-xs text-slate-600">无预览</div>
               )}

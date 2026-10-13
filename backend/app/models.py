@@ -20,6 +20,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -50,6 +51,11 @@ class Project(Base):
 
 class Asset(Base):
     __tablename__ = "assets"
+    # One row per file per project; guarantees a failed probe cannot create a
+    # duplicate of an already-flushed record (audit P0-02).
+    __table_args__ = (
+        UniqueConstraint("project_id", "source_path", name="uq_asset_project_path"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     project_id: Mapped[str] = mapped_column(
@@ -81,6 +87,11 @@ class Asset(Base):
     error_code: Mapped[str] = mapped_column(String(64), default="")
     error_message: Mapped[str] = mapped_column(Text, default="")
     analysis_version: Mapped[str] = mapped_column(String(32), default="")
+    # Fingerprint/config actually used for the last successful detect run, so an
+    # unchanged file is not re-analysed (audit P1-04).
+    analyzed_fingerprint: Mapped[str] = mapped_column(String(128), default="")
+    analyzed_detect_config: Mapped[str] = mapped_column(String(255), default="")
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -95,8 +106,16 @@ class Segment(Base):
         String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True
     )
 
+    # `detected_*` are immutable algorithm output and are the identity used to
+    # match segments across re-analysis. `start_sec`/`end_sec` are the effective
+    # bounds: they start equal to detected_* and may be trimmed by the user.
+    # Keeping them separate is what stops a re-run from deleting a segment whose
+    # in/out was edited (audit P0-03).
+    detected_start_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    detected_end_sec: Mapped[float] = mapped_column(Float, default=0.0)
     start_sec: Mapped[float] = mapped_column(Float, default=0.0)
     end_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    is_trimmed: Mapped[bool] = mapped_column(Boolean, default=False)
     boundary_reason: Mapped[str] = mapped_column(String(32), default="")
     quality_metrics: Mapped[dict] = mapped_column(JSON, default=dict)
     content_tags: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -141,6 +160,8 @@ class Job(Base):
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     config_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
     stats: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Per-item failures recorded by a task; drives partial_failed (audit P1-08).
+    failures: Mapped[dict] = mapped_column(JSON, default=dict)
     resume_token: Mapped[dict] = mapped_column(JSON, default=dict)
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

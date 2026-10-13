@@ -1,7 +1,51 @@
 let token: string | null = null
 
+const STORAGE_KEY = 'tsb.accessToken'
+
+/**
+ * Bootstrap the access token.
+ *
+ * The server no longer exposes an unauthenticated token endpoint (audit
+ * P0-01). Instead the launcher opens `/?token=...`; we consume that value once,
+ * persist it in sessionStorage, and strip it from the address bar so it does not
+ * linger in history or get copied around. A token already in sessionStorage
+ * (e.g. after a refresh) is reused.
+ */
+export function bootstrapToken(): string | null {
+  let fromUrl: string | null = null
+  try {
+    const params = new URLSearchParams(window.location.search)
+    fromUrl = params.get('token')
+    if (fromUrl) {
+      params.delete('token')
+      const qs = params.toString()
+      const next = `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`
+      window.history.replaceState({}, '', next)
+      window.sessionStorage.setItem(STORAGE_KEY, fromUrl)
+    }
+  } catch {
+    // URL/history unavailable — fall through to sessionStorage below.
+  }
+
+  let stored: string | null = null
+  try {
+    stored = window.sessionStorage.getItem(STORAGE_KEY)
+  } catch {
+    // storage unavailable (private mode) — no persisted token to reuse.
+  }
+
+  token = fromUrl ?? stored ?? null
+  return token
+}
+
 export function setToken(value: string | null): void {
   token = value
+  try {
+    if (value) window.sessionStorage.setItem(STORAGE_KEY, value)
+    else window.sessionStorage.removeItem(STORAGE_KEY)
+  } catch {
+    // storage unavailable (private mode) — keep the in-memory value only
+  }
 }
 
 export function getToken(): string | null {
@@ -38,13 +82,42 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   return (await res.json()) as T
 }
 
-export function mediaUrl(rel: string | null | undefined): string {
-  if (!rel) return ''
-  return `/api/media/file?path=${encodeURIComponent(rel)}&token=${encodeURIComponent(token ?? '')}`
+/** Build a URL with the token as a query param (for <img>/<video>/downloads). */
+export function withToken(path: string): string {
+  const url = new URL(path, window.location.origin)
+  if (token) url.searchParams.set('token', token)
+  return `${url.pathname}${url.search}`
+}
+
+/** A representative frame image, served by frame id (DB-authorized). */
+export function frameUrl(frameId: string | null | undefined): string {
+  if (!frameId) return ''
+  return withToken(`/api/frames/${encodeURIComponent(frameId)}/image`)
+}
+
+/**
+ * A stored project artifact (thumbnail path, proxy, contact sheet).
+ * `projectId` is required: the media route rejects paths outside the project.
+ */
+export function mediaUrl(projectId: string, rel: string | null | undefined): string {
+  if (!rel || !projectId) return ''
+  const url = new URL(`/api/projects/${encodeURIComponent(projectId)}/media`, window.location.origin)
+  url.searchParams.set('path', rel)
+  if (token) url.searchParams.set('token', token)
+  return `${url.pathname}${url.search}`
+}
+
+export function reviewProxyUrl(projectId: string, requestId: string): string {
+  return withToken(
+    `/api/projects/${encodeURIComponent(projectId)}/review-requests/${encodeURIComponent(requestId)}/proxy`,
+  )
+}
+
+export function roughcutUrl(projectId: string): string {
+  return withToken(`/api/projects/${encodeURIComponent(projectId)}/roughcut`)
 }
 
 export const endpoints = {
-  token: '/api/system/token',
   health: '/api/system/health',
   config: '/api/system/config',
   projects: '/api/projects',
@@ -52,8 +125,10 @@ export const endpoints = {
   assets: (id: string, extra = '') => `/api/projects/${id}/assets${extra}`,
   segments: (id: string, extra = '') => `/api/projects/${id}/segments${extra}`,
   annotate: (id: string) => `/api/segments/${id}/annotate`,
+  resetTrim: (id: string) => `/api/segments/${id}/reset-trim`,
   jobs: (id: string) => `/api/projects/${id}/jobs`,
   createJob: (id: string, type: string) => `/api/projects/${id}/jobs/${type}`,
+  cancelJob: (id: string) => `/api/jobs/${id}/cancel`,
   job: (id: string) => `/api/jobs/${id}`,
   packages: (id: string) => `/api/projects/${id}/packages`,
   packageDownload: (id: string) => `/api/packages/${id}/download`,
@@ -67,6 +142,7 @@ export const endpoints = {
   exportOtio: (id: string) => `/api/projects/${id}/export/otio`,
 }
 
+/** Download URL that appends the token correctly (& not a second ?). */
 export function downloadUrl(path: string): string {
-  return `${path}?token=${encodeURIComponent(token ?? '')}`
+  return withToken(path)
 }

@@ -17,7 +17,7 @@ from ..config import ANALYSIS_VERSION, VIDEO_EXTENSIONS
 from ..database import session_scope
 from ..ffmpeg import probe_media
 from ..models import Asset, Job, Project, utcnow
-from .runner import register_task, update_job
+from .runner import JobFailures, raise_if_cancelled, register_task, update_job
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,12 @@ def _apply_probe_fields(asset: Asset, path: Path, size: int, mtime: int) -> None
 
 
 def index_one(project_id: str, path: Path) -> tuple[str, str]:
-    """Index a single file. Returns (asset_id, action)."""
+    """Index a single file. Returns (asset_id, action).
+
+    Exactly one Asset row exists per (project_id, source_path): the record is
+    created first and then *reused* on probe failure, so a broken file cannot
+    leave a duplicate behind (audit P0-02).
+    """
     stat = path.stat()
     size = stat.st_size
     mtime = stat.st_mtime_ns
@@ -104,50 +109,40 @@ def index_one(project_id: str, path: Path) -> tuple[str, str]:
         ):
             return existing.id, "skipped"
 
-        try:
-            if existing is None:
-                asset = Asset(
-                    project_id=project_id,
-                    source_path=str(path),
-                    display_name=path.name,
-                )
-                s.add(asset)
-                s.flush()
-                action = "created"
-            else:
-                asset = existing
-                action = "updated"
-            _apply_probe_fields(asset, path, size, mtime)
+        if existing is None:
+            asset = Asset(
+                project_id=project_id,
+                source_path=str(path),
+                display_name=path.name,
+            )
+            s.add(asset)
             s.flush()
-            return asset.id, action
+            action = "created"
+        else:
+            asset = existing
+            action = "updated"
+
+        try:
+            _apply_probe_fields(asset, path, size, mtime)
         except Exception as exc:  # noqa: BLE001 - per-file isolation
-            code = "probe_failed"
-            if existing is None:
-                asset = Asset(
-                    project_id=project_id,
-                    source_path=str(path),
-                    display_name=path.name,
-                    file_size_bytes=size,
-                    mtime_ns=mtime,
-                    scan_status="failed",
-                    error_code=code,
-                    error_message=str(exc)[:2000],
-                )
-                s.add(asset)
-                s.flush()
-                return asset.id, "failed"
+            # Reuse the SAME row: never insert a second Asset for this path.
             asset.file_size_bytes = size
             asset.mtime_ns = mtime
             asset.scan_status = "failed"
-            asset.error_code = code
+            asset.error_code = "probe_failed"
             asset.error_message = str(exc)[:2000]
+            asset.scanned_at = utcnow()
             s.flush()
             return asset.id, "failed"
+
+        s.flush()
+        return asset.id, action
 
 
 @register_task("scan")
 def scan_task(job_id: str) -> None:
     """Scan all project roots and index every video file."""
+    failures = JobFailures(job_id)
     with session_scope() as s:
         job = s.get(Job, job_id)
         if job is None:
@@ -157,7 +152,7 @@ def scan_task(job_id: str) -> None:
         if project is None:
             raise RuntimeError("Project not found")
         roots = list(project.source_roots or [])
-        last_index = int(job.resume_token.get("last_index", -1))
+        last_index = int((job.resume_token or {}).get("last_index", -1))
 
     files = sorted(iter_video_files(roots), key=lambda p: str(p).lower())
     total = len(files)
@@ -168,14 +163,19 @@ def scan_task(job_id: str) -> None:
         if i <= last_index:
             done += 1
             continue
+        raise_if_cancelled(job_id)
         try:
             _, action = index_one(project_id, path)
         except Exception as exc:  # noqa: BLE001 - continue other files
             logger.exception("Index failed: %s", path)
             failed += 1
+            failures.record(kind="file", ref=str(path), message=str(exc))
         else:
             if action == "failed":
                 failed += 1
+                failures.record(
+                    kind="file", ref=str(path), message="probe failed (see asset.error_message)"
+                )
         done += 1
         update_job(
             job_id,
