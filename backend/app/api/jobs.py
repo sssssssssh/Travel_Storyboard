@@ -26,7 +26,8 @@ VALID_JOB_TYPES = {"scan", "detect", "package", "proxies", "roughcut"}
 def _job_config(project: Project, job_type: str, options: dict, force: bool) -> dict:
     settings = get_settings()
     if job_type == "scan":
-        return {"source_roots": list(project.source_roots or []), "force": force}
+        return {"source_roots": list(project.source_roots or []), "force": force,
+                "full_hash": bool(options.get("full_hash", False))}
     if job_type == "detect":
         return {
             "sample_fps": settings.detect_sample_fps,
@@ -34,6 +35,7 @@ def _job_config(project: Project, job_type: str, options: dict, force: bool) -> 
             "max_segment_sec": settings.detect_max_segment_sec,
             "thumb_width": settings.thumb_width,
             "force": force,
+            "full_hash": bool(options.get("full_hash", False)),
         }
     if job_type == "package":
         return {
@@ -85,10 +87,17 @@ def create_job(
 
     options = (body.options if body else None) or {}
     force = bool(body.force) if body else False
+    config = _job_config(project, job_type, options, force)
+    if job_type == 'scan':
+        from ..services.indexer import scan_manifest
+        config['items'] = scan_manifest(config['source_roots'], config['full_hash'])
+    elif job_type == 'detect':
+        from ..services.analyzer import detect_manifest
+        config['items'] = detect_manifest(project_id, config)
     job = Job(
         project_id=project_id,
         job_type=job_type,
-        config_snapshot=_job_config(project, job_type, options, force),
+        config_snapshot=config,
         stats={"total": 0, "done": 0, "failed": 0},
         failures={"count": 0, "items": []},
     )

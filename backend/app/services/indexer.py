@@ -43,14 +43,13 @@ def iter_video_files(roots: list[str]):
 def quick_fingerprint(path: Path, size: int) -> str:
     h = hashlib.sha256()
     h.update(str(size).encode("utf-8"))
-    try:
-        with open(path, "rb") as f:
+    # Include sample offsets so the signature has an explicit sampling protocol.
+    offsets = sorted({0, max(0, size // 2 - 32768), max(0, size - 65536)})
+    with open(path, "rb") as f:
+        for offset in offsets:
+            h.update(str(offset).encode("ascii"))
+            f.seek(offset)
             h.update(f.read(65536))
-            if size > 131072:
-                f.seek(-65536, os.SEEK_END)
-                h.update(f.read(65536))
-    except OSError:
-        pass
     return h.hexdigest()
 
 
@@ -90,9 +89,11 @@ def index_one(project_id: str, path: Path) -> tuple[str, str]:
     created first and then *reused* on probe failure, so a broken file cannot
     leave a duplicate behind (audit P0-02).
     """
+    path = path.resolve()
     stat = path.stat()
     size = stat.st_size
     mtime = stat.st_mtime_ns
+    fingerprint = quick_fingerprint(path, size)
 
     with session_scope() as s:
         existing = s.scalars(
@@ -105,6 +106,7 @@ def index_one(project_id: str, path: Path) -> tuple[str, str]:
             existing
             and existing.file_size_bytes == size
             and existing.mtime_ns == mtime
+            and existing.quick_fingerprint == fingerprint
             and existing.scan_status == "succeeded"
         ):
             return existing.id, "skipped"
@@ -139,9 +141,16 @@ def index_one(project_id: str, path: Path) -> tuple[str, str]:
         return asset.id, action
 
 
+def scan_manifest(roots: list[str], full_hash: bool = False) -> list[dict]:
+    from .checkpoints import manifest_entry
+    return [manifest_entry(str(path), str(path), full_hash=full_hash)
+            for path in sorted(iter_video_files(roots), key=lambda p: str(p))]
+
+
 @register_task("scan")
 def scan_task(job_id: str) -> None:
-    """Scan all project roots and index every video file."""
+    from .checkpoints import reconcile, persist, source_signature
+    from .runner import JobCancelled
     failures = JobFailures(job_id)
     with session_scope() as s:
         job = s.get(Job, job_id)
@@ -151,34 +160,29 @@ def scan_task(job_id: str) -> None:
         project = s.get(Project, project_id)
         if project is None:
             raise RuntimeError("Project not found")
-        roots = list(project.source_roots or [])
-        last_index = int((job.resume_token or {}).get("last_index", -1))
-
-    files = sorted(iter_video_files(roots), key=lambda p: str(p).lower())
-    total = len(files)
-    done = 0
-    failed = 0
-
-    for i, path in enumerate(files):
-        if i <= last_index:
-            done += 1
-            continue
+        config = dict(job.config_snapshot or {})
+        roots = list(config.get("source_roots", project.source_roots or []))
+    full_hash = bool(config.get("full_hash", False))
+    items, token = reconcile(job_id, scan_manifest(roots, full_hash))
+    for item in items:
         raise_if_cancelled(job_id)
+        if item['status'] in ('completed', 'skipped'):
+            continue
+        path = Path(item['source'])
         try:
-            _, action = index_one(project_id, path)
-        except Exception as exc:  # noqa: BLE001 - continue other files
-            logger.exception("Index failed: %s", path)
-            failed += 1
-            failures.record(kind="file", ref=str(path), message=str(exc))
-        else:
-            if action == "failed":
-                failed += 1
-                failures.record(
-                    kind="file", ref=str(path), message="probe failed (see asset.error_message)"
-                )
-        done += 1
-        update_job(
-            job_id,
-            stats={"total": total, "done": done, "failed": failed},
-            resume_token={"last_index": i},
-        )
+            if item.get('source_error'):
+                raise RuntimeError(item['source_error'])
+            aid, action = index_one(project_id, path)
+            item['asset_id'] = aid
+            if action == 'failed':
+                raise RuntimeError('probe failed (see asset.error_message)')
+            if source_signature(path, full_hash=full_hash) != item['scan_signature']:
+                raise RuntimeError('源文件已变化：扫描期间内容改变，请重试')
+            item['status'] = 'skipped' if action == 'skipped' else 'completed'
+            failures.resolve(kind='file', ref=str(path))
+        except JobCancelled:
+            raise
+        except Exception as exc:
+            item['status'] = 'failed'
+            failures.record(kind='file', ref=str(path), message=str(exc))
+        persist(job_id, items, token)

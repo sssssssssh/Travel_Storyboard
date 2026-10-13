@@ -73,12 +73,13 @@ def _detect_config_key(settings) -> str:
         f"v{ANALYSIS_VERSION}:"
         f"fps={settings.detect_sample_fps}:"
         f"thr={settings.detect_threshold}:"
-        f"max={settings.detect_max_segment_sec}"
+        f"max={settings.detect_max_segment_sec}:"
+        f"thumb={settings.thumb_width}"
     )
 
 
-def _analyze_asset(project_id: str, asset: Asset) -> dict:
-    settings = get_settings()
+def _analyze_asset(project_id: str, asset: Asset, settings=None) -> dict:
+    settings = settings or get_settings()
     source = asset.source_path
     if not Path(source).exists():
         raise RuntimeError(f"Source file missing: {source}")
@@ -257,7 +258,8 @@ def _analyze_asset(project_id: str, asset: Asset) -> dict:
         for frame in new_frames:
             s.add(frame)
         asset.analysis_version = ANALYSIS_VERSION
-        asset.analyzed_fingerprint = asset.quick_fingerprint
+        from .checkpoints import source_signature
+        asset.analyzed_fingerprint = source_signature(Path(source), full_hash=getattr(settings, "full_hash", False))
         asset.analyzed_detect_config = _detect_config_key(settings)
         s.merge(asset)
 
@@ -291,80 +293,79 @@ def _analyze_asset(project_id: str, asset: Asset) -> dict:
     return {"segments": len(new_segments), "frames": len(new_frames), "frames_reclaimed": freed}
 
 
+def detect_settings(config: dict):
+    from types import SimpleNamespace
+    defaults = get_settings()
+    return SimpleNamespace(
+        detect_sample_fps=config.get('sample_fps', defaults.detect_sample_fps),
+        detect_threshold=config.get('threshold', defaults.detect_threshold),
+        detect_max_segment_sec=config.get('max_segment_sec', defaults.detect_max_segment_sec),
+        thumb_width=config.get('thumb_width', defaults.thumb_width),
+        full_hash=bool(config.get('full_hash', False)),
+    )
+
+
+def detect_manifest(project_id: str, config: dict) -> list[dict]:
+    from .checkpoints import manifest_entry
+    with session_scope() as s:
+        assets = s.scalars(select(Asset).where(
+            Asset.project_id == project_id, Asset.scan_status == 'succeeded')
+            .order_by(Asset.id)).all()
+        return [manifest_entry(a.id, a.source_path, full_hash=bool(config.get('full_hash')))
+                for a in assets]
+
+
 @register_task("detect")
 def detect_task(job_id: str) -> None:
-    settings = get_settings()
-    config_key = _detect_config_key(settings)
+    from .checkpoints import reconcile, persist, source_signature
+    from .runner import JobCancelled
     failures = JobFailures(job_id)
-
     with session_scope() as s:
         job = s.get(Job, job_id)
         if job is None:
             return
         project_id = job.project_id
-        last_asset = (job.resume_token or {}).get("last_asset_id")
-        force = bool((job.config_snapshot or {}).get("force", False))
-        s.expunge(job)
-
-    with session_scope() as s:
-        assets = s.scalars(
-            select(Asset)
-            .where(Asset.project_id == project_id, Asset.scan_status == "succeeded")
-            .order_by(Asset.display_name)
-        ).all()
-        asset_ids = [a.id for a in assets]
-
-    total = len(asset_ids)
-    start_idx = 0
-    if last_asset in asset_ids:
-        start_idx = asset_ids.index(last_asset) + 1
-
-    done = start_idx
-    failed = 0
-    skipped = 0
-    for i in range(start_idx, total):
-        asset_id = asset_ids[i]
+        config = dict(job.config_snapshot or {})
+    settings = detect_settings(config)
+    config_key = _detect_config_key(settings)
+    # Freeze missing settings for pre-v2.0.1 jobs on their first recovery.
+    config.update(sample_fps=settings.detect_sample_fps, threshold=settings.detect_threshold,
+                  max_segment_sec=settings.detect_max_segment_sec, thumb_width=settings.thumb_width)
+    update_job(job_id, config_snapshot=config)
+    items, token = reconcile(job_id, detect_manifest(project_id, config))
+    force = bool(config.get('force', False))
+    for item in items:
         raise_if_cancelled(job_id)
-        with session_scope() as s:
-            asset = s.get(Asset, asset_id)
-            if asset is None:
-                continue
-            # Incremental skip (audit P1-04): unchanged file + same algorithm
-            # version + same detection knobs ⇒ no ffmpeg work at all.
-            unchanged = (
-                not force
-                and asset.analysis_version == ANALYSIS_VERSION
-                and asset.analyzed_fingerprint
-                and asset.analyzed_fingerprint == asset.quick_fingerprint
-                and asset.analyzed_detect_config == config_key
-            )
-            s.expunge(asset)
-
-        if unchanged:
-            skipped += 1
-            done += 1
-            update_job(
-                job_id,
-                stats={"total": total, "done": done, "failed": failed, "skipped": skipped},
-                resume_token={"last_asset_id": asset_id},
-            )
+        if item['status'] in ('completed', 'skipped'):
             continue
-
+        aid = item['key']
+        item['detect_signature'] = item['scan_signature'] + ':' + config_key
         try:
-            _analyze_asset(project_id, asset)
+            if item.get('source_error'):
+                raise RuntimeError(item['source_error'])
             with session_scope() as s:
-                row = s.get(Asset, asset_id)
-                if row is not None:
+                asset = s.get(Asset, aid)
+                if asset is None:
+                    raise RuntimeError('Source asset removed')
+                s.expunge(asset)
+            unchanged = (not force and asset.analysis_version == ANALYSIS_VERSION
+                         and asset.analyzed_fingerprint == item['scan_signature']
+                         and asset.analyzed_detect_config == config_key)
+            if unchanged:
+                item['status'] = 'skipped'
+            else:
+                _analyze_asset(project_id, asset, settings=settings)
+                if source_signature(Path(asset.source_path), full_hash=settings.full_hash) != item['scan_signature']:
+                    raise RuntimeError('源文件已变化：检测期间内容改变，请重试')
+                with session_scope() as s:
+                    row = s.get(Asset, aid)
                     row.analyzed_at = utcnow()
-        except Exception as exc:  # noqa: BLE001 - per-asset isolation
-            logger.exception("Analyze failed for asset %s", asset_id)
-            failed += 1
-            failures.record(
-                kind="asset", ref=asset_id, message=f"{asset.display_name}: {exc}"
-            )
-        done += 1
-        update_job(
-            job_id,
-            stats={"total": total, "done": done, "failed": failed, "skipped": skipped},
-            resume_token={"last_asset_id": asset_id},
-        )
+                item['status'] = 'completed'
+            failures.resolve(kind='asset', ref=aid)
+        except JobCancelled:
+            raise
+        except Exception as exc:
+            logger.exception('Analyze failed for asset %s', aid)
+            item['status'] = 'failed'
+            failures.record(kind='asset', ref=aid, message=str(exc))
+        persist(job_id, items, token)

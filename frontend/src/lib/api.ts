@@ -77,7 +77,9 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     } catch {
       // ignore json parse errors
     }
-    const message = typeof detail === 'string' ? detail : JSON.stringify(detail)
+    const message = typeof detail === 'string' ? detail
+      : detail && typeof detail === 'object' && 'message' in detail ? String(detail.message)
+      : JSON.stringify(detail)
     throw new ApiError(res.status, message)
   }
   if (res.status === 204) return undefined as T

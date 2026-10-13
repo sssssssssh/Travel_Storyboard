@@ -85,6 +85,12 @@ class JobFailures:
                 self.items.append(item)
         self.publish()
 
+    def resolve(self, *, kind: str, ref: str) -> None:
+        kept = [item for item in self.items if not (item["kind"] == kind and item["ref"] == ref)]
+        self.total -= len(self.items) - len(kept)
+        self.items = kept
+        self.publish()
+
     def extend(self, items: list[dict]) -> None:
         for item in items:
             self.record(
