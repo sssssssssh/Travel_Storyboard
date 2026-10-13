@@ -15,6 +15,7 @@ from ..services.runner import (
     STATUS_CANCELLED,
     STATUS_PENDING,
     runner,
+    project_lock,
 )
 from .deps import get_db
 
@@ -58,54 +59,61 @@ def create_job(
     body: JobCreate | None = None,
     db: Session = Depends(get_db),
 ):
-    if job_type not in VALID_JOB_TYPES:
-        raise HTTPException(
-            status_code=422, detail=f"job_type must be one of {sorted(VALID_JOB_TYPES)}"
-        )
-    project = db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    # Cache-mutating jobs are exclusive per project (audit P0-04): two detect
-    # runs over the same asset folder would race on frames/ and the DB.
-    if job_type in EXCLUSIVE_JOB_TYPES:
-        active = db.scalars(
-            select(Job).where(
-                Job.project_id == project_id,
-                Job.status.in_(ACTIVE_STATUSES),
-            )
-        ).all()
-        blocking = [j for j in active if j.job_type in EXCLUSIVE_JOB_TYPES]
-        if blocking:
+    lock = project_lock(project_id)
+    if not lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Project worker is active or stopping; wait for it to finish")
+    try:
+        if job_type not in VALID_JOB_TYPES:
             raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"Project already has an active job "
-                    f"({blocking[0].job_type} {blocking[0].id}); wait for it to finish"
-                ),
+                status_code=422, detail=f"job_type must be one of {sorted(VALID_JOB_TYPES)}"
             )
+        project = db.get(Project, project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="Project not found")
 
-    options = (body.options if body else None) or {}
-    force = bool(body.force) if body else False
-    config = _job_config(project, job_type, options, force)
-    if job_type == 'scan':
-        from ..services.indexer import scan_manifest
-        config['items'] = scan_manifest(config['source_roots'], config['full_hash'])
-    elif job_type == 'detect':
-        from ..services.analyzer import detect_manifest
-        config['items'] = detect_manifest(project_id, config)
-    job = Job(
-        project_id=project_id,
-        job_type=job_type,
-        config_snapshot=config,
-        stats={"total": 0, "done": 0, "failed": 0},
-        failures={"count": 0, "items": []},
-    )
-    db.add(job)
-    db.commit()
-    db.refresh(job)
-    runner.submit(job.id)
-    return job
+        # Cache-mutating jobs are exclusive per project (audit P0-04): two detect
+        # runs over the same asset folder would race on frames/ and the DB.
+        if job_type in EXCLUSIVE_JOB_TYPES:
+            active = db.scalars(
+                select(Job).where(
+                    Job.project_id == project_id,
+                    Job.status.in_(ACTIVE_STATUSES),
+                )
+            ).all()
+            blocking = [j for j in active if j.job_type in EXCLUSIVE_JOB_TYPES]
+            if blocking:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Project already has an active job "
+                        f"({blocking[0].job_type} {blocking[0].id}); wait for it to finish"
+                    ),
+                )
+
+        options = (body.options if body else None) or {}
+        force = bool(body.force) if body else False
+        config = _job_config(project, job_type, options, force)
+        if job_type == 'scan':
+            from ..services.indexer import scan_manifest
+            config['items'] = scan_manifest(config['source_roots'], config['full_hash'])
+        elif job_type == 'detect':
+            from ..services.analyzer import detect_manifest
+            config['items'] = detect_manifest(project_id, config)
+        job = Job(
+            project_id=project_id,
+            job_type=job_type,
+            config_snapshot=config,
+            stats={"total": 0, "done": 0, "failed": 0},
+            failures={"count": 0, "items": []},
+        )
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        runner.submit(job.id)
+        return job
+
+    finally:
+        lock.release()
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)

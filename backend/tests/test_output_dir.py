@@ -270,3 +270,20 @@ def test_roughcut_preview_in_any_workspace(client, tmp_path, custom, name):
     assert response.status_code == 200, response.text
     assert response.headers['content-type'] == 'video/mp4'
     assert response.headers['x-roughcut-incomplete'] == str(name != 'roughcut.mp4').lower()
+
+
+def test_output_change_blocks_cancelled_worker_still_writing(client, tmp_path):
+    from app.services.runner import project_lock
+    import threading
+    project = _make_project(client, 'stopping', str(tmp_path / 'old'))
+    pid = project['id']
+    entered, release = threading.Event(), threading.Event()
+    def worker():
+        with project_lock(pid):
+            entered.set(); release.wait(5)
+    thread = threading.Thread(target=worker); thread.start(); assert entered.wait(5)
+    try:
+        response = client.patch(f'/api/projects/{pid}', json={'output_dir': str(tmp_path / 'new')})
+        assert response.status_code == 409
+    finally:
+        release.set(); thread.join(5)

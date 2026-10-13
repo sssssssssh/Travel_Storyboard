@@ -16,6 +16,7 @@ from ..paths import (
 )
 from ..schemas import ProjectCreate, ProjectDetail, ProjectStats, ProjectUpdate
 from .deps import get_db
+from ..services.runner import project_lock
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -111,39 +112,50 @@ def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depend
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    merged_roots = (
-        payload.source_roots if payload.source_roots is not None else project.source_roots
-    )
-    merged_output = payload.output_dir if payload.output_dir is not None else project.output_dir
+    moving = (payload.output_dir is not None and
+              project_root_for(project_id, payload.output_dir) != project_root_for(project_id, project.output_dir))
+    lock = project_lock(project_id)
+    if moving and not lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail={
+            "code": "WORKSPACE_HAS_DATA", "message": "任务正在停止或写入缓存，不能修改工作区目录。"})
     try:
-        check_output_dir_safety(merged_output, merged_roots)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        merged_roots = (
+            payload.source_roots if payload.source_roots is not None else project.source_roots
+        )
+        merged_output = payload.output_dir if payload.output_dir is not None else project.output_dir
+        try:
+            check_output_dir_safety(merged_output, merged_roots)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    if project_root_for(project_id, merged_output) != project_root_for(project_id, project.output_dir):
-        root = project_cache_dir(project_id)
-        has_state = any(db.scalar(select(func.count()).select_from(model).where(
-            model.project_id == project_id)) for model in (Segment, ReviewPackage, ReviewRequest, EditPlanShot))
-        active = db.scalar(select(func.count()).select_from(Job).where(
-            Job.project_id == project_id, Job.status.in_(("pending", "running"))))
-        analyzed = db.scalar(select(func.count()).select_from(Asset).where(
-            Asset.project_id == project_id, Asset.analyzed_at.is_not(None)))
-        if has_state or active or analyzed or (root.exists() and any(p.is_file() for p in root.rglob("*"))):
-            raise HTTPException(status_code=409, detail={
-                "code": "WORKSPACE_HAS_DATA",
-                "message": "工作区已有数据或活动任务，不能直接修改目录；请先备份并迁移。未来版本将提供专用迁移向导。",
-            })
+        if project_root_for(project_id, merged_output) != project_root_for(project_id, project.output_dir):
+            root = project_cache_dir(project_id)
+            has_state = any(db.scalar(select(func.count()).select_from(model).where(
+                model.project_id == project_id)) for model in (Segment, ReviewPackage, ReviewRequest, EditPlanShot))
+            active = db.scalar(select(func.count()).select_from(Job).where(
+                Job.project_id == project_id, Job.status.in_(("pending", "running"))))
+            analyzed = db.scalar(select(func.count()).select_from(Asset).where(
+                Asset.project_id == project_id, Asset.analyzed_at.is_not(None)))
+            if has_state or active or analyzed or (root.exists() and any(p.is_file() for p in root.rglob("*"))):
+                raise HTTPException(status_code=409, detail={
+                    "code": "WORKSPACE_HAS_DATA",
+                    "message": "工作区已有数据或活动任务，不能直接修改目录；请先备份并迁移。未来版本将提供专用迁移向导。",
+                })
 
-    for field in ("name", "source_roots", "output_dir", "settings"):
-        value = getattr(payload, field)
-        if value is not None:
-            setattr(project, field, value)
-    db.commit()
-    db.refresh(project)
-    # The workspace root may have moved; drop stale entries and re-resolve.
-    forget_project_root(project_id)
-    remember_project_root(project.id, project.output_dir)
-    return _detail(db, project)
+        for field in ("name", "source_roots", "output_dir", "settings"):
+            value = getattr(payload, field)
+            if value is not None:
+                setattr(project, field, value)
+        db.commit()
+        db.refresh(project)
+        # Publish a new empty workspace mapping only after commit.
+        forget_project_root(project_id)
+        remember_project_root(project.id, project.output_dir)
+        return _detail(db, project)
+
+    finally:
+        if moving:
+            lock.release()
 
 
 @router.delete("/{project_id}", status_code=204)
