@@ -34,6 +34,10 @@ def iter_video_files(roots: list[str], check_cancel=None):
                 if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
                     continue
             except OSError:
+                # An unreadable video still needs a manifest entry/failure. It
+                # must not disappear from an otherwise successful empty scan.
+                if path.suffix.lower() in VIDEO_EXTENSIONS:
+                    yield path.absolute()
                 continue
             resolved = str(path.resolve())
             if resolved not in seen:

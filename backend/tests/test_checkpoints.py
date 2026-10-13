@@ -317,3 +317,22 @@ def test_windows_stat_and_fstat_creation_identity_are_canonical():
     for field in ('st_size', 'st_mtime_ns', 'st_dev', 'st_ino', 'st_birthtime_ns'):
         changed = {**common, field: common[field] + 1}
         assert file_identity(path_stat, windows=True) != file_identity(SimpleNamespace(**changed, st_ctime_ns=999), windows=True)
+
+
+def test_locked_video_is_a_failed_item_not_silently_skipped(client, tmp_path, monkeypatch):
+    pid = project(client)
+    path = tmp_path / 'locked.mp4'; path.write_bytes(b'unreadable')
+    original = Path.stat
+    def locked(candidate, *a, **kw):
+        if candidate == path: raise PermissionError('source video is locked')
+        return original(candidate, *a, **kw)
+    monkeypatch.setattr(Path, 'stat', locked)
+    with session_scope() as s:
+        job = Job(project_id=pid, job_type='scan', config_snapshot={'source_roots': [str(tmp_path)]})
+        s.add(job); s.flush(); jid = job.id
+    from app.services.runner import JobRunner
+    JobRunner()._run(jid, indexer.scan_task)
+    with session_scope() as s:
+        row = s.get(Job, jid)
+        assert row.status == 'partial_failed' and row.stats['failed'] == 1
+        assert row.resume_token['items'][0]['error_code'] == 'source_unavailable'
