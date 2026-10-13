@@ -1,16 +1,9 @@
-"""End-to-end media pipeline tests — run only when FFmpeg is available.
-
-CI has no FFmpeg, so every test here **skips** there; locally (and on a machine
-with FFmpeg on PATH or configured via ``TRAVELSB_FFMPEG_PATH``) they exercise
-the real decode/extract/transcode path that the unit suite deliberately avoids.
-
-This is the "集成 FFmpeg 测试" the audit asked for, without making CI depend on
-a 100 MB binary download.
-"""
+"""Real FFmpeg pipeline; required CI mode fails on missing binaries/codecs."""
 
 from __future__ import annotations
 
 import subprocess
+import os
 import uuid
 from pathlib import Path
 
@@ -43,6 +36,8 @@ def _ffmpeg_or_skip() -> str:
     """
     exe = ffmpeg_available()
     if not exe or not ffprobe_available():
+        if os.environ.get("TSB_REQUIRE_FFMPEG") == "1":
+            pytest.fail("mandatory FFmpeg integration requires ffmpeg AND ffprobe")
         pytest.skip("ffmpeg/ffprobe not available")
     return exe
 
@@ -72,7 +67,7 @@ def synthetic_clip(tmp_path_factory) -> Path:
     ]
     proc = subprocess.run(cmd, capture_output=True)
     if proc.returncode != 0:
-        pytest.skip(f"could not synthesise a clip: {proc.stderr.decode()[-300:]}")
+        pytest.fail(f"could not synthesise a clip: {proc.stderr.decode()[-1000:]}")
     return out
 
 
@@ -283,3 +278,77 @@ def test_project_cache_dir_exists_after_analysis(client, project, synthetic_clip
     _analyze_asset(project["id"], asset)
     root = project_cache_dir(project["id"])
     assert (root / "frames").is_dir()
+
+
+def test_complete_custom_workspace_pipeline_and_source_hashes(client, synthetic_clip, tmp_path, record_property):
+    """RT21/24 substitute: three generated files, real media through all stages.
+
+    This verifies source immutability on generated fixtures, not Windows travel
+    footage acceptance. The optional model response is deterministic and local.
+    """
+    import hashlib
+    import shutil
+    from app.models import Job, ReviewRequest
+    from app.services.runner import JobRunner, TASK_REGISTRY
+    from app.services.story_planner import _select_representative_frames, import_review_requests
+    from app.services.timeline_export import build_edit_plan, export_json
+    exe = _ffmpeg_or_skip()
+    source = tmp_path / "旅行原片's"; source.mkdir()
+    clips = [source / '横屏音轨.mp4', source / '竖屏静音.mp4', source / '4K_HEVC.mp4']
+    shutil.copyfile(synthetic_clip, clips[0])
+    run([exe, '-y', '-f', 'lavfi', '-i', 'color=c=yellow:s=180x320:d=2:r=30',
+         '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(clips[1])])
+    run([exe, '-y', '-f', 'lavfi', '-i', 'color=c=blue:s=3840x2160:d=1:r=3',
+         '-c:v', 'libx265', '-preset', 'ultrafast', '-x265-params', 'pools=2',
+         '-pix_fmt', 'yuv420p', str(clips[2])])
+    hashes = [hashlib.sha256(p.read_bytes()).hexdigest() for p in clips]
+    project = client.post('/api/projects', json={
+        'name': '综合链路', 'source_roots': [str(source)], 'output_dir': str(tmp_path / "工作区's")}).json()
+    pid = project['id']
+    def execute(kind, config=None):
+        with session_scope() as s:
+            job = Job(project_id=pid, job_type=kind, config_snapshot=config or {})
+            s.add(job); s.flush(); jid = job.id
+        JobRunner()._run(jid, TASK_REGISTRY[kind])
+        row = client.get(f'/api/jobs/{jid}').json()
+        assert row['status'] == 'succeeded', row
+        return row
+    execute('scan', {'source_roots': [str(source)]})
+    detected = execute('detect')
+    assert detected['stats']['done'] == 3
+    repeat = execute('detect')
+    assert repeat['stats']['skipped'] == 3
+    execute('package')
+    picked, coverage = _select_representative_frames(pid, 12, 60)
+    assert coverage['assets_covered_by_images'] == 3
+    assert coverage['complete'] is True
+    first = picked[0]
+    assert import_review_requests(pid, {'requests': [{
+        'asset_id': first['asset_id'], 'segment_id': first['segment_id'],
+        'start_sec': first['start_sec'], 'end_sec': first['end_sec'], 'priority': 'high'}]})['created'] == 1
+    execute('proxies')
+    with session_scope() as s:
+        req = s.scalars(select(ReviewRequest).where(ReviewRequest.project_id == pid)).one()
+        proxy = req.proxy_ref
+    assert client.get(f'/api/projects/{pid}/media', params={'path': proxy}).status_code == 200
+    shots = [{'asset_id': p['asset_id'], 'segment_id': p['segment_id'],
+              'source_in_sec': p['start_sec'], 'source_out_sec': p['end_sec'],
+              'target_duration_sec': min(1., p['end_sec'] - p['start_sec'])} for p in picked]
+    assert build_edit_plan(pid, shots)['errors'] == []
+    before = export_json(pid)['shots']
+    assert client.get(f'/api/projects/{pid}/edit-plan').json()['shots'] == before
+    roughcut = execute('roughcut')
+    preview = client.get(f'/api/projects/{pid}/roughcut')
+    assert preview.status_code == 200 and preview.headers['content-type'] == 'video/mp4'
+    from app.paths import resolve_in_project
+    info = probe_media(resolve_in_project(pid, roughcut['resume_token']['path']))
+    assert info.has_audio
+    assert info.duration_sec == pytest.approx(sum(s['target_duration_sec'] for s in shots), abs=.25)
+    after_hashes = [hashlib.sha256(p.read_bytes()).hexdigest() for p in clips]
+    assert after_hashes == hashes
+    for i, value in enumerate(hashes):
+        record_property(f'synthetic_source_{i}_sha256_before', value)
+        record_property(f'synthetic_source_{i}_sha256_after', after_hashes[i])
+    record_property('generated_input_duration_sec', 9)
+    record_property('roughcut_duration_sec', info.duration_sec)
+    assert export_json(pid)['shots'] == before

@@ -51,7 +51,8 @@ def _extract_normalized(source: str, start: float, dur: float, out: Path, has_au
     width, height = 1280, 720
     vf = (
         f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps=30"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps=30,"
+        f"tpad=stop_mode=clone:stop_duration={dur:.6f},trim=duration={dur:.6f},setpts=PTS-STARTPTS"
     )
     cmd = [
         locate_ffmpeg(),
@@ -71,7 +72,8 @@ def _extract_normalized(source: str, start: float, dur: float, out: Path, has_au
     if has_audio:
         cmd += [
             "-map", "0:a:0",
-            "-af", f"aresample={SAMPLE_RATE},aformat=channel_layouts=stereo",
+            "-af", f"aresample={SAMPLE_RATE},aformat=channel_layouts=stereo,"
+                   f"apad,atrim=duration={dur:.6f},asetpts=PTS-STARTPTS",
             "-c:a", "aac",
             "-b:a", "128k",
         ]

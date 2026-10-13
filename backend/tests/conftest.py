@@ -31,9 +31,18 @@ os.environ.pop("TRAVELSB_MODEL_BASE_URL", None)
 os.environ.pop("TRAVELSB_MODEL_API_KEY", None)
 
 
+_SKIPPED_REPORTS = []
+
+def pytest_runtest_logreport(report):
+    if report.skipped:
+        _SKIPPED_REPORTS.append(report.nodeid)
+
+
 def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ARG001
     """Drop the throwaway data directory once the run is over."""
     shutil.rmtree(_TEST_DATA_DIR, ignore_errors=True)
+    if os.environ.get("TSB_REQUIRE_FFMPEG") == "1" and _SKIPPED_REPORTS:
+        session.exitstatus = 1
 
 
 @pytest.fixture(scope="session", autouse=True)

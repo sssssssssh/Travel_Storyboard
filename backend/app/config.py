@@ -10,7 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Bump when the indexing / detection algorithm changes in a way that
 # invalidates previously stored analysis results.
 ANALYSIS_VERSION = "2.0.0"
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.0.1"
 
 # File extensions treated as source video.
 VIDEO_EXTENSIONS = {
