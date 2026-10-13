@@ -354,9 +354,13 @@ def test_complete_custom_workspace_pipeline_and_source_hashes(client, synthetic_
     assert export_json(pid)['shots'] == before
 
 
-def test_package_replay_reuses_committed_artifact(client, project):
+def test_package_replay_reuses_committed_artifact(client, project, synthetic_clip):
     from app.models import Job, ReviewPackage
     from app.services.review_package import package_task
+    aid, _ = index_one(project['id'], synthetic_clip)
+    with session_scope() as s:
+        asset = s.get(Asset, aid); s.expunge(asset)
+    _analyze_asset(project['id'], asset)
     with session_scope() as s:
         job = Job(project_id=project['id'], job_type='package')
         s.add(job); s.flush(); jid = job.id
@@ -427,3 +431,50 @@ def test_generated_ten_minute_chinese_path_with_audio(client, tmp_path, record_p
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
     record_property('generated_long_source_duration_sec', asset.duration_sec)
     record_property('generated_long_source_sha256_unchanged', before)
+
+
+@pytest.mark.parametrize('custom', [False, True])
+def test_real_short_review_proxy_is_exact_readonly_and_project_scoped(client, synthetic_clip, tmp_path, custom, record_property):
+    """RT-10/17: inspect generated video bytes, not just the FFmpeg arguments."""
+    import hashlib
+    from app.models import Job, ReviewRequest
+    from app.paths import resolve_in_project
+    from app.services.runner import JobRunner
+    from app.services.story_planner import import_review_requests, proxies_task
+    pid = client.post('/api/projects', json={'name': 'short-preview',
+        'output_dir': str(tmp_path / '自定义 output') if custom else ''}).json()['id']
+    before = hashlib.sha256(synthetic_clip.read_bytes()).hexdigest()
+    aid, _ = index_one(pid, synthetic_clip)
+    with session_scope() as s:
+        segment = Segment(project_id=pid, asset_id=aid, start_sec=2, end_sec=5,
+                          detected_start_sec=0, detected_end_sec=6)
+        s.add(segment); s.flush(); sid = segment.id
+    assert import_review_requests(pid, {'requests': [
+        {'asset_id': aid, 'segment_id': sid, 'start_sec': 3, 'end_sec': 3.6}]})['created'] == 1
+    with session_scope() as s:
+        job = Job(project_id=pid, job_type='proxies'); s.add(job); s.flush(); jid = job.id
+    JobRunner()._run(jid, proxies_task)
+    with session_scope() as s:
+        request = s.scalars(select(ReviewRequest).where(ReviewRequest.project_id == pid)).one()
+        job = s.get(Job, jid)
+        assert request.status == 'proxied' and job.status == 'succeeded'
+        path, rid = resolve_in_project(pid, request.proxy_ref), request.id
+        assert job.stats['files_generated'] == 1 and job.stats['bytes'] == path.stat().st_size
+        assert job.stats['requested_duration_sec'] == pytest.approx(.6)
+        assert job.stats['output_duration_sec'] == pytest.approx(.6, abs=.08)
+    info = probe_media(path)
+    assert info.has_video and info.duration_sec == pytest.approx(.6, abs=.08)
+    assert info.duration_sec < .8  # A forced one-second proxy must fail.
+    # Decode the actual stream, including audio, as part of mandatory media CI.
+    run([_ffmpeg_or_skip(), '-v', 'error', '-i', str(path), '-f', 'null', '-'])
+    response = client.get(f'/api/projects/{pid}/review-requests/{rid}/proxy', headers={'Range': 'bytes=0-127'})
+    assert response.status_code == 206 and len(response.content) == 128
+    other = client.post('/api/projects', json={'name': 'other-project'}).json()['id']
+    assert client.get(f'/api/projects/{other}/review-requests/{rid}/proxy').status_code == 404
+    assert client.get(f'/api/projects/{other}/media', params={'path': str(path)}).status_code == 400
+    assert hashlib.sha256(synthetic_clip.read_bytes()).hexdigest() == before
+    record_property('requested_duration_sec', .6)
+    record_property('output_duration_sec', info.duration_sec)
+    record_property('output_bytes', path.stat().st_size)
+    record_property('source_sha256_before_after', before)
+    record_property('workspace', 'custom' if custom else 'default')
