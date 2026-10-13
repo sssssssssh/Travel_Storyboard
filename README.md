@@ -1,0 +1,115 @@
+# Travel Storyboard v2.0
+
+**AI 旅行影片导演助手** — 把大规模旅行原片转换为**可检索、可筛选、可复核、可导出剪辑计划**的素材库，并通过多模态分析生成有故事感的旅行短片策划。
+
+> 本地运行、原片只读、默认不上传。给 AI 的仅是用户确认过的脱敏缩略图 / 低清预览。
+
+---
+
+## 定位与核心原则
+
+- **原片只读**：所有产物写入隔离工作区，绝不删除 / 覆盖 / 改名原片。
+- **先发现片段，再抽代表帧**：不按文件数量分配固定抽帧数，而是先找到有意义的镜头边界。
+- **技术分与创作判断分离**：曝光 / 清晰度 / 重复性等技术指标与情绪 / 故事价值分开，任何评分可人工覆盖。
+- **稳定映射**：每个推荐镜头通过 `asset_id + segment_id + 精确起止秒数` 与原视频保持稳定对应。
+- **断点续跑 + 增量**：单文件、单阶段落盘，中断后可续跑，不反复扫描 200GB。
+- **隐私安全**：服务只绑定 `127.0.0.1`，首次启动分配本地随机访问令牌；上传包默认去除真实路径、GPS、人脸等敏感信息。
+
+## 功能状态（Roadmap）
+
+| 里程碑 | 内容 | 状态 |
+|---|---|---|
+| M1 | 素材建库：ffprobe 索引、稳定 `asset_id`、SQLite、增量 + 断点续跑 | ✅ |
+| M2 | 镜头识别 + 画质：场景边界、长镜头子段、代表帧、感知排重、画质指标 | 🚧 进行中 |
+| M3 | 双轮 AI 闭环：离线分析包 + 可选直连模型 API | ⏳ |
+| M4 | 故事板 + 导出：剪辑时间线 CSV / JSON / OTIO、代理粗剪 | ⏳ |
+
+## 技术栈
+
+- **后端**：Python 3.11+ · FastAPI · SQLAlchemy 2 · SQLite (WAL)
+- **媒体处理**：FFmpeg / FFprobe · OpenCV · imagehash · numpy
+- **前端**：React 18 · TypeScript · Vite · Tailwind CSS
+
+## 目录结构
+
+```
+Travel_Storyboard/
+├── backend/            # FastAPI 服务（REST API + 媒体处理 + 任务调度）
+│   ├── app/
+│   │   ├── main.py         # 应用入口、静态托管、启动逻辑
+│   │   ├── config.py       # 配置（.env）
+│   │   ├── database.py     # SQLAlchemy 引擎 / 会话
+│   │   ├── models.py       # 数据模型（Project/Asset/Segment/Frame/Job...）
+│   │   ├── schemas.py      # Pydantic 请求/响应模型
+│   │   ├── security.py     # 本地访问令牌
+│   │   ├── ffmpeg.py       # ffmpeg/ffprobe 封装与路径探测
+│   │   ├── services/       # indexer / detector / quality / frames / runner
+│   │   └── api/            # REST 路由
+│   └── requirements.txt
+├── frontend/           # React + Vite + TS + Tailwind
+├── docs/DESIGN.md      # 完整设计文档
+└── .env.example
+```
+
+## 快速开始
+
+### 0. 前置依赖
+
+- Python 3.11+（开发机已验证 3.13）
+- [FFmpeg](https://ffmpeg.org/download.html)（`ffmpeg` / `ffprobe` 需在 PATH 中，或通过 `.env` 指定路径）
+- Node.js 18+ 与 pnpm（仅构建前端时需要）
+
+### 1. 启动后端
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+uvicorn app.main:app --host 127.0.0.1 --port 8737
+```
+
+首次启动会在 `data/` 下创建数据库，并打印**本地访问令牌**（也会写入 `data/token.txt`）。所有 `/api/*` 请求需携带该令牌（开发模式下前端会自动注入）。
+
+### 2. 启动前端（开发模式）
+
+```powershell
+cd frontend
+pnpm install
+pnpm dev
+```
+
+打开 Vite 提示的地址（默认 `http://localhost:5173`），前端会把 `/api` 代理到 `127.0.0.1:8737`。
+
+### 3. 生产模式（后端直接托管前端）
+
+```powershell
+cd frontend
+pnpm build
+cd ../backend
+uvicorn app.main:app --host 127.0.0.1 --port 8737
+```
+
+访问 `http://127.0.0.1:8737` 即可（后端检测到 `frontend/dist` 会自动托管并返回前端页面）。
+
+## 使用流程（六阶段闭环）
+
+1. **新建项目** — 选择素材根目录、输出工作区，设置片长 / 画幅 / 风格 / 采样预算。
+2. **阶段 A 素材建库** — ffprobe 读取技术元数据，赋予稳定 `asset_id`。
+3. **阶段 B 候选片段** — 场景边界检测 → 长镜头子段 → 代表帧 → 画质与排重。
+4. **阶段 C 本地分镜审阅** — 分镜墙筛选、👍 推荐 / ⭐ 收藏 / 🚫 排除、拖拽设定 in/out。
+5. **阶段 D AI 导演分析** — 生成脱敏分析包（离线）或直连模型 API，两轮闭环。
+6. **阶段 E 导出** — `edit_plan.json` / `剪辑时间线.csv` / OTIO / 代理粗剪。
+
+## 配置
+
+复制 `.env.example` 为 `.env` 并按需修改。数据库、模型调用 URL、FFmpeg 路径等均可通过环境变量注入。
+
+## 文档
+
+- 完整设计：[docs/DESIGN.md](docs/DESIGN.md)
+- 需求来源：`Travel_Storyboard_v2.0_详细设计方案.md`
+
+## License
+
+待定（在正式发布前请勿用于商业用途；配乐等素材需用户自行确认授权）。
