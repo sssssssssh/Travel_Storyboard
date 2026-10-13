@@ -1,4 +1,4 @@
-# Travel Storyboard v2.0.1 — 实现设计文档
+# Travel Storyboard v2.0.2 — 实现设计文档
 
 > 本文档描述从需求方案到代码的实现设计，是 `backend/` 与 `frontend/` 的权威依据。
 > 需求来源：《Travel_Storyboard_v2.0_详细设计方案.md》。
@@ -312,3 +312,39 @@ docs/                  # DESIGN.md / REGRESSION.md
 - **CI**：原后端矩阵保留；独立 Ubuntu/Windows Python 3.11 媒体任务强制安装并打印
   FFmpeg/FFprobe 版本，TSB_REQUIRE_FFMPEG=1 下缺依赖、合成失败或任何 skip 均失败。
   前端 CI 增加实际组件测试。媒体测试报告作为 Actions artifact 保存。
+
+## v2.0.2 字段所有权、后台签名与引用事务
+
+本节更新上一版协议：创建任务时只持久化配置，不在 HTTP 线程构建素材清单或计算签名。
+后台枚举并保存首份快照，`resume_token.items` 保存逐项可恢复状态；quick / full 模式明确
+记录。完整校验使用 1 MiB 流式块，一次作业默认每文件一遍；处理后使用轻量身份/指纹检查，
+只有显式 strict_full_hash 才在发布前再全读一次，累计 bytes_read 和 strict_extra_bytes
+均持久化。新完整校验任务重新读取，不跨任务凭时间戳直接复用哈希；同任务恢复依快速
+签名及 size/mtime/ctime/dev/inode 检查复用完整结果。半途的单文件哈希重启后从头读取，
+累计 I/O 不清零。所有 hash/manifest I/O 都在后台，块间取消、阶段起止/进度均可查询。
+
+算法计算只生成独立结果，不把抽帧前的旧 ORM 对象 merge 回数据库。短写事务先执行
+BEGIN IMMEDIATE，重新读取当前 Segment，只更新 detected_*、boundary_reason、
+algorithm_version、quality_metrics、frame_refs。人工 rating、story_role、content_tags、
+status、proxy_ref 和独立 UserAnnotation 原样保留；最新合法人工 trim 原样保留。只有
+检测边界轻微移动时夹取最新 trim，原选择记入 quality_metrics.manual_trim_audit，标记
+needs_review；若不能相交，保留原选择/is_trimmed 而不是静默清空。未裁剪的有效边界随
+最新检测结果更新。备注 PATCH/POST 统一持久化，并由详情/列表返回供页面恢复。
+
+无法匹配的旧镜头在同一写事务检查计划/复核/注释及人工状态。受保护行标为 needs_review，
+保留旧 Frame 和 JPEG；未复核行不作为新分析包/AI 样本/计划/粗剪来源。保存计划、导入
+复核请求和模型请求持久化也在 BEGIN IMMEDIATE 下验证和写引用，避免验证/插入之间
+产生悬空 ID。模型返回后复查当前 ID、资产、项目、状态、范围，不相信过去的抽样快照。
+不对受保护旧镜头做自动 ID 映射。新图片发布、事务切换、旧无引用图回收的崩溃协议保持。
+
+没有新增表/列或批量重建历史数据；审计/警告使用现有 JSON 和 status。旧版本 Job 缺少
+签名上下文时保守再验证一次；检测版本更新为 2.0.2，已有分析首次普通检测会按新协议
+重算，但稳定边界 ID/人工字段/引用保持。SQLite writer timeout 30 秒，只用于短提交，
+长检测/抽帧/完整哈希不持有写锁。VFR 的真实旅行源仍需专项验收；CFR 尾段代表时间
+不超过最后可解码帧时间，修复 1 fps 长片尾帧后的无帧请求。
+
+
+Windows 平台兼容：用 birthtime_ns 统一 Windows path-stat/handle-fstat 的创建身份，避免
+Python 3.13 等版本的 ctime 语义差异；POSIX 仍保留 metadata-change ctime。大小、mtime、
+设备、inode、创建身份校验都保持，完整 SHA-256 不跳过。恢复测试使用显式 created_at，
+生产恢复仍按 created_at + ID 确定性排序，不假设 Windows 时钟提供唯一微秒时间戳。
