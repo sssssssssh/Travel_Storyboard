@@ -1,14 +1,13 @@
 """M1 — media asset indexing.
 
 Walks source roots, probes video files with ffprobe, and persists stable
-`asset_id`s. Incremental: files are re-probed only when size/mtime change.
+`asset_id`s. Incremental: every scan samples head/middle/tail; changed signatures re-probe.
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
-import os
 from pathlib import Path
 
 from sqlalchemy import select
@@ -82,7 +81,7 @@ def _apply_probe_fields(asset: Asset, path: Path, size: int, mtime: int) -> None
     asset.scanned_at = utcnow()
 
 
-def index_one(project_id: str, path: Path) -> tuple[str, str]:
+def index_one(project_id: str, path: Path, *, force: bool = False) -> tuple[str, str]:
     """Index a single file. Returns (asset_id, action).
 
     Exactly one Asset row exists per (project_id, source_path): the record is
@@ -104,6 +103,7 @@ def index_one(project_id: str, path: Path) -> tuple[str, str]:
 
         if (
             existing
+            and not force
             and existing.file_size_bytes == size
             and existing.mtime_ns == mtime
             and existing.quick_fingerprint == fingerprint

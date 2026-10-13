@@ -6,8 +6,8 @@ The pipeline for one asset:
 3. extract full-res thumbnails via ffmpeg
 4. compute quality metrics + perceptual hash
 5. flag near-duplicates within the asset
-6. persist segments/frames, then atomically swap staging into place and
-   garbage-collect the previous run's JPEGs.
+6. publish verified run-specific JPEGs, commit new references, then reclaim
+   previous unreferenced JPEGs (crash orphans use a safe grace period).
 
 Manual state survives re-runs: segments are matched on their immutable detected
 bounds (not the user-editable in/out), so trimming a clip does not orphan its
@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import shutil
 import uuid
+import time
 from pathlib import Path
 
 from PIL import Image
@@ -78,12 +79,65 @@ def _detect_config_key(settings) -> str:
     )
 
 
-def _analyze_asset(project_id: str, asset: Asset, settings=None) -> dict:
+def _referenced_frame_paths(project_id: str) -> set[Path]:
+    with session_scope() as s:
+        references = list(s.scalars(select(Frame.image_path)).all())
+        for refs in s.scalars(select(Segment.frame_refs)).all():
+            references.extend(refs or [])
+    kept: set[Path] = set()
+    for ref in references:
+        try:
+            kept.add(resolve_in_project(project_id, ref))
+        except ValueError:
+            continue
+    return kept
+
+
+def cleanup_orphan_frames(project_id: str, grace_sec: float = 3600) -> int:
+    """Remove only aged, unreferenced JPEGs within this project's frame cache.
+
+    Safe after an interrupted publish, and retryable after cleanup errors.
+    Symlinks and external files are never followed for deletion.
+    """
+    from ..paths import project_cache_dir
+    project_root = project_cache_dir(project_id).resolve()
+    roots = [(project_root / name).resolve() for name in ("frames", "staging")]
+    kept = _referenced_frame_paths(project_id)
+    freed = 0
+    for root in roots:
+        if not root.is_dir() or not root.is_relative_to(project_root):
+            continue
+        for path in root.rglob("*.jpg"):
+            try:
+                resolved = resolve_in_project(project_id, rel_to_data(path))
+                if (path.is_symlink() or not resolved.is_relative_to(root)
+                        or resolved in kept or time.time() - path.stat().st_mtime < grace_sec):
+                    continue
+                path.unlink()
+                freed += 1
+            except (OSError, ValueError):
+                logger.warning("Could not clean orphan frame", exc_info=True)
+    stage_root = roots[1]
+    if stage_root.is_relative_to(project_root) and stage_root.is_dir():
+        for directory in sorted(stage_root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+            try:
+                if (directory.is_dir() and not directory.is_symlink()
+                        and time.time() - directory.stat().st_mtime >= grace_sec):
+                    directory.rmdir()  # refuses nonempty folders, never recurses
+            except OSError:
+                pass
+    return freed
+
+
+def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | None = None) -> dict:
     settings = settings or get_settings()
     source = asset.source_path
     if not Path(source).exists():
         raise RuntimeError(f"Source file missing: {source}")
 
+    from .checkpoints import source_signature
+    signature_before = source_signature(Path(source), full_hash=getattr(settings, "full_hash", False))
+    cleanup_orphan_frames(project_id)
     detection = detect_segments(
         source,
         asset.duration_sec,
@@ -103,13 +157,11 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None) -> dict:
         old_by_key = {_detected_key(seg): seg for seg in old_segments}
         old_ids = {seg.id for seg in old_segments}
 
-    work_dir = frames_dir(project_id, asset.id)
-    stage = staging_dir(project_id, asset.id)
-    # Start from a clean staging area; frames are moved into work_dir only after
-    # the whole asset has been analysed successfully (audit P1-03), so a failure
-    # leaves the previous, still-referenced JPEGs untouched.
-    if stage.exists():
-        shutil.rmtree(stage, ignore_errors=True)
+    work_dir = resolve_in_project(project_id, rel_to_data(frames_dir(project_id, asset.id)))
+    run_id = str(uuid.uuid4())
+    stage = resolve_in_project(project_id, rel_to_data(staging_dir(project_id, asset.id) / run_id))
+    # Each run owns a unique stage and unique published filenames. A crash
+    # cannot overwrite the JPEGs referenced by the previous committed version.
     stage.mkdir(parents=True, exist_ok=True)
 
     new_segments: list[Segment] = []
@@ -118,6 +170,8 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None) -> dict:
     phash_pairs: list[tuple[str, str]] = []
 
     for boundary in detection.boundaries:
+        if job_id:
+            raise_if_cancelled(job_id)
         rep_times = select_rep_times(
             boundary.start_sec,
             boundary.end_sec,
@@ -169,11 +223,14 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None) -> dict:
         frame_refs: list[str] = []
         quality_metrics: list[dict] = []
         for t in rep_times:
+            if job_id:
+                raise_if_cancelled(job_id)
             frame_id = str(uuid.uuid4())
-            stage_path = stage / f"{frame_id}.jpg"
-            final_path = work_dir / f"{frame_id}.jpg"
+            stage_path = stage / f"{run_id}_{frame_id}.jpg"
+            final_path = work_dir / f"{run_id}_{frame_id}.jpg"
             extract_frame(source, t, stage_path, width=settings.thumb_width)
             with Image.open(stage_path) as im:
+                im.load()
                 fw, fh = im.size
             metrics = analyze_frame(stage_path)
             ph = phash(stage_path)
@@ -225,9 +282,14 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None) -> dict:
         if dups:
             segment.quality_metrics["near_duplicate_segments"] = dups
 
-    # Promote staged frames into their final location, then persist. Doing the
-    # filesystem swap before the DB write means a crash mid-swap leaves either
-    # the old or the new set complete — never a half-written view.
+    # Publish verified files before the DB transaction. Old files remain until
+    # commit. A process crash here leaves reclaimable orphans, not bad DB refs.
+    if source_signature(Path(source), full_hash=getattr(settings, "full_hash", False)) != signature_before:
+        raise RuntimeError("源文件已变化：抽帧期间内容改变，请重试")
+    if not new_frames:
+        raise RuntimeError("Analysis produced no readable frames")
+    if job_id:
+        raise_if_cancelled(job_id)
     work_dir.mkdir(parents=True, exist_ok=True)
     with session_scope() as s:
         previous_paths = [
@@ -236,43 +298,59 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None) -> dict:
             if f.image_path
         ]
 
-    produced = {f"{frame.id}.jpg" for frame in new_frames}
-    for name in produced:
-        src = stage / name
-        if src.exists():
+    produced = {f"{run_id}_{frame.id}.jpg" for frame in new_frames}
+    try:
+        for name in sorted(produced):
+            src = stage / name
+            if not src.is_file():
+                raise RuntimeError("Staged frame is missing")
             src.replace(work_dir / name)
-    shutil.rmtree(stage, ignore_errors=True)
+            with Image.open(work_dir / name) as image:
+                image.load()
+        shutil.rmtree(stage, ignore_errors=True)
 
-    # Persist.
-    with session_scope() as s:
-        # Delete frames for this asset (frames carry no manual marks).
-        s.execute(delete(Frame).where(Frame.asset_id == asset.id))
-        # Delete old segments that were not reused.
-        removed_ids = old_ids - reused_ids
-        if removed_ids:
-            s.execute(delete(Segment).where(Segment.id.in_(removed_ids)))
-        for segment in new_segments:
-            s.merge(segment)
-        # Flush segments first so the frames' foreign keys resolve.
-        s.flush()
-        for frame in new_frames:
-            s.add(frame)
-        asset.analysis_version = ANALYSIS_VERSION
-        from .checkpoints import source_signature
-        asset.analyzed_fingerprint = source_signature(Path(source), full_hash=getattr(settings, "full_hash", False))
-        asset.analyzed_detect_config = _detect_config_key(settings)
-        s.merge(asset)
+        # Persist.
+        if job_id:
+            raise_if_cancelled(job_id)
+        with session_scope() as s:
+            # Delete frames for this asset (frames carry no manual marks).
+            s.execute(delete(Frame).where(Frame.asset_id == asset.id))
+            # Delete old segments that were not reused.
+            removed_ids = old_ids - reused_ids
+            if removed_ids:
+                s.execute(delete(Segment).where(Segment.id.in_(removed_ids)))
+            for segment in new_segments:
+                s.merge(segment)
+            # Flush segments first so the frames' foreign keys resolve.
+            s.flush()
+            for frame in new_frames:
+                s.add(frame)
+            asset.analysis_version = ANALYSIS_VERSION
+            asset.analyzed_fingerprint = signature_before
+            asset.analyzed_detect_config = _detect_config_key(settings)
+            s.merge(asset)
+
+    except Exception:
+        # A failed transaction retains the old rows. Reclaim only this run's
+        # newly published files, leaving crash leftovers to the grace cleaner.
+        for name in produced:
+            try:
+                (work_dir / name).unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not remove failed publication", exc_info=True)
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
 
     # Garbage-collect JPEGs from the previous run that are no longer referenced
     # (audit P1-03): repeated detection now converges to a stable disk footprint.
-    kept = {str((work_dir / name).resolve()) for name in produced}
+    kept = _referenced_frame_paths(project_id)
     freed = 0
     for rel_path in previous_paths:
         try:
             candidate = resolve_in_project(project_id, rel_path)
         except ValueError:
             continue
-        if str(candidate) in kept:
+        if candidate in kept:
             continue
         try:
             if candidate.is_file() and candidate.parent == work_dir.resolve():
@@ -281,16 +359,9 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None) -> dict:
         except OSError:
             logger.debug("Could not remove stale frame %s", candidate)
 
-    # Remove any other orphaned JPEGs in the frames dir.
-    for leftover in work_dir.glob("*.jpg"):
-        if leftover.name not in produced:
-            try:
-                leftover.unlink()
-                freed += 1
-            except OSError:
-                pass
+    freed += cleanup_orphan_frames(project_id)
 
-    return {"segments": len(new_segments), "frames": len(new_frames), "frames_reclaimed": freed}
+    return {"segments": len(new_segments), "frames": len(new_frames), "frames_reclaimed": freed, "analysis_run_id": run_id}
 
 
 def detect_settings(config: dict):
@@ -348,13 +419,24 @@ def detect_task(job_id: str) -> None:
                 if asset is None:
                     raise RuntimeError('Source asset removed')
                 s.expunge(asset)
+            # Refresh duration/codec metadata too when an indexed source changed.
+            # Legacy/mocked assets with no completed scan retain their old path.
+            if (asset.scanned_at is not None and asset.analyzed_fingerprint
+                    and asset.analyzed_fingerprint != item['scan_signature']):
+                from .indexer import index_one
+                _, action = index_one(project_id, Path(asset.source_path), force=True)
+                if action == 'failed':
+                    raise RuntimeError('Changed source could not be probed')
+                with session_scope() as s:
+                    asset = s.get(Asset, aid)
+                    s.expunge(asset)
             unchanged = (not force and asset.analysis_version == ANALYSIS_VERSION
                          and asset.analyzed_fingerprint == item['scan_signature']
                          and asset.analyzed_detect_config == config_key)
             if unchanged:
                 item['status'] = 'skipped'
             else:
-                _analyze_asset(project_id, asset, settings=settings)
+                _analyze_asset(project_id, asset, settings=settings, job_id=job_id)
                 if source_signature(Path(asset.source_path), full_hash=settings.full_hash) != item['scan_signature']:
                     raise RuntimeError('源文件已变化：检测期间内容改变，请重试')
                 with session_scope() as s:
