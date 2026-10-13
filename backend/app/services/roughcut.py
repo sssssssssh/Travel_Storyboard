@@ -1,6 +1,11 @@
 """M4 — proxy rough cut: concatenate the confirmed edit plan into a single
-720p preview (no effects) for quick pacing review. Source mapping is preserved;
-this is a preview, not the final high-res output."""
+720p preview for quick pacing review. Source mapping is preserved; this is a
+preview, not the final high-res output.
+
+Audio: the source audio is kept (resampled to a common layout) so the cut can
+be judged with ambient sound. Clips whose source has no audio get a silent
+track of matching length, because ``concat`` requires uniform streams.
+"""
 
 from __future__ import annotations
 
@@ -18,8 +23,29 @@ from .runner import JobFailures, raise_if_cancelled, register_task, update_job
 
 logger = logging.getLogger(__name__)
 
+SAMPLE_RATE = 48000
+AUDIO_CHANNELS = 2
 
-def _extract_normalized(source: str, start: float, dur: float, out: Path) -> None:
+
+def _clamp_duration(shot: EditPlanShot, asset: Asset) -> float:
+    """Planned duration, never longer than the source actually has.
+
+    Audit P1-05: requesting ``target_duration_sec`` blindly could overrun the
+    clip (or the file) and produce a short/black segment. Without a speed-change
+    field, the source span is a hard ceiling.
+    """
+    span = max(0.0, shot.source_out_sec - shot.source_in_sec)
+    planned = shot.target_duration_sec if shot.target_duration_sec > 0 else span
+    duration = min(planned, span) if span > 0 else planned
+
+    # And never past the end of the underlying file.
+    available = max(0.0, (asset.duration_sec or 0.0) - shot.source_in_sec)
+    if available > 0:
+        duration = min(duration, available)
+    return max(0.0, duration)
+
+
+def _extract_normalized(source: str, start: float, dur: float, out: Path, has_audio: bool) -> None:
     width, height = 1280, 720
     vf = (
         f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
@@ -30,13 +56,31 @@ def _extract_normalized(source: str, start: float, dur: float, out: Path) -> Non
         "-y",
         "-ss", f"{start:.3f}",
         "-i", source,
+    ]
+    if not has_audio:
+        # Give concat a uniform stream layout: silence of the same length.
+        cmd += ["-f", "lavfi", "-t", f"{dur:.3f}", "-i",
+                f"anullsrc=channel_layout=stereo:sample_rate={SAMPLE_RATE}"]
+    cmd += [
         "-t", f"{dur:.3f}",
         "-vf", vf,
-        "-an",
+        "-map", "0:v:0",
+    ]
+    if has_audio:
+        cmd += [
+            "-map", "0:a:0",
+            "-af", f"aresample={SAMPLE_RATE},aformat=channel_layouts=stereo",
+            "-c:a", "aac",
+            "-b:a", "128k",
+        ]
+    else:
+        cmd += ["-map", "1:a:0", "-c:a", "aac", "-b:a", "128k", "-shortest"]
+    cmd += [
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-crf", "23",
         "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
         str(out),
     ]
     run(cmd)
@@ -69,8 +113,17 @@ def roughcut_task(job_id: str) -> None:
     total = len(pairs)
     done = 0
     failed = 0
+    planned_total = 0.0
+    actual_total = 0.0
+    clamped: list[dict] = []
     for i, (sh, asset) in enumerate(pairs):
         raise_if_cancelled(job_id)
+        planned_total += max(
+            0.0,
+            sh.target_duration_sec
+            if sh.target_duration_sec > 0
+            else sh.source_out_sec - sh.source_in_sec,
+        )
         if asset is None:
             failed += 1
             failures.record(
@@ -81,11 +134,32 @@ def roughcut_task(job_id: str) -> None:
             done += 1
             update_job(job_id, stats={"total": total, "done": done, "failed": failed})
             continue
-        dur = sh.target_duration_sec or (sh.source_out_sec - sh.source_in_sec)
+        duration = _clamp_duration(sh, asset)
+        if duration <= 0:
+            failed += 1
+            failures.record(
+                kind="shot",
+                ref=sh.id,
+                message=f"shot #{sh.order}: 有效时长 <= 0（源区间或计划时长异常）",
+            )
+            done += 1
+            update_job(job_id, stats={"total": total, "done": done, "failed": failed})
+            continue
         clip = work / f"clip_{i:04d}.mp4"
         try:
-            _extract_normalized(asset.source_path, sh.source_in_sec, dur, clip)
+            _extract_normalized(
+                asset.source_path, sh.source_in_sec, duration, clip, bool(asset.has_audio)
+            )
             clips.append(clip)
+            actual_total += duration
+            if duration + 1e-3 < sh.target_duration_sec:
+                clamped.append(
+                    {
+                        "shot": sh.order,
+                        "planned": round(sh.target_duration_sec, 3),
+                        "used": round(duration, 3),
+                    }
+                )
         except Exception as exc:  # noqa: BLE001 - keep going on other clips
             logger.exception("Rough-cut clip failed for shot %s", sh.id)
             failed += 1
@@ -137,5 +211,9 @@ def roughcut_task(job_id: str) -> None:
             "shots_included": len(clips),
             "shots_total": total,
             "missing_shots": [item["ref"] for item in failures.items],
+            # Lets the UI explain any drift from the saved plan's total.
+            "planned_duration_sec": round(planned_total, 3),
+            "actual_duration_sec": round(actual_total, 3),
+            "clamped_shots": clamped,
         },
     )

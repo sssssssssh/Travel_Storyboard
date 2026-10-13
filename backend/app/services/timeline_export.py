@@ -1,16 +1,41 @@
-"""M4 — edit plan persistence and timeline export (CSV / JSON / OTIO)."""
+"""M4 — edit plan persistence and timeline export (CSV / JSON / OTIO).
+
+The persisted plan is the single source of truth: JSON, CSV, OTIO and the rough
+cut are all derived from the same ordered rows, so they cannot disagree
+(audit P1-05).
+
+Ordering rule: **array position wins**. The client's ``order`` field is ignored
+apart from being echoed back for diagnostics — renumbering from array position
+is what makes ``timeline_start_sec`` contiguous and prevents the "sorted by
+order but accumulated by input order" mismatch the audit found.
+"""
 
 from __future__ import annotations
 
 import csv
 import io
 import json
+import math
 from datetime import datetime, timezone
 
 from sqlalchemy import delete, select
 
 from ..database import session_scope
 from ..models import Asset, EditPlanShot, Segment
+
+#: A shot may be shortened for pacing, but not lengthened beyond its source
+#: span unless a speed change is introduced (not supported yet).
+DURATION_TOLERANCE = 1e-3
+MIN_SHOT_SEC = 0.05
+
+
+def _finite(value) -> float | None:
+    """Parse a number, rejecting NaN/inf and non-numerics."""
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def _shot_dict(shot: EditPlanShot, asset: Asset | None, segment: Segment | None) -> dict:
@@ -34,8 +59,101 @@ def _shot_dict(shot: EditPlanShot, asset: Asset | None, segment: Segment | None)
     }
 
 
+def _validate_shot(
+    index: int,
+    raw: dict,
+    assets: dict[str, Asset],
+    segments: dict[str, Segment],
+) -> tuple[dict | None, list[str]]:
+    """Validate one incoming shot. Returns ``(clean, problems)``.
+
+    Everything the audit listed is checked here: unknown ids, a segment that
+    belongs to a *different* asset, non-finite numbers, inverted or empty
+    ranges, ranges outside the source, and a target duration inconsistent with
+    the source span.
+    """
+    problems: list[str] = []
+
+    asset_id = str(raw.get("asset_id") or "")
+    segment_id = str(raw.get("segment_id") or "")
+    asset = assets.get(asset_id)
+    segment = segments.get(segment_id)
+
+    if asset is None:
+        problems.append("asset_id not found in this project")
+    if segment is None:
+        problems.append("segment_id not found in this project")
+
+    # The cross-reference the audit flagged as missing: a shot must not pair one
+    # video's metadata with another video's timecodes.
+    if asset is not None and segment is not None and segment.asset_id != asset.id:
+        problems.append("segment_id does not belong to asset_id")
+        asset = None  # never emit a shot with an inconsistent pair
+
+    sin = _finite(raw.get("source_in_sec"))
+    sout = _finite(raw.get("source_out_sec"))
+    if sin is None or sout is None:
+        problems.append("source_in_sec/source_out_sec must be finite numbers")
+    else:
+        if sin < 0:
+            problems.append("source_in_sec must be >= 0")
+        if sout - sin < MIN_SHOT_SEC:
+            problems.append("source_out_sec must exceed source_in_sec")
+        if asset is not None and sout > asset.duration_sec + DURATION_TOLERANCE:
+            problems.append("time range exceeds source duration")
+        # Stay inside the annotated segment when one is known.
+        if segment is not None and sin < min(segment.start_sec, segment.end_sec) - DURATION_TOLERANCE:
+            problems.append("source_in_sec is before the segment start")
+
+    dur_raw = raw.get("target_duration_sec")
+    dur = _finite(dur_raw) if dur_raw not in (None, "") else None
+    if dur is not None:
+        if dur < MIN_SHOT_SEC:
+            problems.append("target_duration_sec must be positive")
+        elif sin is not None and sout is not None and dur > (sout - sin) + DURATION_TOLERANCE:
+            # Without a speed field, a shot cannot be longer than its source.
+            problems.append("target_duration_sec exceeds the source range length")
+
+    conf_raw = raw.get("confidence")
+    conf = _finite(conf_raw) if conf_raw not in (None, "") else 0.0
+    if conf is None:
+        problems.append("confidence must be a finite number")
+        conf = 0.0
+    elif not 0.0 <= conf <= 1.0:
+        problems.append("confidence must be between 0 and 1")
+
+    if problems:
+        return None, problems
+
+    assert sin is not None and sout is not None  # narrowed above
+    return (
+        {
+            "asset_id": asset_id,
+            "segment_id": segment_id,
+            "source_in_sec": sin,
+            "source_out_sec": sout,
+            "target_duration_sec": dur if dur is not None else (sout - sin),
+            "story_role": str(raw.get("story_role") or "")[:32],
+            "transition_hint": str(raw.get("transition_hint") or "")[:64],
+            "music_cue": str(raw.get("music_cue") or "")[:128],
+            "audio_hint": str(raw.get("audio_hint") or "")[:128],
+            "color_hint": str(raw.get("color_hint") or "")[:128],
+            "evidence": str(raw.get("evidence") or "")[:32],
+            "confidence": conf,
+            "review_status": str(raw.get("review_status") or "pending")[:32],
+            "requested_order": raw.get("order"),
+        },
+        [],
+    )
+
+
 def build_edit_plan(project_id: str, shots: list[dict]) -> dict:
-    """Validate and replace the project's edit plan (all-or-nothing)."""
+    """Validate and replace the project's edit plan (all-or-nothing).
+
+    On success the plan is renumbered from array position and given a
+    contiguous timeline; the response reports any ``order`` values that were
+    overridden so the caller can explain the difference.
+    """
     with session_scope() as s:
         assets = {
             a.id: a for a in s.scalars(select(Asset).where(Asset.project_id == project_id)).all()
@@ -45,66 +163,63 @@ def build_edit_plan(project_id: str, shots: list[dict]) -> dict:
         }
 
         errors: list[dict] = []
-        parsed: list[tuple[dict, Asset]] = []
+        parsed: list[dict] = []
         for i, sh in enumerate(shots):
             if not isinstance(sh, dict):
                 errors.append({"index": i, "message": "shot must be an object"})
                 continue
-            problems: list[str] = []
-            asset = assets.get(sh.get("asset_id", ""))
-            seg = segments.get(sh.get("segment_id", ""))
-            if not asset:
-                problems.append("asset_id not found")
-            if not seg:
-                problems.append("segment_id not found")
-            try:
-                sin = float(sh.get("source_in_sec"))
-                sout = float(sh.get("source_out_sec"))
-            except (TypeError, ValueError):
-                sin = sout = 0.0
-                problems.append("invalid source_in_sec/source_out_sec")
-            else:
-                if sin >= sout:
-                    problems.append("source_in_sec must be < source_out_sec")
-                if asset and (sin < 0 or sout > asset.duration_sec + 1e-3):
-                    problems.append("time range exceeds source duration")
-            if problems:
+            clean, problems = _validate_shot(i, sh, assets, segments)
+            if problems or clean is None:
                 errors.append({"index": i, "message": "; ".join(problems)})
                 continue
-            parsed.append((sh, asset))
+            parsed.append(clean)
 
         if errors:
-            return {"created": 0, "errors": errors}
+            return {"created": 0, "errors": errors, "total_duration_sec": 0.0}
+
+        # Array order is authoritative; renumber and re-accumulate together.
+        reordered = [
+            i
+            for i, sh in enumerate(parsed)
+            if sh.get("requested_order") not in (None, i)
+        ]
 
         s.execute(delete(EditPlanShot).where(EditPlanShot.project_id == project_id))
         timeline = 0.0
-        for sh, asset in parsed:
-            dur = float(sh.get("target_duration_sec") or 0.0)
-            if dur <= 0:
-                dur = float(sh["source_out_sec"]) - float(sh["source_in_sec"])
+        for index, sh in enumerate(parsed):
             s.add(
                 EditPlanShot(
                     project_id=project_id,
-                    order=int(sh.get("order", len(parsed))),
+                    order=index,
                     asset_id=sh["asset_id"],
                     segment_id=sh["segment_id"],
-                    source_in_sec=float(sh["source_in_sec"]),
-                    source_out_sec=float(sh["source_out_sec"]),
-                    target_duration_sec=dur,
+                    source_in_sec=sh["source_in_sec"],
+                    source_out_sec=sh["source_out_sec"],
+                    target_duration_sec=sh["target_duration_sec"],
                     timeline_start_sec=timeline,
-                    story_role=sh.get("story_role", ""),
-                    transition_hint=sh.get("transition_hint", ""),
-                    music_cue=sh.get("music_cue", ""),
-                    audio_hint=sh.get("audio_hint", ""),
-                    color_hint=sh.get("color_hint", ""),
-                    evidence=sh.get("evidence", ""),
-                    confidence=float(sh.get("confidence", 0.0) or 0.0),
-                    review_status=sh.get("review_status", "pending"),
+                    story_role=sh["story_role"],
+                    transition_hint=sh["transition_hint"],
+                    music_cue=sh["music_cue"],
+                    audio_hint=sh["audio_hint"],
+                    color_hint=sh["color_hint"],
+                    evidence=sh["evidence"],
+                    confidence=sh["confidence"],
+                    review_status=sh["review_status"],
                 )
             )
-            timeline += dur
+            timeline += sh["target_duration_sec"]
 
-        return {"created": len(parsed), "errors": [], "total_duration_sec": round(timeline, 3)}
+        result = {
+            "created": len(parsed),
+            "errors": [],
+            "total_duration_sec": round(timeline, 3),
+        }
+        if reordered:
+            result["order_adjusted"] = reordered
+            result["note"] = (
+                "顺序按提交数组的位置重新编号，timeline_start_sec 也据此连续计算。"
+            )
+        return result
 
 
 def _load_plan(project_id: str) -> list[tuple[EditPlanShot, Asset | None, Segment | None]]:
@@ -172,16 +287,26 @@ def _fps_rate(asset: Asset | None) -> float:
 
 
 def export_otio(project_id: str) -> str:
-    """Best-effort OpenTimelineIO JSON (experimental — validate in target NLE)."""
+    """OpenTimelineIO JSON for the saved plan.
+
+    Validated to round-trip through ``opentimelineio`` (see
+    ``tests/test_timeline_export.py``): the timeline, track, clip count, source
+    ranges and total duration all survive a read-back, so an NLE that supports
+    OTIO should open it. Real-NLE compatibility still needs a manual check —
+    see docs/REGRESSION.md.
+    """
     rows = _load_plan(project_id)
     rate = 24.0
     clips = []
-    timeline = 0.0
     for sh, asset, _seg in rows:
         src_rate = _fps_rate(asset)
         src_in = round(sh.source_in_sec * src_rate)
-        src_dur = round((sh.source_out_sec - sh.source_in_sec) * src_rate)
-        clip_dur = round(sh.target_duration_sec * rate)
+        # The *planned* duration wins when it is shorter than the source span
+        # (a shot trimmed for pacing), so the exported timeline matches the
+        # saved plan rather than the raw selection.
+        span = sh.source_out_sec - sh.source_in_sec
+        effective = min(sh.target_duration_sec, span) if sh.target_duration_sec > 0 else span
+        src_dur = max(1, round(effective * src_rate))
         clips.append(
             {
                 "OTIO_SCHEMA": "Clip.1",
@@ -206,7 +331,6 @@ def export_otio(project_id: str) -> str:
                 },
             }
         )
-        timeline += sh.target_duration_sec
 
     otio = {
         "OTIO_SCHEMA": "Timeline.1",
@@ -226,3 +350,8 @@ def export_otio(project_id: str) -> str:
         },
     }
     return json.dumps(otio, ensure_ascii=False, indent=2)
+
+
+def export_otio_document(project_id: str) -> dict:
+    """The OTIO document as a dict (used by tests and the JSON export)."""
+    return json.loads(export_otio(project_id))

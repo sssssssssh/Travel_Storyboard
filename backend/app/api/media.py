@@ -129,14 +129,19 @@ def get_review_proxy(project_id: str, request_id: str, db: Session = Depends(get
 
 @router.get("/projects/{project_id}/roughcut")
 def get_roughcut(project_id: str, db: Session = Depends(get_db)):
-    """Serve the generated proxy rough cut for a project (if any)."""
+    """Serve the generated proxy rough cut for a project (if any).
+
+    A cut missing shots is stored as ``roughcut_INCOMPLETE.mp4`` so it can never
+    be mistaken for the finished edit (audit P1-08); it is served just the same,
+    with the filename carrying the warning.
+    """
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    candidate = project_cache_dir(project_id) / "roughcut" / "roughcut.mp4"
-    if not candidate.is_file():
-        raise HTTPException(status_code=404, detail="Rough cut not generated yet")
-    resolved = _resolve_artifact(
-        db, project_id, f"projects/{project_id}/roughcut/roughcut.mp4"
-    )
-    return FileResponse(resolved, media_type="video/mp4")
+
+    work = project_cache_dir(project_id) / "roughcut"
+    for name in ("roughcut.mp4", "roughcut_INCOMPLETE.mp4"):
+        if (work / name).is_file():
+            resolved = _resolve_artifact(db, project_id, f"projects/{project_id}/roughcut/{name}")
+            return FileResponse(resolved, media_type="video/mp4")
+    raise HTTPException(status_code=404, detail="Rough cut not generated yet")

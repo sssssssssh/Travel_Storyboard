@@ -268,7 +268,9 @@ class ReviewRequestOut(ORMModel):
 # --- Edit plan (M4) ------------------------------------------------------
 
 class EditPlanShotIn(BaseModel):
-    order: int
+    #: Ignored for ordering — the position in ``shots`` is authoritative
+    #: (audit P1-05). Kept optional so existing clients still validate.
+    order: int | None = None
     asset_id: str
     segment_id: str
     source_in_sec: float
