@@ -9,7 +9,7 @@ SQLite file is taken before the first schema change of a run.
 from __future__ import annotations
 
 import logging
-import shutil
+import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Iterator
@@ -71,7 +71,7 @@ def _existing_columns(conn, table: str) -> set[str]:
 
 
 def _backup_sqlite_file() -> str | None:
-    """Copy the SQLite file once before applying pending migrations."""
+    """Take a consistent snapshot including committed WAL pages."""
     url = _settings.resolved_database_url
     prefix = "sqlite:///"
     if not url.startswith(prefix):
@@ -85,10 +85,11 @@ def _backup_sqlite_file() -> str | None:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     backup = db_path.with_name(f"{db_path.stem}.pre-migration-{stamp}.bak")
     try:
-        shutil.copy2(db_path, backup)
-    except OSError:
-        logger.warning("Could not back up database before migration", exc_info=True)
-        return None
+        with sqlite3.connect(str(db_path)) as source, sqlite3.connect(str(backup)) as dest:
+            source.backup(dest)
+    except (OSError, sqlite3.Error):
+        logger.exception("Could not back up database before migration")
+        raise
     return str(backup)
 
 
@@ -129,26 +130,17 @@ def init_db() -> None:
         applied = _apply_migrations()
         if applied:
             logger.info("Applied schema migrations: %s", ", ".join(applied))
-        _legacy_backfill()
+        _legacy_backfill(applied)
 
 
-def _legacy_backfill() -> None:
-    """Populate the new immutable bounds for rows created before the split."""
+def _legacy_backfill(applied: list[str] | None = None) -> None:
+    """Backfill only newly added bounds; an existing detected zero is valid."""
+    added = set(applied or [])
     with engine.begin() as conn:
-        if not _existing_columns(conn, "segments"):
-            return
-        conn.execute(
-            text(
-                "UPDATE segments SET detected_start_sec = start_sec "
-                "WHERE detected_start_sec IS NULL OR detected_start_sec = 0"
-            )
-        )
-        conn.execute(
-            text(
-                "UPDATE segments SET detected_end_sec = end_sec "
-                "WHERE detected_end_sec IS NULL OR detected_end_sec = 0"
-            )
-        )
+        for column, source in (("detected_start_sec", "start_sec"),
+                               ("detected_end_sec", "end_sec")):
+            if f"segments.{column}" in added:
+                conn.execute(text(f"UPDATE segments SET {column} = {source}"))
 
 
 @contextmanager
