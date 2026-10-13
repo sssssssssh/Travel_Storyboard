@@ -134,8 +134,9 @@ def proxies_task(job_id: str) -> None:
         assets = {
             a.id: a for a in s.scalars(select(Asset).where(Asset.project_id == project_id)).all()
         }
+        segments = {g.id: g for g in s.scalars(select(Segment).where(Segment.project_id == project_id))}
         reqs = sorted(reqs, key=lambda r: _PRIORITY_ORDER.get(r.priority, 1))
-        plan = [(r.id, r.asset_id, r.start_sec, r.end_sec, r.priority) for r in reqs]
+        plan = [(r.id, r.asset_id, r.segment_id, r.start_sec, r.end_sec, r.priority) for r in reqs]
 
     total = len(plan)
     done = 0
@@ -144,7 +145,7 @@ def proxies_task(job_id: str) -> None:
     total_bytes = 0
     budget = max_total_mb * 1024 * 1024
 
-    for req_id, asset_id, start_sec, end_sec, _priority in plan:
+    for req_id, asset_id, segment_id, start_sec, end_sec, _priority in plan:
         raise_if_cancelled(job_id)
         asset = assets.get(asset_id)
         if asset is None:
@@ -162,6 +163,18 @@ def proxies_task(job_id: str) -> None:
             # Budget exhausted: leave the request pending rather than silently
             # dropping it (audit P2-3).
             skipped_budget += 1
+            continue
+        segment = segments.get(segment_id)
+        if segment is None or segment.asset_id != asset_id or segment.status == 'needs_review':
+            failures.record(kind='review_request', ref=req_id,
+                            message='镜头引用已变化或需要复核，旧代理已保留；请使用当前镜头重新提交复核请求')
+            with session_scope() as s:
+                request = s.get(ReviewRequest, req_id)
+                if request is not None:
+                    request.status = 'needs_review'
+            failed += 1
+            done += 1
+            update_job(job_id, stats={'total': total, 'done': done, 'failed': failed, 'bytes': total_bytes})
             continue
         dur = max(1.0, end_sec - start_sec)
         out = project_cache_dir(project_id) / "proxies" / f"{req_id}.mp4"

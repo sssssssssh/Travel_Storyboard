@@ -225,3 +225,27 @@ def test_plan_validation_reserves_sqlite_writer_before_reading_references(client
     result = timeline_export.build_edit_plan(pid, [{'asset_id': asset.id, 'segment_id': sid,
                                                     'source_in_sec': 1, 'source_out_sec': 5}])
     assert result['errors'] == []
+
+
+def test_existing_stale_review_request_cannot_generate_new_proxy(client, seeded, monkeypatch):
+    from app.services import story_planner
+    from app.models import Job
+    from app.services.runner import JobRunner
+    pid, asset, sid, _, _, _ = seeded
+    with session_scope() as s:
+        s.get(Segment, sid).status = 'needs_review'
+        request = ReviewRequest(project_id=pid, asset_id=asset.id, segment_id=sid,
+                                start_sec=1, end_sec=5, status='pending')
+        s.add(request); s.flush(); rid = request.id
+        job = Job(project_id=pid, job_type='proxies')
+        s.add(job); s.flush(); jid = job.id
+    encoded = []
+    def encode(source, start, duration, out, **kw):
+        encoded.append(True); out.write_bytes(b'wrong-source-preview')
+    monkeypatch.setattr(story_planner, 'extract_preview', encode)
+    JobRunner()._run(jid, story_planner.proxies_task)
+    assert encoded == []
+    with session_scope() as s:
+        assert s.get(ReviewRequest, rid).status == 'needs_review'
+        row = s.get(Job, jid)
+        assert row.status == 'partial_failed' and row.failures['count'] == 1
