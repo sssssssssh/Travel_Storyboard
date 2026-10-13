@@ -42,3 +42,13 @@ test('RT17 query refresh preserves dirty draft; explicit reload restores server'
   fireEvent.click(screen.getByText('重新加载服务端版本'))
   await waitFor(() => expect((screen.getByPlaceholderText('转场提示（可选）') as HTMLInputElement).value).toBe('server'))
 })
+
+test('failed save retains the edited draft', async () => {
+  setup()
+  await waitFor(() => expect(screen.getAllByPlaceholderText('转场提示（可选）')).toHaveLength(10))
+  fireEvent.change(screen.getAllByPlaceholderText('转场提示（可选）')[0], { target: { value: 'keep me' } })
+  vi.mocked(api).mockRejectedValueOnce(new Error('network failure'))
+  fireEvent.click(screen.getByText('保存剪辑计划'))
+  await screen.findByText('保存失败，草稿已保留：network failure')
+  expect((screen.getAllByPlaceholderText('转场提示（可选）')[0] as HTMLInputElement).value).toBe('keep me')
+})

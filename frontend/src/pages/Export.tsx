@@ -231,6 +231,14 @@ function ExportEditor({ id }: { id: string }) {
                       <button className="px-1 text-red-400 hover:text-red-300" onClick={() => setDraft((d) => d.filter((_, x) => x !== i))}>✕</button>
                     </div>
                   </div>
+                  <div className="mb-2 flex gap-2 text-xs text-slate-400">
+                    {(['source_in_sec', 'source_out_sec', 'target_duration_sec'] as const).map((field) => (
+                      <label key={field}>{field === 'source_in_sec' ? '入点秒' : field === 'source_out_sec' ? '出点秒' : '目标时长秒'}
+                        <input className={inputClass} type="number" min="0" step="0.01" value={s[field]}
+                          onChange={(e) => setDraft((d) => d.map((x, xi) => xi === i ? { ...x, [field]: Number(e.target.value) } : x))} />
+                      </label>
+                    ))}
+                  </div>
                   <div className="flex items-center gap-2">
                     <select
                       className={inputClass + ' max-w-[120px]'}
@@ -245,6 +253,12 @@ function ExportEditor({ id }: { id: string }) {
                       value={s.transition_hint}
                       onChange={(e) => setDraft((d) => d.map((x, xi) => (xi === i ? { ...x, transition_hint: e.target.value } : x)))}
                     />
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    {([['music_cue', '配乐提示'], ['audio_hint', '音频提示'], ['color_hint', '调色提示']] as const).map(([field, label]) => (
+                      <input key={field} className={inputClass} placeholder={label} value={s[field]}
+                        onChange={(e) => setDraft((d) => d.map((x, xi) => xi === i ? { ...x, [field]: e.target.value } : x))} />
+                    ))}
                   </div>
                 </li>
               ))}
