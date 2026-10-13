@@ -1,4 +1,4 @@
-# Travel Storyboard v2.0 — 实现设计文档
+# Travel Storyboard v2.0.1 — 实现设计文档
 
 > 本文档描述从需求方案到代码的实现设计，是 `backend/` 与 `frontend/` 的权威依据。
 > 需求来源：《Travel_Storyboard_v2.0_详细设计方案.md》。
@@ -118,9 +118,9 @@ docs/                  # DESIGN.md / REGRESSION.md
 **唯一约束**：`(project_id, source_path)` 唯一，保证同项目同文件只有一行；
 探测失败时复用同一行并置 `scan_status=failed` / `error_code=probe_failed`，不会插入第二行。
 
-**增量判断**：`relative_path + file_size_bytes + mtime_ns` 相同则跳过重扫；`quick_fingerprint`（首尾块哈希 + 大小）用于迁移/重复提示，碰撞时二次确认。
-检测阶段另有指纹：`analyzed_fingerprint == quick_fingerprint` 且
-`analyzed_detect_config == 当前检测配置指纹` 时跳过，`force=true` 可强制重算。
+**增量判断**：每次重新采样头/中/尾内容，规范化路径、大小、mtime_ns 和快速指纹均相同才跳过重扫。
+检测阶段比较 `analyzed_fingerprint == 本次 scan_signature` 和任务快照中的检测配置指纹；
+`force=true` 可强制重算，`options.full_hash=true` 可加入全文件 SHA-256。
 
 ### 5.3 `segments`（候选片段）
 - `id` (UUID, 稳定 segment_id), `asset_id`, `project_id`
@@ -160,7 +160,7 @@ docs/                  # DESIGN.md / REGRESSION.md
 
 ### 6.1 素材建库（M1）
 1. 递归遍历 `source_roots`，按扩展名过滤视频文件。
-2. `relative_path + size + mtime_ns` 命中既有 asset → 跳过。
+2. 规范化路径、大小、mtime_ns 与重新采样的头/中/尾快速指纹均命中既有 asset → 跳过。
 3. `ffprobe` 解析技术元数据；新文件生成 UUID `asset_id`。
 4. 单文件失败 → 标记 `failed` + `error_code`，不阻塞全局。
 5. 每文件落库并推进 `resume_token`，支持中断续跑。
@@ -209,7 +209,7 @@ docs/                  # DESIGN.md / REGRESSION.md
 - 同一项目内 `scan`/`detect`/`package`/`proxies`/`roughcut` 互斥，重复提交返回 409。
 - 每个文件/片段完成后更新 `stats` 与 `resume_token`；进程重启时 `resume_interrupted_jobs()`
   会把遗留的 `pending`/`running` 任务重新派发。
-- 抽帧先写 `staging/`，成功后原子替换并回收上一轮无引用的 JPEG；检测按素材指纹 +
+- 抽帧先写独立 `staging/<asset>/<run_id>/`，验证后发布新版本、提交 DB，再回收旧版无引用 JPEG；检测按素材签名 +
   算法/配置指纹跳过未变化的素材。
 
 ## 9. API 一览
@@ -255,7 +255,7 @@ docs/                  # DESIGN.md / REGRESSION.md
 | M4 | 故事板 + 导出：剪辑时间线 CSV / JSON / OTIO、代理粗剪 | ✅ |
 
 具体验收场景见 [REGRESSION.md](REGRESSION.md) 的 T01–T19 清单（自动化部分由
-`backend/tests/` 覆盖，需要真实解码的保持手工）。
+`backend/tests/` 覆盖，生成素材真实解码在独立 Ubuntu/Windows FFmpeg Job 必跑，旅行实片仍需手工）。
 
 > OTIO 已用参考实现 `opentimelineio` 做读回校验（结构、clip 数、源区间、
 > 总时长一致），但**尚未在真实 NLE 中实测**；直连模型路径在未配置
@@ -265,10 +265,50 @@ docs/                  # DESIGN.md / REGRESSION.md
 
 - FFmpeg 路径可配置，支持 PATH / 环境变量 / 常见安装目录探测；
   `scripts/start.ps1` 会在启动前提示是否就绪。
-- **数据库迁移**：`init_db()` 执行幂等的增量迁移（补列），迁移前自动把 SQLite 文件
-  复制为 `<name>.pre-migration-<时间戳>.bak`。目前未引入 Alembic；
+- **数据库迁移**：`init_db()` 执行幂等的增量迁移（补列），迁移前通过 SQLite Backup API（包含 WAL）生成快照
+  保存为 `<name>.pre-migration-<时间戳>.bak`。目前未引入 Alembic；
   当出现需要重建表或改写数据的变更时应切换到 Alembic。
-- 已知限制：升级前就已裁剪过的镜头，其原始检测边界无法还原，回填后等于裁剪区间，
+- 已知限制：早于检测边界拆分版本、且没有 detected_* 列的旧镜头已被裁剪时，其原始边界无法还原，首次补列回填等于裁剪区间，
   再做检测会被视为新镜头（升级后新产生的裁剪不受影响）。
 - 检测算法为 1 fps HSV 直方图硬切，快速移动可能误切、短转场可能漏切；
   尚未在真实旅行片上做混淆矩阵与阈值校准。
+
+
+## v2.0.1 稳定性协议（TSB-201～208）
+
+- **状态机**：pending → running → succeeded / partial_failed / failed / cancelled。
+  每个状态写入使用带预期活动状态的 SQL UPDATE；终态不可互相覆盖。取消为协作式，
+  当前 FFmpeg 调用可能继续，但后续素材、片段和发布前检查取消。任务已取消但线程尚未
+  退出时继续占项目锁；创建新任务或移动工作区返回 409。恢复按 created_at 排队，同项目
+  缓存任务逐个派发；失败列表从数据库恢复、按对象去重，成功重试移除相应失败记录。
+- **工作区**：比较规范化后的项目根路径。只要有分析状态、计划、复核请求、历史包、
+  媒体文件或活动任务，output_dir 变更整批拒绝（WORKSPACE_HAS_DATA）；名称/设置更新
+  不受目录保护阻挡。本版不自动迁移。媒体路由仍执行项目边界与目录/扩展名白名单。
+- **指纹/续跑**：scan_signature 为规范化路径、大小、mtime_ns、头/中/尾各 64 KiB
+  内容的 JSON 摘要；取样偏移也纳入快速内容指纹。full_hash=true 追加全文件 SHA-256，
+  代价为读取全部源文件。快速指纹不是全内容等价证明。detect_signature 还含算法版本、
+  sample_fps、threshold、max_segment_sec、thumb_width。任务创建时清单和参数写入
+  config_snapshot；resume_token.items 保存每个路径/asset_id 的签名及
+  pending/completed/failed/skipped 状态。恢复合并新增项，失效变化/移除项并报告警告；
+  不再使用 last_index / last_asset_id 作为跳过依据。旧任务保守重新检查一次。
+- **缓存发布**：每次分析有 run_id；staging 和最终 JPEG 文件名包含该版本，不覆盖旧图。
+  所有图片可完整解码后发布，再提交 Frame/Segment 引用；DB 失败回滚并回收本次发布。
+  成功提交后清理上一版无引用帧。分析前/后可重试 cleanup_orphan_frames，默认 1 小时
+  宽限期，只清理项目 frames/staging 内数据库没有引用的 JPEG，不跟随符号链接。
+  文件系统和 DB 不是原子事务：强制退出可能留下孤儿文件，宽限期后下一次分析回收。
+- **AI 抽样**：favorite > like > pending > 其他，exclude 排除。组内按评分、源时间、ID
+  排序；首轮每素材至多一段，按首段评分和 asset_id 排序，再补第二轮。候选限额在公平
+  排序之后应用。图片按距离有效片段中点最近选择，缺图不计覆盖。complete 只有全部
+  候选镜头和库内素材均被实际图片覆盖时为真；库内只含 exclude 镜头的素材仍算未覆盖。
+- **计划/粗剪**：完整恢复编辑字段；dirty 草稿拒绝查询刷新覆盖，显式重新加载可放弃草稿。
+  保存按数组顺序重排，任何非法项整批拒绝。source_in/out 均约束在当前片段内（1 ms
+  容差），时长/置信度必须有限。JSON/CSV/OTIO/粗剪均读同一排序后的保存计划。
+  粗剪使用独立 staging MP4，成功且未取消后 replace 最终文件；完整/不完整文件及
+  X-Roughcut-Incomplete 标头区分结果。低帧率源的尾帧延续到精确计划时长，音轨补齐。
+- **兼容性**：无新增 ORM 列/表；签名/清单/版本用现有字段和 JSON 存储。旧 JPEG 引用及
+  Segment ID 可继续使用；边界稳定时人工评分、裁剪及引用保持。已有历史数据库迁移
+  改用 SQLite Backup API（包含 WAL），只为新加入的检测边界列做回填，保留合法零值。
+  停止应用后可整体恢复迁移备份，避免主库和 WAL 不配套。
+- **CI**：原后端矩阵保留；独立 Ubuntu/Windows Python 3.11 媒体任务强制安装并打印
+  FFmpeg/FFprobe 版本，TSB_REQUIRE_FFMPEG=1 下缺依赖、合成失败或任何 skip 均失败。
+  前端 CI 增加实际组件测试。媒体测试报告作为 Actions artifact 保存。

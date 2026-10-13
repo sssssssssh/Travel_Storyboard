@@ -3,10 +3,9 @@
 本清单对应代码审查报告中的 T01–T14 场景。**自动化部分**由 `backend/tests/`
 覆盖（`python -m pytest`）；**手动部分**需要 FFmpeg 与真实素材，按下面的步骤执行。
 
-自动化测试**默认不需要 FFmpeg**，因此在任意 CI 环境都能运行。若本机配置了 FFmpeg
-（PATH 或 `backend/.env`），`tests/test_ffmpeg_integration.py` 会**自动启用**，额外覆盖
-真实解码路径（探测、建库、抽帧、检测、重跑保留标注、粗剪时长收敛）；
-未配置时这 8 项会 skip，不会让 CI 失败。
+普通单测矩阵不依赖 FFmpeg；独立 Ubuntu/Windows 媒体矩阵**强制安装** FFmpeg 与
+FFprobe，并设置 `TSB_REQUIRE_FFMPEG=1`，缺工具、合成失败或测试 skip 均让 Job 失败。
+本地未装 FFmpeg 时仍可单独跑普通单测，但不得把媒体 skip 当作验收通过。
 
 涉及真实素材与播放器的主观判断仍保持手动，记录在下方表格里。
 
@@ -45,8 +44,8 @@ python -m pytest -q
 | `test_jobs.py::test_new_job_rows_start_with_empty_failures` | P1-08 | 新任务 `failures` 初始化为空 |
 | `test_output_dir.py::test_output_dir_is_reflected_in_cache_dir` | P1-02 | `cache_dir = output_dir/<项目ID>` |
 | `test_output_dir.py::test_default_location_when_output_dir_empty` | P1-02 | 留空时回落到数据目录 |
-| `test_output_dir.py::test_artifact_dirs_follow_output_dir` | P1-02 | 帧/代理/包/粗剪目录随之迁移 |
-| `test_output_dir.py::test_output_dir_change_moves_workspace` | P1-02 | 改 `output_dir` 后工作区跟着走 |
+| `test_output_dir.py::test_artifact_dirs_follow_output_dir` | P1-02 | 新项目的帧/代理/包/粗剪目录位于配置位置 |
+| `test_output_dir.py::test_output_dir_change_moves_workspace` | P1-02 | 空工作区变更成功（有数据必须 409，不自动迁移） |
 | `test_output_dir.py::test_output_dir_matching_data_dir_is_rejected` | P1-02 | 输出目录 = 数据目录 → 422 |
 | `test_output_dir.py::test_output_dir_overlapping_source_root_is_rejected` | P1-02 | 输出在素材内 → 422 |
 | `test_output_dir.py::test_output_dir_containing_source_root_is_rejected` | P1-02 | 输出包含素材 → 422 |
@@ -74,7 +73,7 @@ python -m pytest -q
 | `test_timeline_export.py::test_validation_is_all_or_nothing` | P1-05 | 校验失败不破坏既有计划 |
 | `test_timeline_export.py::test_json_csv_otio_agree_on_shots_and_duration` | P1-05 | 三种导出镜头数与时长一致 |
 | `test_timeline_export.py::test_otio_round_trips_through_opentimelineio` | P1-05 | OTIO 可被参考实现读回 |
-| `test_ffmpeg_integration.py`（8 项，需 FFmpeg，CI 中自动 skip） | M1/M2 | 真实解码：探测元数据、建库不重复、抽帧、带音频预览、检测出硬切、分析后重跑保留标注且帧数不增长、粗剪时长收敛 |
+| `test_ffmpeg_integration.py`（需 FFmpeg，独立 CI 必跑） | M1/M2 | 真实解码：探测元数据、建库不重复、抽帧、带音频预览、检测出硬切、分析后重跑保留标注且帧数不增长、粗剪时长收敛 |
 
 ---
 
@@ -126,8 +125,53 @@ python -m pytest -q
 `init_db()` 在启动时执行**幂等**的增量迁移：
 
 * 自动为旧库补齐 `assets.analyzed_*`、`segments.detected_*`/`is_trimmed`、`jobs.failures`；
-* 迁移前会把 SQLite 文件复制为 `<name>.pre-migration-<UTC时间戳>.bak`；
-* 旧数据回填：`detected_*` 取当时的 `start_sec`/`end_sec`。
+* 迁移前通过 SQLite Backup API（包含 WAL）生成快照，保存为 `<name>.pre-migration-<UTC时间戳>.bak`；
+* 仅新加入的 `detected_*` 列取当时的 `start_sec`/`end_sec`；已有零秒检测边界保持。
 
-**已知限制**：升级前就已裁剪过的镜头，其原始检测边界无法还原，回填后会等于裁剪后的
+**已知限制**：早于边界拆分版本且没有 detected_* 列的旧库镜头已裁剪时，原始检测边界无法还原，首次补列回填后等于裁剪后的
 区间。这类镜头若再做一次检测，会被视为新镜头。升级后新产生的裁剪不受影响。
+
+
+## v2.0.1 回归用例映射
+
+结果及未覆盖项见 [RELEASE_V2_0_1.md](RELEASE_V2_0_1.md)。
+
+| 任务书 RT | 自动化证据 | 实测边界 |
+| --- | --- | --- |
+| RT01～03 | test_story_direct.py：评分、长片挤占、60 素材 12 图片、确定性及缺图 | 模型调用使用 stub，图片绑定和覆盖率为真实 DB/文件检查 |
+| RT04～05 | test_output_dir.py：默认/自定义完整及不完整 MP4 API、越界/白名单 | Windows 自定义路径由媒体 CI 覆盖，用户 Windows 实片待验收 |
+| RT06～08 | test_stability_jobs.py：队列取消、最后项取消、终态 409、串行恢复 | 实际线程门控与 DB 条件更新 |
+| RT09～10 | test_output_dir.py：有数据拒绝且旧媒体可读、空目录允许、停止线程保护 | DB 与路径缓存保持一致 |
+| RT11～14 | test_checkpoints.py：同大小时间中部改动、增删、参数快照、失败去重恢复 | 快速采样碰撞和 full_hash 补充测试明确分开 |
+| RT15、17 | frontend Export.test.tsx：恢复 10 个镜头、dirty 不覆盖、保存失败保留 | React Query + Router + 实际页面组件 |
+| RT16 | test_timeline_export.py：越片段出点、非有限目标时长整批拒绝 | 旧计划行完整保留 |
+| RT18～20 | test_ffmpeg_integration.py / test_cache_recovery.py | 真抽帧、重复分析、发布/DB/清理故障、孤儿宽限期、外部文件保护 |
+| RT21 | test_ffmpeg_integration.py：6 秒三场景、切镜、代理音轨、粗剪精度 | 实际 FFmpeg；另含 3 fps 4K HEVC、横竖屏、无音轨 |
+| RT22 | Ubuntu/Windows 媒体 CI 的中文路径生成素材替代验证 | 真实 Windows 旅行素材尚未获得，不能写通过 |
+| RT23 | 综合链路报告记录 3 个生成视频 SHA-256 前后 | 真实原片三段哈希仍待用户素材验收 |
+| RT24 | 自定义目录扫描→检测→包→复核代理→计划→粗剪、保存计划保持 | 3 个生成视频替代；5～10 段旅行实片和真实模型待验收 |
+
+完整本地自动化命令：
+
+```bash
+cd backend
+python -m pytest -q
+# 设置 FFmpeg/FFprobe 路径或放入 PATH 后，强制媒体模式：
+TSB_REQUIRE_FFMPEG=1 python -m pytest -v tests/test_ffmpeg_integration.py tests/test_cache_recovery.py
+cd ../frontend
+pnpm test
+pnpm typecheck
+pnpm lint
+pnpm build
+```
+
+Windows PowerShell：先 `$env:TSB_REQUIRE_FFMPEG="1"`，再执行媒体 pytest 命令。
+
+### Windows 实片待执行记录
+
+选择 5～10 段视频，记录 CPU/GPU、RAM、磁盘、Windows/FFmpeg 版本、总时长及大小。
+覆盖几十秒与 10 分钟以上、4K、HEVC/H.264、横竖屏、中文路径、音轨有/无、VFR、HDR；
+没有的类别明确填“未覆盖”。至少三段使用 `Get-FileHash -Algorithm SHA256` 分析前后对比。
+分别验证默认及自定义工作区；操作收藏/裁剪，强制检测、重启、计划刷新、取消最后一项；
+检查 ID/标记/媒体引用/计划不丢，粗剪音画及时间正确。记录任务管理器峰值内存和缓存大小，
+故意加入一个损坏文件观察其余任务正常完成。所有未执行项不得打勾。
