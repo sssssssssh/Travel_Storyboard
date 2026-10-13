@@ -268,10 +268,10 @@ def test_validate_normalises_unknown_priority():
 # --- persistence -------------------------------------------------------------
 
 def test_persist_requests_creates_rows(seeded):
-    project_id, assets, _ = seeded
+    project_id, assets, segments = seeded
     created = _persist_requests(
         project_id,
-        [{"asset_id": assets["alpha.mp4"], "segment_id": "seg-x", "start_sec": 1.0,
+        [{"asset_id": assets["alpha.mp4"], "segment_id": segments[0][0], "start_sec": 1.0,
           "end_sec": 3.0, "priority": "high", "reason": "test"}],
     )
     assert created == 1
@@ -283,8 +283,8 @@ def test_persist_requests_creates_rows(seeded):
 
 
 def test_persist_requests_skips_duplicates(seeded):
-    project_id, assets, _ = seeded
-    req = {"asset_id": assets["alpha.mp4"], "segment_id": "seg-y", "start_sec": 1.0,
+    project_id, assets, segments = seeded
+    req = {"asset_id": assets["alpha.mp4"], "segment_id": segments[0][0], "start_sec": 1.0,
            "end_sec": 3.0, "priority": "high", "reason": "test"}
     assert _persist_requests(project_id, [req]) == 1
     assert _persist_requests(project_id, [req]) == 0
@@ -438,3 +438,9 @@ def test_direct_request_persistence_rechecks_current_segment(seeded):
                                    'end_sec': 5, 'priority': 'high', 'reason': 'now stale'}]) == 0
     with session_scope() as s:
         assert not s.scalars(select(ReviewRequest).where(ReviewRequest.project_id == pid)).all()
+
+
+def test_direct_persistence_rejects_ids_that_disappeared_after_model_request(seeded):
+    pid, assets, _ = seeded
+    assert _persist_requests(pid, [{'asset_id': assets['alpha.mp4'], 'segment_id': 'removed-id',
+                                   'start_sec': 1, 'end_sec': 3, 'priority': 'high', 'reason': 'disappeared'}]) == 0
