@@ -25,9 +25,15 @@ class SourceUnavailable(OSError):
     code = 'source_unavailable'
 
 
-def file_identity(stat) -> dict:
-    return {name: int(getattr(stat, name)) for name in
-            ('st_size', 'st_mtime_ns', 'st_ctime_ns', 'st_dev', 'st_ino')}
+def file_identity(stat, *, windows: bool | None = None) -> dict:
+    identity = {name: int(getattr(stat, name)) for name in
+                ('st_size', 'st_mtime_ns', 'st_ctime_ns', 'st_dev', 'st_ino')}
+    # CPython Windows stat(path).ctime is creation time, while fstat(fd).ctime
+    # can be ChangeTime (python/cpython#157671). Canonicalize both to birthtime
+    # when available; do not loosen size/mtime/device/inode identity checks.
+    if (os.name == 'nt' if windows is None else windows) and hasattr(stat, 'st_birthtime_ns'):
+        identity['st_ctime_ns'] = int(stat.st_birthtime_ns)
+    return identity
 
 
 def _signature(info: dict, full_sha256: str | None = None) -> str:

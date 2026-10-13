@@ -304,3 +304,16 @@ def test_unreadable_source_root_reports_failure(client, tmp_path, monkeypatch):
         row = s.get(Job, jid)
         assert row.status == 'partial_failed'
         assert row.resume_token['items'][0]['error_code'] == 'source_unavailable'
+
+
+def test_windows_stat_and_fstat_creation_identity_are_canonical():
+    from app.services.checkpoints import file_identity
+    from types import SimpleNamespace
+    common = dict(st_size=100, st_mtime_ns=200, st_dev=3, st_ino=4, st_birthtime_ns=50)
+    path_stat = SimpleNamespace(**common, st_ctime_ns=50)
+    handle_stat = SimpleNamespace(**common, st_ctime_ns=999)
+    assert file_identity(path_stat, windows=True) == file_identity(handle_stat, windows=True)
+    assert file_identity(path_stat, windows=False) != file_identity(handle_stat, windows=False)
+    for field in ('st_size', 'st_mtime_ns', 'st_dev', 'st_ino', 'st_birthtime_ns'):
+        changed = {**common, field: common[field] + 1}
+        assert file_identity(path_stat, windows=True) != file_identity(SimpleNamespace(**changed, st_ctime_ns=999), windows=True)

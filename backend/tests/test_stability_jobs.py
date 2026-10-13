@@ -88,9 +88,15 @@ def test_same_project_workers_serialize(client):
 def test_recovery_queues_active_jobs_and_never_resumes_cancelled(client, monkeypatch):
     import app.services.runner as module
     jid = job_row(client, 'running', failures={'count': 1, 'items': [{'kind': 'asset', 'ref': 'broken', 'message': 'persisted'}]})
+    from datetime import datetime, timedelta, timezone
+    # Windows clocks may produce equal creation timestamps. Give this ordering
+    # test explicit persisted times, preserving every serialization assertion.
+    created = datetime(2026, 1, 1, tzinfo=timezone.utc)
     with session_scope() as s:
-        pid = s.get(Job, jid).project_id
-        second = Job(project_id=pid, job_type='scan', status='running')
+        first = s.get(Job, jid)
+        first.created_at = created
+        pid = first.project_id
+        second = Job(project_id=pid, job_type='scan', status='running', created_at=created + timedelta(seconds=1))
         cancelled = Job(project_id=pid, job_type='detect', status='cancelled')
         s.add_all([second, cancelled]); s.flush(); jid2, cancelled_id = second.id, cancelled.id
     local = JobRunner()
