@@ -195,7 +195,9 @@ class HealthOut(BaseModel):
 class SystemConfigOut(BaseModel):
     bind_host: str
     bind_port: int
-    data_dir: str
+    #: Folder NAME only — this endpoint is token-exempt, so it must not disclose
+    #: the absolute data directory (audit P1-07 class of leak).
+    data_dir_name: str
     max_concurrency: int
     thumb_width: int
     proxy_width: int

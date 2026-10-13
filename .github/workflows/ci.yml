@@ -36,6 +36,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      # Optional: only used to read the OTIO export back with the reference
+      # implementation. The test skips itself when the wheel is unavailable, so
+      # a platform without a build must not fail the job.
+      - name: Install optional OTIO validator
+        working-directory: backend
+        continue-on-error: true
+        run: pip install "opentimelineio>=0.17"
+
       # The unit/integration suite is deliberately FFmpeg-free: the media
       # pipeline is covered by the manual regression checklist in
       # docs/REGRESSION.md. CI asserts the security, data-integrity and job

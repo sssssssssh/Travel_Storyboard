@@ -137,7 +137,7 @@ export interface HealthOut {
 export interface SystemConfigOut {
   bind_host: string
   bind_port: number
-  data_dir: string
+  data_dir_name: string
   max_concurrency: number
   thumb_width: number
   proxy_width: number

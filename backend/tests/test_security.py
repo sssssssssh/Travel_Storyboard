@@ -33,6 +33,34 @@ def test_health_and_config_are_reachable_without_token(client):
         assert "token" not in res.text.lower()
 
 
+def test_exempt_endpoints_do_not_disclose_filesystem_layout(client):
+    """These two routes need no token, so they must not reveal local paths.
+
+    Regression guard: `/system/health` used to return the absolute ffmpeg path
+    and `/system/config` the absolute data directory.
+    """
+    import re
+
+    from app.paths import data_root
+
+    for path in ("/api/system/health", "/api/system/config"):
+        body = client.get(path, headers={"X-Access-Token": ""}).text
+        # No Windows drive letters, no POSIX absolute roots.
+        assert not re.search(r"[A-Za-z]:[\\/]", body), f"{path} leaked a drive path: {body}"
+        assert str(data_root()) not in body, f"{path} leaked the data directory"
+        assert "\\\\" not in body, f"{path} leaked a UNC path: {body}"
+        # No usernames either.
+        assert "Users" not in body and "home" not in body.lower(), body
+
+
+def test_health_reports_tool_names_without_directories(client):
+    body = client.get("/api/system/health", headers={"X-Access-Token": ""}).json()
+    for key in ("ffmpeg", "ffprobe"):
+        value = body.get(key)
+        if value:
+            assert "/" not in value and "\\" not in value and ":" not in value, value
+
+
 def test_database_file_is_not_downloadable(client, project):
     """`path=` must not reach files outside the project cache."""
     res = client.get(

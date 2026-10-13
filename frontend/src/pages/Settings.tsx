@@ -46,7 +46,7 @@ export default function Settings() {
         <h2 className="mb-3 text-sm font-semibold text-slate-200">服务配置</h2>
         <div className="space-y-1.5 text-sm">
           <div className="flex justify-between"><span className="text-slate-500">绑定地址</span><span className="text-slate-200">{config?.bind_host}:{config?.bind_port}</span></div>
-          <div className="flex justify-between"><span className="text-slate-500">数据目录</span><span className="text-slate-200">{config?.data_dir}</span></div>
+          <div className="flex justify-between"><span className="text-slate-500">数据目录名</span><span className="text-slate-200">{config?.data_dir_name}</span></div>
           <div className="flex justify-between"><span className="text-slate-500">并发数</span><span className="text-slate-200">{config?.max_concurrency}</span></div>
           <div className="flex justify-between"><span className="text-slate-500">缩略图宽度</span><span className="text-slate-200">{config?.thumb_width}px</span></div>
           <div className="flex justify-between">

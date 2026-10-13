@@ -57,6 +57,7 @@ Travel_Storyboard/
 │   ├── requirements.txt
 │   └── requirements-dev.txt
 ├── frontend/           # React + Vite + TS + Tailwind
+├── scripts/            # 一键启动：start.ps1 / start.bat / start.sh
 ├── docs/
 │   ├── DESIGN.md       # 完整设计文档
 │   └── REGRESSION.md   # 回归测试清单（自动化 + 手动）
@@ -66,13 +67,36 @@ Travel_Storyboard/
 
 ## 快速开始
 
-### 0. 前置依赖
+### 推荐：一键启动
 
-- Python 3.11+（开发机已验证 3.13）
-- [FFmpeg](https://ffmpeg.org/download.html)（`ffmpeg` / `ffprobe` 需在 PATH 中，或通过 `.env` 指定路径）
-- Node.js 18+ 与 pnpm（仅构建前端时需要）
+Windows 双击 `scripts\start.bat`，或在 PowerShell 里：
 
-### 1. 启动后端
+```powershell
+.\scripts\start.ps1
+```
+
+macOS / Linux：
+
+```bash
+./scripts/start.sh
+```
+
+脚本会依次：检查 Python 3.11+ 与 FFmpeg → 创建 `backend\.venv` 并装依赖 →
+构建前端 → 启动服务并**自动用带令牌的地址打开浏览器**。每一步都是幂等的，可以反复运行。
+
+常用参数：
+
+| 参数（PowerShell / bash） | 作用 |
+| --- | --- |
+| `-SkipInstall` / `--skip-install` | 跳过依赖安装（venv 已就绪时更快） |
+| `-SkipFrontend` / `--skip-frontend` | 只起后端（前端用 `pnpm dev`） |
+| `-Port 8800` / `PORT=8800` | 换端口 |
+| `-NoBrowser` | 不自动打开浏览器 |
+
+### 手动启动
+
+**前置依赖**：Python 3.11+（已在 3.13 上验证）、FFmpeg（在 PATH 中，或用 `.env` 指定路径）、
+Node.js 18+ 与 pnpm（仅构建前端时需要）。
 
 ```powershell
 cd backend
@@ -90,8 +114,10 @@ uvicorn app.main:app --host 127.0.0.1 --port 8737
 
 > 服务**不再**通过 API 下发令牌。所有 `/api/*` 请求需带 `X-Access-Token` 头（或 `?token=`）。
 > 绑定仅限回环地址；携带非回环 `Host` / `Origin` / `Referer` 的请求会被 403 拒绝（防 DNS rebinding）。
+> 两个免令牌接口（`/api/system/health`、`/api/system/config`）只返回可用性与工具名，
+> 不返回任何本机绝对路径。
 
-### 2. 启动前端（开发模式）
+### 前端开发模式
 
 ```powershell
 cd frontend
@@ -102,7 +128,7 @@ pnpm dev
 打开 Vite 提示的地址（默认 `http://localhost:5173`），前端会把 `/api` 代理到 `127.0.0.1:8737`。
 开发模式下把令牌拼到地址后即可：`http://localhost:5173/?token=<token>`。
 
-### 3. 生产模式（后端直接托管前端）
+### 生产模式（后端直接托管前端）
 
 ```powershell
 cd frontend
@@ -112,8 +138,9 @@ uvicorn app.main:app --host 127.0.0.1 --port 8737
 ```
 
 访问启动日志里的带令牌地址即可（后端检测到 `frontend/dist` 会自动托管前端页面）。
+`scripts\start.ps1` 做的就是这件事。
 
-### 4. 运行测试
+### 运行测试
 
 ```powershell
 cd backend
