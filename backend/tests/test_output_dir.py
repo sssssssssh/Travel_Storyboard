@@ -238,3 +238,20 @@ def test_remember_and_resolve_roundtrip(tmp_path: Path):
     remember_project_root(pid, str(tmp_path / "out"))
     assert project_cache_dir(pid) == (tmp_path / "out" / pid).resolve()
     forget_project_root(pid)
+
+
+@pytest.mark.parametrize('artifact', ['frames/a/f.jpg', 'packages/history.zip', 'roughcut/roughcut.mp4'])
+def test_workspace_with_artifacts_cannot_change(client, tmp_path, artifact):
+    project = _make_project(client, 'protected', str(tmp_path / 'old'))
+    pid = project['id']
+    path = project_cache_dir(pid) / artifact
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b'preserved')
+    response = client.patch(f'/api/projects/{pid}', json={'name': 'must-not-change', 'output_dir': str(tmp_path / 'new')})
+    assert response.status_code == 409
+    assert response.json()['detail']['code'] == 'WORKSPACE_HAS_DATA'
+    assert client.get(f'/api/projects/{pid}').json()['name'] == 'protected'
+    assert project_cache_dir(pid) == Path(project['cache_dir'])
+    assert client.get(f'/api/projects/{pid}/media', params={'path': str(path)}).content == b'preserved'
+    assert client.patch(f'/api/projects/{pid}', json={'name': 'renamed'}).status_code == 200
+    assert client.patch(f'/api/projects/{pid}', json={'output_dir': str(tmp_path / 'old' / '.')}).status_code == 200
