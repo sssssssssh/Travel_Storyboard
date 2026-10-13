@@ -369,3 +369,61 @@ def test_package_replay_reuses_committed_artifact(client, project):
         assert len(rows) == 1
         assert s.get(Job, jid).resume_token == before
         s.get(Job, jid).status = 'succeeded'
+
+
+def test_real_ffprobe_force_and_resume_call_counts(client, project, synthetic_clip, monkeypatch):
+    from app.models import Job
+    from app.services import indexer
+    from app.services.runner import JobRunner
+    actual_probe, calls = indexer.probe_media, []
+    def count(path):
+        calls.append(str(path)); return actual_probe(path)
+    monkeypatch.setattr(indexer, 'probe_media', count)
+    aid, action = index_one(project['id'], synthetic_clip)
+    assert action == 'created' and len(calls) == 1
+    assert index_one(project['id'], synthetic_clip)[1] == 'skipped'
+    assert len(calls) == 1
+    with session_scope() as s:
+        job = Job(project_id=project['id'], job_type='scan', config_snapshot={
+            'source_roots': [str(synthetic_clip.parent)], 'force': True})
+        s.add(job); s.flush(); jid = job.id
+    indexer.scan_task(jid)
+    assert len(calls) == 2
+    indexer.scan_task(jid)
+    assert len(calls) == 2
+    with session_scope() as s:
+        assert s.scalars(select(Asset).where(Asset.project_id == project['id'])).one().id == aid
+        assert s.get(Job, jid).stats['forced_reprobe'] == 1
+        s.get(Job, jid).status = 'succeeded'
+
+
+def test_generated_ten_minute_chinese_path_with_audio(client, tmp_path, record_property):
+    """RT16 surrogate: generated long clip, not user Windows travel footage."""
+    import hashlib
+    from types import SimpleNamespace
+    from app.ffmpeg import extract_preview
+    from app.paths import rel_to_data
+    exe = _ffmpeg_or_skip()
+    root = tmp_path / '中文 长视频'; root.mkdir()
+    path = root / '十分钟 环境音.mp4'
+    run([exe, '-y', '-f', 'lavfi', '-i', 'color=c=orange:s=160x90:d=601:r=1',
+         '-f', 'lavfi', '-i', 'sine=frequency=440:duration=601', '-c:v', 'libx264',
+         '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '32k', '-shortest', str(path)])
+    before = hashlib.sha256(path.read_bytes()).hexdigest()
+    pid = client.post('/api/projects', json={'name': 'generated-long', 'output_dir': str(tmp_path / '中文 工作区')}).json()['id']
+    aid, action = index_one(pid, path)
+    assert action == 'created'
+    with session_scope() as s:
+        asset = s.get(Asset, aid); s.expunge(asset)
+    assert asset.duration_sec >= 600 and asset.has_audio
+    settings = SimpleNamespace(detect_sample_fps=1, detect_threshold=.35, detect_max_segment_sec=300, thumb_width=160)
+    result = _analyze_asset(pid, asset, settings=settings)
+    assert result['segments'] >= 3
+    preview = project_cache_dir(pid) / 'proxies' / 'long-preview.mp4'
+    preview.parent.mkdir(parents=True, exist_ok=True)
+    extract_preview(path, 590, 2, preview, width=160, keep_audio=True)
+    assert probe_media(preview).has_audio
+    assert client.get(f'/api/projects/{pid}/media', params={'path': rel_to_data(preview)}).status_code == 200
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+    record_property('generated_long_source_duration_sec', asset.duration_sec)
+    record_property('generated_long_source_sha256_unchanged', before)
