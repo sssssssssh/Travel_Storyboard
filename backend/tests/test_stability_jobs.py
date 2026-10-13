@@ -1,5 +1,6 @@
 """TSB-203: terminal CAS, queued cancel, serialized recovery and failures."""
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from app.database import session_scope
@@ -117,3 +118,57 @@ def test_recovery_queues_active_jobs_and_never_resumes_cancelled(client, monkeyp
             assert s.get(Job, jid).status == 'partial_failed'
     finally:
         release.set(); local.shutdown()
+
+
+def test_full_hash_creation_does_not_enumerate_or_read_sources(client, monkeypatch, tmp_path):
+    from app.api import jobs
+    from app.services import indexer, analyzer
+    pid = client.post('/api/projects', json={'name': 'async-hash', 'source_roots': [str(tmp_path)]}).json()['id']
+    def forbidden(*a, **kw):
+        raise AssertionError('request thread must not build media manifest')
+    monkeypatch.setattr(indexer, 'scan_manifest', forbidden)
+    monkeypatch.setattr(analyzer, 'detect_manifest', forbidden)
+    monkeypatch.setattr(jobs.runner, 'submit', lambda jid: None)
+    import time
+    for kind in ('scan', 'detect'):
+        start = time.monotonic()
+        response = client.post(f'/api/projects/{pid}/jobs/{kind}', json={'options': {'full_hash': True}})
+        assert response.status_code == 202, response.text
+        assert time.monotonic() - start < 2
+        row = response.json()
+        with session_scope() as s:
+            saved = s.get(Job, row['id']).config_snapshot
+        assert saved['full_hash'] is True
+        assert 'items' not in saved
+        assert row['stats']['signature_mode'] == 'full'
+        assert client.post(f"/api/jobs/{row['id']}/cancel").status_code == 200
+
+
+def test_real_background_hash_can_wait_while_http_returns_202(client, tmp_path, monkeypatch, record_property):
+    from app.services import checkpoints
+    from app.services.runner import runner
+    pid = client.post('/api/projects', json={'name': 'hash-ui', 'source_roots': [str(tmp_path)]}).json()['id']
+    (tmp_path / 'long.mp4').write_bytes(b'x' * (2 * 1024 * 1024))
+    entered, release = threading.Event(), threading.Event()
+    original = checkpoints.read_hash_block
+    def paused(stream, size):
+        entered.set(); assert release.wait(5)
+        return original(stream, size)
+    monkeypatch.setattr(checkpoints, 'read_hash_block', paused)
+    start = time.monotonic()
+    response = client.post(f'/api/projects/{pid}/jobs/scan', json={'options': {'full_hash': True}})
+    elapsed = time.monotonic() - start
+    assert response.status_code == 202 and elapsed < 2
+    record_property('full_hash_create_job_elapsed_sec', elapsed)
+    jid = response.json()['id']
+    try:
+        assert entered.wait(5)
+        row = client.get(f'/api/jobs/{jid}').json()
+        assert row['status'] == 'running'
+        assert row['stats']['phase'] == 'hashing'
+        assert row['stats']['current_file'] == 'long.mp4'
+        assert client.post(f'/api/jobs/{jid}/cancel').status_code == 200
+    finally:
+        release.set()
+        runner._futures[jid].result(5)
+    assert client.get(f'/api/jobs/{jid}').json()['status'] == 'cancelled'

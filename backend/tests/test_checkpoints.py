@@ -41,7 +41,7 @@ def test_scan_resume_tracks_paths_instead_of_list_positions(client, tmp_path, mo
         job = Job(project_id=pid, job_type='scan', config_snapshot={'source_roots': [str(tmp_path)]})
         s.add(job); s.flush(); jid = job.id
     visited = []
-    def process(_, path):
+    def process(_, path, *, force=False):
         if path == b and not c.exists():
             raise JobCancelled('crash between items')
         visited.append(path.name)
@@ -83,7 +83,7 @@ def test_resume_preserves_failures_then_retry_resolves_them(client, tmp_path, mo
     with session_scope() as s:
         job = Job(project_id=pid, job_type='scan', config_snapshot={'source_roots': [str(root)]})
         s.add(job); s.flush(); jid = job.id
-    def fail(_, path):
+    def fail(_, path, *, force=False):
         if path.name == 'b.mp4':
             raise RuntimeError('broken')
         return 'a', 'created'
@@ -96,12 +96,12 @@ def test_resume_preserves_failures_then_retry_resolves_them(client, tmp_path, mo
     with session_scope() as s:
         assert s.get(Job, jid).failures['count'] == 1
     calls = []
-    monkeypatch.setattr(indexer, 'index_one', lambda _, path: (calls.append(path.name) or 'b', 'created'))
+    monkeypatch.setattr(indexer, 'index_one', lambda _, path, *, force=False: (calls.append(path.name) or 'b', 'created'))
     indexer.scan_task(jid)
     assert calls == ['b.mp4']
     with session_scope() as s:
         job = s.get(Job, jid)
-        assert job.stats == {'total': 2, 'done': 2, 'failed': 0, 'skipped': 0, 'source_changed': 0}
+        assert {k: job.stats[k] for k in ('total', 'done', 'failed', 'skipped', 'source_changed')} == {'total': 2, 'done': 2, 'failed': 0, 'skipped': 0, 'source_changed': 0}
         assert job.failures['count'] == 0
         job.status = 'succeeded'
 
@@ -112,7 +112,7 @@ def test_completed_item_removed_is_invalidated_not_silently_skipped(client, tmp_
     with session_scope() as s:
         job = Job(project_id=pid, job_type='scan', config_snapshot={'source_roots': [str(tmp_path)]})
         s.add(job); s.flush(); jid = job.id
-    monkeypatch.setattr(indexer, 'index_one', lambda *_: ('a', 'created'))
+    monkeypatch.setattr(indexer, 'index_one', lambda *a, **kw: ('a', 'created'))
     indexer.scan_task(jid)
     path.unlink()
     indexer.scan_task(jid)
@@ -135,3 +135,172 @@ def test_full_hash_detects_changes_outside_fast_samples(tmp_path):
     os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
     assert source_signature(path) == quick  # documented limitation of sampling
     assert source_signature(path, full_hash=True) != full
+
+
+def test_force_scan_reprobes_once_and_resume_keeps_completed(client, tmp_path, monkeypatch):
+    pid = project(client)
+    source = tmp_path / 'force.mp4'; source.write_bytes(b'unchanged')
+    probed = []
+    def probe(asset, path, size, mtime):
+        probed.append(str(path))
+        asset.file_size_bytes, asset.mtime_ns = size, mtime
+        asset.quick_fingerprint = indexer.quick_fingerprint(path, size)
+        asset.scan_status = 'succeeded'
+    monkeypatch.setattr(indexer, '_apply_probe_fields', probe)
+    first, _ = indexer.index_one(pid, source)
+    def run(force):
+        with session_scope() as s:
+            job = Job(project_id=pid, job_type='scan', config_snapshot={'source_roots': [str(tmp_path)], 'force': force})
+            s.add(job); s.flush(); jid = job.id
+        indexer.scan_task(jid)
+        return jid
+    regular = run(False)
+    assert len(probed) == 1
+    forced = run(True)
+    assert len(probed) == 2
+    indexer.scan_task(forced)
+    assert len(probed) == 2
+    with session_scope() as s:
+        assert s.get(Job, forced).stats['forced_reprobe'] == 1
+        assert s.get(Job, regular).stats['skipped_unchanged'] == 1
+        assert s.scalars(select(Asset).where(Asset.project_id == pid)).one().id == first
+        s.get(Job, regular).status = 'succeeded'; s.get(Job, forced).status = 'succeeded'
+
+
+def test_full_hash_once_per_scan_and_cached_on_same_job_resume(client, tmp_path, monkeypatch):
+    from app.services import checkpoints
+    pid = project(client)
+    source = tmp_path / 'large.mp4'; source.write_bytes(b'a' * (3 * 1024 * 1024))
+    reads = []
+    original = checkpoints.hashlib.sha256
+    # Count actual full-file block reads, independent of quick signature hashing.
+    reader = getattr(checkpoints, 'read_hash_block', None)
+    assert reader is not None, 'full hashing needs an observable cancellable block reader'
+    def count(stream, size):
+        block = reader(stream, size); reads.append(len(block)); return block
+    monkeypatch.setattr(checkpoints, 'read_hash_block', count)
+    monkeypatch.setattr(indexer, 'index_one', lambda p, path, *, force=False: ('a', 'created'))
+    with session_scope() as s:
+        job = Job(project_id=pid, job_type='scan', config_snapshot={'source_roots': [str(tmp_path)], 'full_hash': True})
+        s.add(job); s.flush(); jid = job.id
+    indexer.scan_task(jid)
+    assert sum(reads) == source.stat().st_size
+    indexer.scan_task(jid)
+    assert sum(reads) == source.stat().st_size
+    with session_scope() as s:
+        row = s.get(Job, jid)
+        assert row.stats['bytes_read'] == source.stat().st_size
+        assert row.stats['signature_mode'] == 'full'
+        assert row.stats['processed_files'] == row.stats['total_files'] == 1
+        row.status = 'succeeded'
+
+
+def test_hash_cancellation_stops_before_reading_rest_and_preserves_checkpoint(client, tmp_path, monkeypatch):
+    from app.services import checkpoints
+    from app.services.runner import update_job
+    import pytest
+    pid = project(client)
+    source = tmp_path / 'large.mp4'; source.write_bytes(b'a' * (4 * 1024 * 1024))
+    with session_scope() as s:
+        job = Job(project_id=pid, job_type='scan', status='running', config_snapshot={'source_roots': [str(tmp_path)], 'full_hash': True})
+        s.add(job); s.flush(); jid = job.id
+    reader = getattr(checkpoints, 'read_hash_block', None)
+    assert reader is not None
+    read = []
+    def cancel(stream, size):
+        data = reader(stream, size)
+        read.append(len(data))
+        update_job(jid, status='cancelled')
+        return data
+    monkeypatch.setattr(checkpoints, 'read_hash_block', cancel)
+    with pytest.raises(JobCancelled): indexer.scan_task(jid)
+    assert 0 < sum(read) < source.stat().st_size
+    with session_scope() as s:
+        row = s.get(Job, jid)
+        assert row.status == 'cancelled'
+        assert row.resume_token['items'][0]['status'] == 'pending'
+        assert row.stats['bytes_read'] == sum(read)
+
+
+def test_source_changed_during_hash_is_failed_before_probe(client, tmp_path, monkeypatch):
+    from app.services import checkpoints
+    pid = project(client)
+    source = tmp_path / 'large.mp4'; source.write_bytes(b'a' * (3 * 1024 * 1024))
+    with session_scope() as s:
+        job = Job(project_id=pid, job_type='scan', config_snapshot={'source_roots': [str(tmp_path)], 'full_hash': True})
+        s.add(job); s.flush(); jid = job.id
+    reader = getattr(checkpoints, 'read_hash_block', None)
+    assert reader is not None
+    modified = []
+    def change(stream, size):
+        data = reader(stream, size)
+        if not modified:
+            modified.append(True)
+            with source.open('r+b') as out: out.seek(1000000); out.write(b'changed')
+        return data
+    monkeypatch.setattr(checkpoints, 'read_hash_block', change)
+    probed = []
+    monkeypatch.setattr(indexer, 'index_one', lambda *a, **kw: probed.append(True))
+    indexer.scan_task(jid)
+    assert probed == []
+    with session_scope() as s:
+        row = s.get(Job, jid)
+        assert row.stats['failed'] == 1
+        assert row.resume_token['items'][0]['error_code'] == 'source_changed'
+        row.status = 'partial_failed'
+
+
+def test_source_change_during_probe_rolls_back_derived_metadata(client, tmp_path, monkeypatch):
+    from app.models import Frame, Segment
+    pid = project(client)
+    source = tmp_path / 'changing.mp4'; source.write_bytes(b'original')
+    def probe(asset, path, size, mtime):
+        asset.file_size_bytes, asset.mtime_ns = size, mtime
+        asset.quick_fingerprint = indexer.quick_fingerprint(path, size)
+        asset.duration_sec = 10
+        asset.scan_status = 'succeeded'
+    monkeypatch.setattr(indexer, '_apply_probe_fields', probe)
+    aid, _ = indexer.index_one(pid, source)
+    def changed_probe(asset, path, size, mtime):
+        probe(asset, path, size, mtime)
+        asset.duration_sec = 100
+        path.write_bytes(b'changed outside')
+    monkeypatch.setattr(indexer, '_apply_probe_fields', changed_probe)
+    again, action = indexer.index_one(pid, source, force=True)
+    assert again == aid and action == 'failed'
+    with session_scope() as s:
+        row = s.get(Asset, aid)
+        assert row.duration_sec == 10
+        assert row.error_code == 'source_changed'
+
+
+def test_missing_source_root_is_not_reported_as_empty_success(client, tmp_path):
+    pid = project(client)
+    with session_scope() as s:
+        job = Job(project_id=pid, job_type='scan', config_snapshot={'source_roots': [str(tmp_path / 'missing')]})
+        s.add(job); s.flush(); jid = job.id
+    from app.services.runner import JobRunner
+    JobRunner()._run(jid, indexer.scan_task)
+    with session_scope() as s:
+        row = s.get(Job, jid)
+        assert row.status == 'partial_failed'
+        assert row.stats['failed'] == 1
+
+
+def test_unreadable_source_root_reports_failure(client, tmp_path, monkeypatch):
+    pid = project(client)
+    root = tmp_path / 'locked'; root.mkdir()
+    original = indexer.iter_video_files
+    def denied(roots, check_cancel=None):
+        if roots == [str(root)]: raise PermissionError('source directory denied')
+        return original(roots, check_cancel=check_cancel)
+    monkeypatch.setattr(indexer, 'iter_video_files', denied)
+    with session_scope() as s:
+        job = Job(project_id=pid, job_type='scan', config_snapshot={'source_roots': [str(root)]})
+        s.add(job); s.flush(); jid = job.id
+    from app.services.runner import JobRunner
+    JobRunner()._run(jid, indexer.scan_task)
+    with session_scope() as s:
+        row = s.get(Job, jid)
+        assert row.status == 'partial_failed'
+        assert row.resume_token['items'][0]['error_code'] == 'source_unavailable'

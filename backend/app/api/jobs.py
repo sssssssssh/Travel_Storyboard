@@ -28,7 +28,8 @@ def _job_config(project: Project, job_type: str, options: dict, force: bool) -> 
     settings = get_settings()
     if job_type == "scan":
         return {"source_roots": list(project.source_roots or []), "force": force,
-                "full_hash": bool(options.get("full_hash", False))}
+                "full_hash": bool(options.get("full_hash", False) or options.get("strict_full_hash", False)),
+                "strict_full_hash": bool(options.get("strict_full_hash", False))}
     if job_type == "detect":
         return {
             "sample_fps": settings.detect_sample_fps,
@@ -36,7 +37,8 @@ def _job_config(project: Project, job_type: str, options: dict, force: bool) -> 
             "max_segment_sec": settings.detect_max_segment_sec,
             "thumb_width": settings.thumb_width,
             "force": force,
-            "full_hash": bool(options.get("full_hash", False)),
+            "full_hash": bool(options.get("full_hash", False) or options.get("strict_full_hash", False)),
+            "strict_full_hash": bool(options.get("strict_full_hash", False)),
         }
     if job_type == "package":
         return {
@@ -93,17 +95,13 @@ def create_job(
         options = (body.options if body else None) or {}
         force = bool(body.force) if body else False
         config = _job_config(project, job_type, options, force)
-        if job_type == 'scan':
-            from ..services.indexer import scan_manifest
-            config['items'] = scan_manifest(config['source_roots'], config['full_hash'])
-        elif job_type == 'detect':
-            from ..services.analyzer import detect_manifest
-            config['items'] = detect_manifest(project_id, config)
         job = Job(
             project_id=project_id,
             job_type=job_type,
             config_snapshot=config,
-            stats={"total": 0, "done": 0, "failed": 0},
+            stats={"total": 0, "done": 0, "failed": 0, "phase": "queued",
+                   "signature_mode": "full" if config.get("full_hash") else "quick",
+                   "bytes_read": 0, "total_bytes": 0, "processed_files": 0, "total_files": 0},
             failures={"count": 0, "items": []},
         )
         db.add(job)

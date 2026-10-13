@@ -21,13 +21,15 @@ from .runner import JobFailures, raise_if_cancelled, register_task, update_job
 logger = logging.getLogger(__name__)
 
 
-def iter_video_files(roots: list[str]):
+def iter_video_files(roots: list[str], check_cancel=None):
     seen: set[str] = set()
     for root in roots:
         base = Path(root)
         if not base.exists() or not base.is_dir():
             continue
-        for path in base.rglob("*"):
+        for number, path in enumerate(base.rglob("*")):
+            if check_cancel and number % 128 == 0:
+                check_cancel()
             try:
                 if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
                     continue
@@ -125,13 +127,21 @@ def index_one(project_id: str, path: Path, *, force: bool = False) -> tuple[str,
             action = "updated"
 
         try:
-            _apply_probe_fields(asset, path, size, mtime)
+            from .checkpoints import file_identity, SourceChanged
+            # Savepoint restores existing derived metadata if the original changes
+            # while FFprobe runs. The stable Asset row and failure remain durable.
+            with s.begin_nested():
+                _apply_probe_fields(asset, path, size, mtime)
+                if (file_identity(path.stat()) != file_identity(stat)
+                        or quick_fingerprint(path, size) != fingerprint):
+                    raise SourceChanged('源文件已变化：探测期间修改，请再次扫描/检测')
         except Exception as exc:  # noqa: BLE001 - per-file isolation
             # Reuse the SAME row: never insert a second Asset for this path.
-            asset.file_size_bytes = size
-            asset.mtime_ns = mtime
+            if existing is None:
+                asset.file_size_bytes = size
+                asset.mtime_ns = mtime
             asset.scan_status = "failed"
-            asset.error_code = "probe_failed"
+            asset.error_code = getattr(exc, "code", "probe_failed")
             asset.error_message = str(exc)[:2000]
             asset.scanned_at = utcnow()
             s.flush()
@@ -141,15 +151,34 @@ def index_one(project_id: str, path: Path, *, force: bool = False) -> tuple[str,
         return asset.id, action
 
 
-def scan_manifest(roots: list[str], full_hash: bool = False) -> list[dict]:
+def scan_manifest(roots: list[str], full_hash: bool = False, *, job_id=None) -> list[dict]:
     from .checkpoints import manifest_entry
-    return [manifest_entry(str(path), str(path), full_hash=full_hash)
-            for path in sorted(iter_video_files(roots), key=lambda p: str(p))]
+    check = (lambda: raise_if_cancelled(job_id)) if job_id else None
+    files = set()
+    result = []
+    for root in roots:
+        path = Path(root)
+        try:
+            if not path.is_dir():
+                raise OSError('素材根目录不存在或无法读取，请检查路径后再次扫描')
+            # Force one directory read so a denied root cannot look empty.
+            next(path.iterdir(), None)
+            files.update(iter_video_files([root], check_cancel=check))
+        except OSError as exc:
+            result.append({'key': 'root:' + str(path.resolve()), 'source': str(path),
+                           'size': 0, 'identity': {}, 'scan_signature': 'missing', 'quick_signature': 'missing',
+                           'signature_mode': 'full' if full_hash else 'quick', 'status': 'pending',
+                           'source_error': str(exc), 'error_code': 'source_unavailable'})
+    for path in sorted(files, key=str):
+        if check:
+            check()
+        result.append(manifest_entry(str(path), str(path), full_hash=full_hash))
+    return result
 
 
 @register_task("scan")
 def scan_task(job_id: str) -> None:
-    from .checkpoints import reconcile, persist, source_signature
+    from .checkpoints import reconcile, persist, prepare_item, verify_after_processing, fail_item
     from .runner import JobCancelled
     failures = JobFailures(job_id)
     with session_scope() as s:
@@ -163,26 +192,30 @@ def scan_task(job_id: str) -> None:
         config = dict(job.config_snapshot or {})
         roots = list(config.get("source_roots", project.source_roots or []))
     full_hash = bool(config.get("full_hash", False))
-    items, token = reconcile(job_id, scan_manifest(roots, full_hash))
+    items, token = reconcile(job_id, scan_manifest(roots, full_hash, job_id=job_id))
+    force = bool(config.get("force", False))
     for item in items:
         raise_if_cancelled(job_id)
         if item['status'] in ('completed', 'skipped'):
             continue
         path = Path(item['source'])
         try:
-            if item.get('source_error'):
-                raise RuntimeError(item['source_error'])
-            aid, action = index_one(project_id, path)
+            prepare_item(job_id, item, items, token, config)
+            aid, action = index_one(project_id, path, force=force)
             item['asset_id'] = aid
+            item['forced_reprobe'] = force
             if action == 'failed':
-                raise RuntimeError('probe failed (see asset.error_message)')
-            if source_signature(path, full_hash=full_hash) != item['scan_signature']:
-                raise RuntimeError('源文件已变化：扫描期间内容改变，请重试')
+                with session_scope() as s:
+                    failed_asset = s.get(Asset, aid)
+                    error = RuntimeError(failed_asset.error_message if failed_asset else 'probe failed')
+                    error.code = failed_asset.error_code if failed_asset else 'probe_failed'
+                raise error
+            verify_after_processing(job_id, item, items, token, config)
             item['status'] = 'skipped' if action == 'skipped' else 'completed'
             failures.resolve(kind='file', ref=str(path))
         except JobCancelled:
             raise
         except Exception as exc:
-            item['status'] = 'failed'
+            fail_item(item, exc, token)
             failures.record(kind='file', ref=str(path), message=str(exc))
         persist(job_id, items, token)

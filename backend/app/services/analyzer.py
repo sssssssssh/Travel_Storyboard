@@ -17,6 +17,7 @@ rating, note, review requests or edit-plan references.
 from __future__ import annotations
 
 import logging
+import math
 import shutil
 import uuid
 import time
@@ -44,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 DUPLICATE_HAMMING_THRESHOLD = 6
 
-# Shortest acceptable trimmed range; below this a stale trim is discarded.
+# Shortest acceptable trim intersection; disjoint trims are preserved for review.
 MIN_SEGMENT_SEC = 0.2
 
 
@@ -173,8 +174,11 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
     if not Path(source).exists():
         raise RuntimeError(f"Source file missing: {source}")
 
-    from .checkpoints import source_signature
-    signature_before = source_signature(Path(source), full_hash=getattr(settings, "full_hash", False))
+    from .checkpoints import source_info, verify_source, verify_after_processing
+    context = getattr(settings, 'signature_context', None)
+    source_state = context['item'] if context else source_info(Path(source))
+    verify_source(source_state)
+    signature_before = source_state.get('scan_signature', source_state['quick_signature'])
     cleanup_orphan_frames(project_id)
     detection = detect_segments(
         source,
@@ -235,6 +239,13 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
         for t in rep_times:
             if job_id:
                 raise_if_cancelled(job_id)
+            # Accurate seek returns the first frame at/after t. In a CFR tail,
+            # no frame exists past the final presentation timestamp (e.g. 1fps).
+            if not asset.vfr_flag and asset.fps_num and asset.fps_den:
+                fps = asset.fps_num / asset.fps_den
+                final_time = max(0., (math.ceil(asset.duration_sec * fps - 1e-6) - 1) / fps)
+                if final_time >= boundary.start_sec:
+                    t = min(t, final_time)
             frame_id = str(uuid.uuid4())
             stage_path = stage / f"{run_id}_{frame_id}.jpg"
             final_path = work_dir / f"{run_id}_{frame_id}.jpg"
@@ -294,8 +305,10 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
 
     # Publish verified files before the DB transaction. Old files remain until
     # commit. A process crash here leaves reclaimable orphans, not bad DB refs.
-    if source_signature(Path(source), full_hash=getattr(settings, "full_hash", False)) != signature_before:
-        raise RuntimeError("源文件已变化：抽帧期间内容改变，请重试")
+    if context:
+        verify_after_processing(job_id, context['item'], context['items'], context['token'], context['config'])
+    else:
+        verify_source(source_state)
     if not new_frames:
         raise RuntimeError("Analysis produced no readable frames")
     if job_id:
@@ -324,6 +337,7 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
             raise_if_cancelled(job_id)
         with session_scope() as s:
             begin_write(s)
+            verify_source(source_state)
             if job_id:
                 job = s.get(Job, job_id)
                 if job is not None and job.status == 'cancelled':
@@ -412,22 +426,27 @@ def detect_settings(config: dict):
         detect_max_segment_sec=config.get('max_segment_sec', defaults.detect_max_segment_sec),
         thumb_width=config.get('thumb_width', defaults.thumb_width),
         full_hash=bool(config.get('full_hash', False)),
+        strict_full_hash=bool(config.get('strict_full_hash', False)),
     )
 
 
-def detect_manifest(project_id: str, config: dict) -> list[dict]:
+def detect_manifest(project_id: str, config: dict, *, job_id=None) -> list[dict]:
     from .checkpoints import manifest_entry
     with session_scope() as s:
         assets = s.scalars(select(Asset).where(
             Asset.project_id == project_id, Asset.scan_status == 'succeeded')
             .order_by(Asset.id)).all()
-        return [manifest_entry(a.id, a.source_path, full_hash=bool(config.get('full_hash')))
-                for a in assets]
+        result = []
+        for asset in assets:
+            if job_id:
+                raise_if_cancelled(job_id)
+            result.append(manifest_entry(asset.id, asset.source_path, full_hash=bool(config.get('full_hash'))))
+        return result
 
 
 @register_task("detect")
 def detect_task(job_id: str) -> None:
-    from .checkpoints import reconcile, persist, source_signature
+    from .checkpoints import reconcile, persist, prepare_item, fail_item
     from .runner import JobCancelled
     failures = JobFailures(job_id)
     with session_scope() as s:
@@ -442,17 +461,16 @@ def detect_task(job_id: str) -> None:
     config.update(sample_fps=settings.detect_sample_fps, threshold=settings.detect_threshold,
                   max_segment_sec=settings.detect_max_segment_sec, thumb_width=settings.thumb_width)
     update_job(job_id, config_snapshot=config)
-    items, token = reconcile(job_id, detect_manifest(project_id, config))
+    items, token = reconcile(job_id, detect_manifest(project_id, config, job_id=job_id))
     force = bool(config.get('force', False))
     for item in items:
         raise_if_cancelled(job_id)
         if item['status'] in ('completed', 'skipped'):
             continue
         aid = item['key']
-        item['detect_signature'] = item['scan_signature'] + ':' + config_key
         try:
-            if item.get('source_error'):
-                raise RuntimeError(item['source_error'])
+            prepare_item(job_id, item, items, token, config)
+            item['detect_signature'] = item['scan_signature'] + ':' + config_key
             with session_scope() as s:
                 asset = s.get(Asset, aid)
                 if asset is None:
@@ -480,9 +498,11 @@ def detect_task(job_id: str) -> None:
             if unchanged:
                 item['status'] = 'skipped'
             else:
-                _analyze_asset(project_id, asset, settings=settings, job_id=job_id)
-                if source_signature(Path(asset.source_path), full_hash=settings.full_hash) != item['scan_signature']:
-                    raise RuntimeError('源文件已变化：检测期间内容改变，请重试')
+                settings.signature_context = {'item': item, 'items': items, 'token': token, 'config': config}
+                result = _analyze_asset(project_id, asset, settings=settings, job_id=job_id)
+                if result and result.get('needs_review'):
+                    item['needs_review'] = result['needs_review']
+                    token['warning'] = '检测边界变化影响已有人工镜头或引用，请在分镜审阅中复核；旧镜头已保留'
                 with session_scope() as s:
                     row = s.get(Asset, aid)
                     row.analyzed_at = utcnow()
@@ -492,6 +512,6 @@ def detect_task(job_id: str) -> None:
             raise
         except Exception as exc:
             logger.exception('Analyze failed for asset %s', aid)
-            item['status'] = 'failed'
+            fail_item(item, exc, token)
             failures.record(kind='asset', ref=aid, message=str(exc))
         persist(job_id, items, token)
