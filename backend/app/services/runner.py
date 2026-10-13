@@ -18,8 +18,10 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Callable
+from threading import Lock, RLock
+from collections import deque
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from ..config import get_settings
 from ..database import session_scope
@@ -42,6 +44,13 @@ TERMINAL_STATUSES = (STATUS_SUCCEEDED, STATUS_PARTIAL, STATUS_FAILED, STATUS_CAN
 
 # Jobs that mutate a project's cache must not run concurrently within a project.
 EXCLUSIVE_JOB_TYPES = {"scan", "detect", "package", "roughcut", "proxies"}
+_PROJECT_LOCKS: dict[str, RLock] = {}
+_LOCKS_GUARD = Lock()
+
+
+def project_lock(project_id: str) -> RLock:
+    with _LOCKS_GUARD:
+        return _PROJECT_LOCKS.setdefault(project_id, RLock())
 
 
 class JobCancelled(RuntimeError):
@@ -58,13 +67,22 @@ class JobFailures:
     def __init__(self, job_id: str, limit: int = 500) -> None:
         self.job_id = job_id
         self._limit = limit
-        self.items: list[dict] = []
-        self.total = 0
+        with session_scope() as s:
+            job = s.get(Job, job_id)
+            saved = dict(job.failures or {}) if job else {}
+        self.items = list(saved.get("items", []))
+        self.total = int(saved.get("count", len(self.items)))
 
     def record(self, *, kind: str, ref: str, message: str) -> None:
-        self.total += 1
-        if len(self.items) < self._limit:
-            self.items.append({"kind": kind, "ref": ref, "message": message[:500]})
+        item = {"kind": kind, "ref": ref, "message": message[:500]}
+        prior = next((i for i, value in enumerate(self.items)
+                      if value["kind"] == kind and value["ref"] == ref), None)
+        if prior is not None:
+            self.items[prior] = item
+        else:
+            self.total += 1
+            if len(self.items) < self._limit:
+                self.items.append(item)
         self.publish()
 
     def extend(self, items: list[dict]) -> None:
@@ -97,13 +115,22 @@ def register_task(job_type: str) -> Callable:
     return decorator
 
 
-def update_job(job_id: str, **fields) -> None:
+def update_job(job_id: str, *, expected_statuses=None, **fields) -> bool:
+    """Atomic compare-and-update; terminal states are immutable.
+
+    Progress/checkpoints may still be persisted while an in-flight item stops.
+    """
     with session_scope() as s:
-        job = s.get(Job, job_id)
-        if job is None:
-            return
-        for key, value in fields.items():
-            setattr(job, key, value)
+        stmt = update(Job).where(Job.id == job_id)
+        status = fields.get("status")
+        if status is not None:
+            allowed = expected_statuses or ACTIVE_STATUSES
+            stmt = stmt.where(Job.status.in_(allowed))
+        result = s.execute(stmt.values(**fields))
+        changed = result.rowcount == 1
+    if status is not None and not changed:
+        logger.info("Job %s transition to %s rejected (state changed)", job_id, status)
+    return changed
 
 
 def task_finished_cleanly(job_id: str) -> bool:  # pragma: no cover - reserved
@@ -141,6 +168,8 @@ class JobRunner:
     def __init__(self) -> None:
         self._executor: ThreadPoolExecutor | None = None
         self._futures: dict[str, object] = {}
+        self._submit_lock = RLock()
+        self._recovery_queues: dict[str, deque] = {}
 
     def _pool(self) -> ThreadPoolExecutor:
         """Return a live executor, recreating it after a shutdown.
@@ -157,47 +186,71 @@ class JobRunner:
         return self._executor
 
     def submit(self, job_id: str) -> None:
+        with self._submit_lock:
+            future = self._futures.get(job_id)
+            if future is not None and not future.done():
+                return
+            with session_scope() as s:
+                job = s.get(Job, job_id)
+                if job is None or job.status not in ACTIVE_STATUSES:
+                    return
+                job_type = job.job_type
+            task = TASK_REGISTRY.get(job_type)
+            if task is None:
+                update_job(job_id, status=STATUS_FAILED, finished_at=_now(),
+                           error=f"Unknown job type: {job_type}")
+                return
+            self._futures[job_id] = self._pool().submit(self._run, job_id, task)
+
+    def resume_queue(self, project_id: str, job_ids: list[str]) -> None:
+        """Dispatch one recovered mutator at a time in persisted creation order."""
+        with self._submit_lock:
+            self._recovery_queues[project_id] = deque(job_ids)
+            self._resume_next(project_id)
+
+    def _resume_next(self, project_id: str) -> None:
+        queue = self._recovery_queues.get(project_id)
+        while queue:
+            jid = queue.popleft()
+            self.submit(jid)
+            future = self._futures.get(jid)
+            if future is not None:
+                future.add_done_callback(lambda _: self._recovered_done(project_id))
+                return
+        self._recovery_queues.pop(project_id, None)
+
+    def _recovered_done(self, project_id: str) -> None:
+        with self._submit_lock:
+            self._resume_next(project_id)
+
+    def _run(self, job_id: str, task: Callable[[str], None]) -> None:
         with session_scope() as s:
             job = s.get(Job, job_id)
             if job is None:
                 return
-            job_type = job.job_type
-
-        task = TASK_REGISTRY.get(job_type)
-        if task is None:
-            update_job(job_id, status=STATUS_FAILED, error=f"Unknown job type: {job_type}")
-            return
-        self._futures[job_id] = self._pool().submit(self._run, job_id, task)
-
-    def _run(self, job_id: str, task: Callable[[str], None]) -> None:
-        try:
-            update_job(
-                job_id, status=STATUS_RUNNING, started_at=_now(), error="", finished_at=None
-            )
-            task(job_id)
-        except JobCancelled:
-            logger.info("Job %s cancelled", job_id)
-            update_job(job_id, status=STATUS_CANCELLED, finished_at=_now())
-        except Exception as exc:  # noqa: BLE001 - recorded on the job row
-            logger.exception("Job %s failed", job_id)
-            update_job(job_id, status=STATUS_FAILED, error=str(exc), finished_at=_now())
-        else:
-            # A task that recorded per-item failures is NOT a clean success.
-            with session_scope() as s:
-                job = s.get(Job, job_id)
-                failures = dict(job.failures or {}) if job is not None else {}
-            count = int(failures.get("count", 0))
-            if count:
-                update_job(
-                    job_id,
-                    status=STATUS_PARTIAL,
-                    finished_at=_now(),
-                    error=f"{count} item(s) failed; see job.failures",
-                )
+            pid = job.project_id
+        # Includes the period after cancellation while FFmpeg is still stopping.
+        with project_lock(pid):
+            if not update_job(job_id, status=STATUS_RUNNING, started_at=_now(),
+                              error="", finished_at=None):
+                return
+            try:
+                raise_if_cancelled(job_id)
+                task(job_id)
+            except JobCancelled:
+                update_job(job_id, status=STATUS_CANCELLED, finished_at=_now())
+            except Exception as exc:
+                logger.exception("Job %s failed", job_id)
+                update_job(job_id, status=STATUS_FAILED, error=str(exc), finished_at=_now())
             else:
-                update_job(job_id, status=STATUS_SUCCEEDED, finished_at=_now())
-        finally:
-            clear_active_job_type(job_id)
+                with session_scope() as s:
+                    job = s.get(Job, job_id)
+                    count = int((job.failures or {}).get("count", 0)) if job else 0
+                update_job(job_id, status=STATUS_PARTIAL if count else STATUS_SUCCEEDED,
+                           finished_at=_now(),
+                           error=f"{count} item(s) failed; see job.failures" if count else "")
+            finally:
+                clear_active_job_type(job_id)
 
     def shutdown(self) -> None:
         if self._executor is not None:
@@ -221,22 +274,22 @@ def resume_interrupted_jobs() -> list[str]:
             .order_by(Job.created_at)
         ).all()
         candidates = [(j.id, j.job_type, j.project_id) for j in rows]
-        for job_id, _job_type, _project_id in candidates:
-            job = s.get(Job, job_id)
-            if job is not None:
-                job.status = STATUS_PENDING
-                job.error = ""
-                job.started_at = None
-                job.finished_at = None
 
     resumed: list[str] = []
-    for job_id, job_type, _project_id in candidates:
+    queues: dict[str, list[str]] = {}
+    for job_id, job_type, project_id in candidates:
         if job_type not in TASK_REGISTRY:
-            update_job(
-                job_id, status=STATUS_FAILED, error=f"Unknown job type: {job_type}"
-            )
+            update_job(job_id, status=STATUS_FAILED, finished_at=_now(),
+                       error=f"Unknown job type: {job_type}")
             continue
-        logger.info("Resuming interrupted job %s (%s)", job_id, job_type)
-        runner.submit(job_id)
+        if not update_job(job_id, status=STATUS_PENDING, error="", started_at=None,
+                          finished_at=None):
+            continue
+        if job_type in EXCLUSIVE_JOB_TYPES:
+            queues.setdefault(project_id, []).append(job_id)
+        else:
+            runner.submit(job_id)
         resumed.append(job_id)
+    for pid, ids in queues.items():
+        runner.resume_queue(pid, ids)
     return resumed

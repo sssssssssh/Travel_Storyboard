@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
@@ -117,8 +117,12 @@ def cancel_job(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=409, detail=f"Job already finished with status {job.status}"
         )
-    job.status = STATUS_CANCELLED
-    job.finished_at = utcnow()
+    changed = db.execute(update(Job).where(
+        Job.id == job_id, Job.status.in_(ACTIVE_STATUSES)
+    ).values(status=STATUS_CANCELLED, finished_at=utcnow())).rowcount
+    if changed != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Job already finished")
     db.commit()
     db.refresh(job)
     return job
