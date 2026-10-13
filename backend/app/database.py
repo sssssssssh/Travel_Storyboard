@@ -31,7 +31,7 @@ _settings.data_path.mkdir(parents=True, exist_ok=True)
 
 engine = create_engine(
     _settings.resolved_database_url,
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False, "timeout": 30},
     future=True,
 )
 
@@ -141,6 +141,15 @@ def _legacy_backfill(applied: list[str] | None = None) -> None:
                                ("detected_end_sec", "end_sec")):
             if f"segments.{column}" in added:
                 conn.execute(text(f"UPDATE segments SET {column} = {source}"))
+
+
+def begin_write(session: Session) -> None:
+    """Acquire SQLite's writer reservation before reading rows to edit.
+
+    BEGIN IMMEDIATE serializes short commit/annotation transactions in WAL mode.
+    No row-level FOR UPDATE assumptions; extraction/hashing never hold this lock.
+    """
+    session.execute(text("BEGIN IMMEDIATE"))
 
 
 @contextmanager

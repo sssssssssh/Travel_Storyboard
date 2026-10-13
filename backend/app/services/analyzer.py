@@ -26,9 +26,9 @@ from PIL import Image
 from sqlalchemy import delete, select
 
 from ..config import ANALYSIS_VERSION, get_settings
-from ..database import session_scope
+from ..database import begin_write, session_scope
 from ..ffmpeg import extract_frame
-from ..models import Asset, Frame, Job, Project, Segment, utcnow
+from ..models import Asset, EditPlanShot, Frame, Job, ReviewRequest, Segment, UserAnnotation, utcnow
 from ..paths import frames_dir, rel_to_data, resolve_in_project, staging_dir
 from .detector import detect_segments
 from .frames import select_rep_times
@@ -129,6 +129,44 @@ def cleanup_orphan_frames(project_id: str, grace_sec: float = 3600) -> int:
     return freed
 
 
+# Only these fields belong to analysis. User rating, role, tags, proxy, status,
+# annotation rows and the latest trim are deliberately absent.
+ALGORITHM_FIELDS = ("detected_start_sec", "detected_end_sec", "boundary_reason",
+                    "algorithm_version", "frame_refs")
+
+
+def _apply_algorithm_result(row: Segment, result: Segment) -> bool:
+    """Apply derived values to the freshly locked row; audit any trim clamp."""
+    metrics = dict(result.quality_metrics or {})
+    previous = dict(row.quality_metrics or {})
+    audit = list(previous.get('manual_trim_audit', []))
+    warning = False
+    if row.is_trimmed:
+        low = max(row.start_sec, result.detected_start_sec)
+        high = min(row.end_sec, result.detected_end_sec)
+        if low != row.start_sec or high != row.end_sec:
+            audit.append({'original_in_sec': row.start_sec, 'original_out_sec': row.end_sec,
+                          'detected_start_sec': result.detected_start_sec,
+                          'detected_end_sec': result.detected_end_sec,
+                          'at': utcnow().isoformat(), 'action': 'clamped' if high - low >= MIN_SEGMENT_SEC else 'preserved_for_review'})
+            row.status = 'needs_review'
+            warning = True
+            metrics['analysis_warning'] = '检测边界变化影响人工裁剪，原选择已留审计记录，请复核。'
+            if high - low >= MIN_SEGMENT_SEC:
+                row.start_sec, row.end_sec = low, high
+            # A disjoint trim stays intact; never silently clear the user's work.
+    else:
+        row.start_sec, row.end_sec = result.detected_start_sec, result.detected_end_sec
+    if audit:
+        metrics['manual_trim_audit'] = audit
+    if previous.get('analysis_warning') and row.status == 'needs_review' and not warning:
+        metrics['analysis_warning'] = previous['analysis_warning']
+    for field in ALGORITHM_FIELDS:
+        setattr(row, field, getattr(result, field))
+    row.quality_metrics = metrics
+    return warning
+
+
 def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | None = None) -> dict:
     settings = settings or get_settings()
     source = asset.source_path
@@ -180,44 +218,16 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
         )
         key = _time_key(boundary.start_sec, boundary.end_sec)
         prior = old_by_key.get(key)
+        # Compute a fresh algorithm result, never mutate/merge a stale ORM row.
+        segment = Segment(
+            id=prior.id if prior is not None else str(uuid.uuid4()),
+            asset_id=asset.id, project_id=project_id,
+            detected_start_sec=boundary.start_sec, detected_end_sec=boundary.end_sec,
+            start_sec=boundary.start_sec, end_sec=boundary.end_sec,
+            boundary_reason=boundary.reason, algorithm_version=ANALYSIS_VERSION,
+        )
         if prior is not None:
-            segment = prior
             reused_ids.add(prior.id)
-            # Refresh derived/algorithmic fields…
-            segment.detected_start_sec = boundary.start_sec
-            segment.detected_end_sec = boundary.end_sec
-            segment.boundary_reason = boundary.reason
-            segment.algorithm_version = ANALYSIS_VERSION
-            segment.proxy_ref = ""
-            # …but keep the user's trim. Only re-clamp it to the new bounds.
-            if not segment.is_trimmed:
-                segment.start_sec = boundary.start_sec
-                segment.end_sec = boundary.end_sec
-            else:
-                low = max(boundary.start_sec, min(segment.start_sec, boundary.end_sec))
-                high = min(boundary.end_sec, max(segment.end_sec, boundary.start_sec))
-                if high - low < MIN_SEGMENT_SEC:
-                    # The trim no longer fits inside the detected window; fall
-                    # back to the detected bounds rather than keeping a
-                    # degenerate range.
-                    segment.start_sec = boundary.start_sec
-                    segment.end_sec = boundary.end_sec
-                    segment.is_trimmed = False
-                else:
-                    segment.start_sec = low
-                    segment.end_sec = high
-        else:
-            segment = Segment(
-                id=str(uuid.uuid4()),
-                asset_id=asset.id,
-                project_id=project_id,
-                detected_start_sec=boundary.start_sec,
-                detected_end_sec=boundary.end_sec,
-                start_sec=boundary.start_sec,
-                end_sec=boundary.end_sec,
-                boundary_reason=boundary.reason,
-                algorithm_version=ANALYSIS_VERSION,
-            )
 
         # Extract representative frames.
         frame_refs: list[str] = []
@@ -313,22 +323,51 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
         if job_id:
             raise_if_cancelled(job_id)
         with session_scope() as s:
-            # Delete frames for this asset (frames carry no manual marks).
-            s.execute(delete(Frame).where(Frame.asset_id == asset.id))
-            # Delete old segments that were not reused.
+            begin_write(s)
+            if job_id:
+                job = s.get(Job, job_id)
+                if job is not None and job.status == 'cancelled':
+                    from .runner import JobCancelled
+                    raise JobCancelled('Cancelled before frame commit')
+            latest = {row.id: row for row in s.scalars(select(Segment).where(Segment.asset_id == asset.id))}
+            referenced = set(s.scalars(select(EditPlanShot.segment_id).where(EditPlanShot.segment_id.in_(old_ids))))
+            referenced.update(s.scalars(select(ReviewRequest.segment_id).where(ReviewRequest.segment_id.in_(old_ids))))
+            referenced.update(s.scalars(select(UserAnnotation.segment_id).where(UserAnnotation.segment_id.in_(old_ids))))
             removed_ids = old_ids - reused_ids
-            if removed_ids:
-                s.execute(delete(Segment).where(Segment.id.in_(removed_ids)))
-            for segment in new_segments:
-                s.merge(segment)
-            # Flush segments first so the frames' foreign keys resolve.
+            protected = {sid for sid in removed_ids if sid in latest and (
+                sid in referenced or latest[sid].user_rating != 'pending' or latest[sid].is_trimmed
+                or latest[sid].story_role or latest[sid].content_tags
+                or latest[sid].status not in ('candidate', 'pending'))}
+            # Retain old frame rows and all external/manual references of unmatched
+            # protected shots. Explicit user review is required, never remap IDs.
+            needs_review = len(protected)
+            for sid in protected:
+                latest[sid].status = 'needs_review'
+                latest[sid].quality_metrics = {**(latest[sid].quality_metrics or {}),
+                    'analysis_warning': '检测边界已变化；旧镜头和人工状态已保留，请重新复核源区间。'}
+            deletable = removed_ids - protected
+            replaced = reused_ids | deletable
+            if replaced:
+                s.execute(delete(Frame).where(Frame.asset_id == asset.id, Frame.segment_id.in_(replaced)))
+            if deletable:
+                s.execute(delete(Segment).where(Segment.id.in_(deletable)))
+            for result in new_segments:
+                if result.id in reused_ids:
+                    row = latest.get(result.id)
+                    if row is None:
+                        raise RuntimeError('Segment removed during analysis; retry detection')
+                    needs_review += int(_apply_algorithm_result(row, result))
+                else:
+                    s.add(result)
             s.flush()
             for frame in new_frames:
                 s.add(frame)
-            asset.analysis_version = ANALYSIS_VERSION
-            asset.analyzed_fingerprint = signature_before
-            asset.analyzed_detect_config = _detect_config_key(settings)
-            s.merge(asset)
+            row_asset = s.get(Asset, asset.id)
+            if row_asset is None:
+                raise RuntimeError('Asset removed during analysis')
+            row_asset.analysis_version = ANALYSIS_VERSION
+            row_asset.analyzed_fingerprint = signature_before
+            row_asset.analyzed_detect_config = _detect_config_key(settings)
 
     except Exception:
         # A failed transaction retains the old rows. Reclaim only this run's
@@ -361,7 +400,7 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
 
     freed += cleanup_orphan_frames(project_id)
 
-    return {"segments": len(new_segments), "frames": len(new_frames), "frames_reclaimed": freed, "analysis_run_id": run_id}
+    return {"segments": len(new_segments), "frames": len(new_frames), "frames_reclaimed": freed, "analysis_run_id": run_id, "needs_review": needs_review}
 
 
 def detect_settings(config: dict):

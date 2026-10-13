@@ -108,6 +108,7 @@ class AssetListOut(BaseModel):
 # --- Segments -----------------------------------------------------------
 
 class SegmentOut(ORMModel):
+    note: str = ""
     id: str
     asset_id: str
     project_id: str
@@ -129,6 +130,7 @@ class SegmentOut(ORMModel):
 
 
 class SegmentListItem(BaseModel):
+    status: str = "candidate"
     id: str
     asset_id: str
     start_sec: float

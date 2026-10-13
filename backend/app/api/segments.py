@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..database import begin_write
 from ..models import Asset, Segment, UserAnnotation
 from ..schemas import AnnotateRequest, SegmentListItem, SegmentListOut, SegmentOut
 from .deps import get_db
@@ -82,6 +83,22 @@ def _apply_annotation(segment: Segment, payload: AnnotateRequest) -> None:
         segment.is_trimmed = True
 
 
+def _save_annotation(db: Session, segment: Segment, payload: AnnotateRequest) -> None:
+    annotation = db.scalars(select(UserAnnotation).where(UserAnnotation.segment_id == segment.id)).first()
+    if annotation is None:
+        annotation = UserAnnotation(segment_id=segment.id)
+        db.add(annotation)
+    for payload_field, field in (("rating", "rating"), ("note", "note"), ("in_sec", "in_sec"), ("out_sec", "out_sec")):
+        value = getattr(payload, payload_field)
+        if value is not None:
+            setattr(annotation, field, value)
+
+
+def _segment_out(db: Session, segment: Segment) -> SegmentOut:
+    note = db.scalar(select(UserAnnotation.note).where(UserAnnotation.segment_id == segment.id)) or ''
+    return SegmentOut.model_validate(segment).model_copy(update={'note': note})
+
+
 @router.get("/projects/{project_id}/segments", response_model=SegmentListOut)
 def list_segments(
     project_id: str,
@@ -119,6 +136,7 @@ def list_segments(
     items = [
         SegmentListItem(
             id=r.id,
+            status=r.status,
             asset_id=r.asset_id,
             start_sec=r.start_sec,
             end_sec=r.end_sec,
@@ -144,42 +162,32 @@ def get_segment(segment_id: str, db: Session = Depends(get_db)):
     segment = db.get(Segment, segment_id)
     if segment is None:
         raise HTTPException(status_code=404, detail="Segment not found")
-    return segment
+    return _segment_out(db, segment)
 
 
 @router.patch("/segments/{segment_id}", response_model=SegmentOut)
 def update_segment(segment_id: str, payload: AnnotateRequest, db: Session = Depends(get_db)):
+    begin_write(db)
     segment = db.get(Segment, segment_id)
     if segment is None:
         raise HTTPException(status_code=404, detail="Segment not found")
     _apply_annotation(segment, payload)
+    _save_annotation(db, segment, payload)
     db.commit()
     db.refresh(segment)
-    return segment
+    return _segment_out(db, segment)
 
 
 @router.post("/segments/{segment_id}/annotate")
 def annotate_segment(segment_id: str, payload: AnnotateRequest, db: Session = Depends(get_db)):
+    begin_write(db)
     segment = db.get(Segment, segment_id)
     if segment is None:
         raise HTTPException(status_code=404, detail="Segment not found")
 
     _apply_annotation(segment, payload)
 
-    annotation = db.scalars(
-        select(UserAnnotation).where(UserAnnotation.segment_id == segment_id)
-    ).first()
-    if annotation is None:
-        annotation = UserAnnotation(segment_id=segment_id)
-        db.add(annotation)
-    if payload.rating is not None:
-        annotation.rating = payload.rating
-    if payload.note is not None:
-        annotation.note = payload.note
-    if payload.in_sec is not None:
-        annotation.in_sec = payload.in_sec
-    if payload.out_sec is not None:
-        annotation.out_sec = payload.out_sec
+    _save_annotation(db, segment, payload)
 
     db.commit()
     return {"ok": True}
@@ -188,6 +196,7 @@ def annotate_segment(segment_id: str, payload: AnnotateRequest, db: Session = De
 @router.post("/segments/{segment_id}/reset-trim", response_model=SegmentOut)
 def reset_trim(segment_id: str, db: Session = Depends(get_db)):
     """Restore the effective bounds to the detected ones."""
+    begin_write(db)
     segment = db.get(Segment, segment_id)
     if segment is None:
         raise HTTPException(status_code=404, detail="Segment not found")
@@ -196,4 +205,4 @@ def reset_trim(segment_id: str, db: Session = Depends(get_db)):
     segment.is_trimmed = False
     db.commit()
     db.refresh(segment)
-    return segment
+    return _segment_out(db, segment)
