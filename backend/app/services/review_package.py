@@ -218,7 +218,10 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
     if not segments:
         raise ValueError('无当前有效镜头：请重新扫描/检测、人工复核镜头或调整评分筛选')
 
-    version = job_id or (datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + '-' + uuid.uuid4().hex[:8])
+    # A restarted uncommitted job may leave files from an older selection.
+    # Every attempt gets a fresh directory; committed resume_token reuse is
+    # handled by package_task, so successful replay still returns one artifact.
+    version = (job_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")) + '-' + uuid.uuid4().hex
     pkg_dir = project_cache_dir(project_id) / "packages" / version
     frames_dir = pkg_dir / "frames"
     sheets_dir = pkg_dir / "contact_sheets"

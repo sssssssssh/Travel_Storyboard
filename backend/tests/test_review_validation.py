@@ -102,6 +102,11 @@ def test_package_excludes_favorite_stale_in_all_filters(library, rating):
     assert stale_id not in ''.join(p.read_text() for p in root.glob('*.json'))
     assert len(list((root / 'frames').glob('*.jpg'))) == manifest['counts']['frames'] == 1
     assert len(list((root / 'contact_sheets').glob('*.jpg'))) == 1
+    import zipfile
+    with zipfile.ZipFile(project_cache_dir(pid) / 'packages' / f"{result['version']}.zip") as archive:
+        payload = b''.join(archive.read(name) for name in archive.namelist() if name.endswith('.json'))
+        assert sid.encode() in payload and stale_id.encode() not in payload
+        assert len([n for n in archive.namelist() if '/frames/' in n]) == 1
     assert {a['asset_id'] for a in json.loads((root / 'assets.json').read_text())} == {aid}
 
 
@@ -176,10 +181,15 @@ def test_defer_dismiss_and_failed_replacement_are_non_destructive(client, librar
     with session_scope() as s:
         old = s.scalars(select(ReviewRequest).where(ReviewRequest.project_id == pid)).one()
         old.proxy_ref = 'old.mp4'; rid = old.id
+        s.get(Segment, sid).status = 'needs_review'
     path = f'/api/projects/{pid}/review-requests/{rid}/disposition'
     assert client.post(path, json={'action': 'replace', **item(library, segment_id='missing')}).status_code == 409
     assert client.post(path, json={'action': 'defer'}).json()['status'] == 'needs_review'
+    with pytest.raises(ValueError, match='无当前有效镜头'):
+        _build_package(pid, {})
     assert client.post(path, json={'action': 'dismiss'}).json()['status'] == 'dismissed'
+    with pytest.raises(ValueError, match='无当前有效镜头'):
+        _build_package(pid, {})
     with session_scope() as s:
         assert s.get(ReviewRequest, rid).proxy_ref == 'old.mp4'
         assert s.get(Segment, sid).user_rating == 'favorite'
@@ -308,3 +318,22 @@ def test_job_progress_distinguishes_source_changes_and_review_counts(library):
         assert job.stats['source_changed'] == 1 and job.stats['needs_review'] == 2
         assert job.stats['phase'] == 'complete' and job.stats['failed'] == 1
         job.status = 'partial_failed'
+
+
+def test_package_retry_does_not_reuse_uncommitted_directory_or_stale_zip_members(library):
+    import zipfile
+    from app.models import Job
+    pid, *_ = library
+    with session_scope() as s:
+        job = Job(project_id=pid, job_type='package', status='running')
+        s.add(job); s.flush(); jid = job.id
+    orphan = project_cache_dir(pid) / 'packages' / jid / 'frames'
+    orphan.mkdir(parents=True)
+    stale = orphan / 'stale-shot.jpg'; stale.write_bytes(b'obsolete snapshot from an interrupted package')
+    result = _build_package(pid, {}, job_id=jid)
+    zip_path = project_cache_dir(pid) / 'packages' / f"{result['version']}.zip"
+    with zipfile.ZipFile(zip_path) as archive:
+        assert not any('stale-shot' in name for name in archive.namelist())
+        assert b'obsolete snapshot' not in b''.join(archive.read(name) for name in archive.namelist())
+    assert stale.read_bytes() == b'obsolete snapshot from an interrupted package'
+    with session_scope() as s: s.get(Job, jid).status = 'succeeded'
