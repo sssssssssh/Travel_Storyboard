@@ -160,7 +160,7 @@ def _contact_sheet(
     sheet.save(out_path, format="JPEG", quality=88, optimize=True)
 
 
-def _build_package(project_id: str, options: dict) -> dict:
+def _build_package(project_id: str, options: dict, job_id: str | None = None) -> dict:
     settings = get_settings()
     rating = options.get("rating", "")
     cols = int(options.get("contact_sheet_cols", 5))
@@ -190,7 +190,7 @@ def _build_package(project_id: str, options: dict) -> dict:
             for a in s.scalars(select(Asset).where(Asset.id.in_(used_asset_ids))).all()
         } if used_asset_ids else {}
 
-    version = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    version = job_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     pkg_dir = project_cache_dir(project_id) / "packages" / version
     frames_dir = pkg_dir / "frames"
     sheets_dir = pkg_dir / "contact_sheets"
@@ -392,18 +392,7 @@ def _build_package(project_id: str, options: dict) -> dict:
     total_size = sum(p.stat().st_size for p in pkg_dir.rglob("*") if p.is_file())
     rel_dir = rel_to_data(pkg_dir)
 
-    with session_scope() as s:
-        s.add(
-            ReviewPackage(
-                project_id=project_id,
-                version=version,
-                package_dir=rel_dir,
-                file_count=len(assets_json) + len(segments_json) + total_frames + sheet_count + 2,
-                total_size_bytes=total_size,
-            )
-        )
-
-    return {
+    result = {
         "version": version,
         "assets": len(assets_json),
         "segments": len(segments_json),
@@ -417,6 +406,23 @@ def _build_package(project_id: str, options: dict) -> dict:
         "max_bytes": budget.limit_bytes,
     }
 
+    with session_scope() as s:
+        s.add(
+            ReviewPackage(
+                project_id=project_id,
+                version=version,
+                package_dir=rel_dir,
+                file_count=len(assets_json) + len(segments_json) + total_frames + sheet_count + 2,
+                total_size_bytes=total_size,
+            )
+        )
+
+        if job_id:
+            job = s.get(Job, job_id)
+            if job is not None:
+                job.resume_token = result
+    return result
+
 
 @register_task("package")
 def package_task(job_id: str) -> None:
@@ -427,10 +433,21 @@ def package_task(job_id: str) -> None:
             return
         project_id = job.project_id
         options = (job.config_snapshot or {}).get("options") or {}
+        saved = dict(job.resume_token or {})
+        committed = s.scalars(select(ReviewPackage).where(
+            ReviewPackage.project_id == project_id, ReviewPackage.version == saved.get("version", ""))).first()
         s.expunge(job)
 
     raise_if_cancelled(job_id)
-    result = _build_package(project_id, options)
+    result = None
+    if committed is not None and saved.get("zip"):
+        try:
+            if resolve_in_project(project_id, saved["zip"]).is_file():
+                result = saved
+        except ValueError:
+            pass
+    if result is None:
+        result = _build_package(project_id, options, job_id=job_id)
 
     if result["reencode_failures"]:
         failures.record(

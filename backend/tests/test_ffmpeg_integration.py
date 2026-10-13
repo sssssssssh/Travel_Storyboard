@@ -352,3 +352,20 @@ def test_complete_custom_workspace_pipeline_and_source_hashes(client, synthetic_
     record_property('generated_input_duration_sec', 9)
     record_property('roughcut_duration_sec', info.duration_sec)
     assert export_json(pid)['shots'] == before
+
+
+def test_package_replay_reuses_committed_artifact(client, project):
+    from app.models import Job, ReviewPackage
+    from app.services.review_package import package_task
+    with session_scope() as s:
+        job = Job(project_id=project['id'], job_type='package')
+        s.add(job); s.flush(); jid = job.id
+    package_task(jid)
+    with session_scope() as s:
+        before = s.get(Job, jid).resume_token
+    package_task(jid)
+    with session_scope() as s:
+        rows = s.scalars(select(ReviewPackage).where(ReviewPackage.project_id == project['id'])).all()
+        assert len(rows) == 1
+        assert s.get(Job, jid).resume_token == before
+        s.get(Job, jid).status = 'succeeded'
