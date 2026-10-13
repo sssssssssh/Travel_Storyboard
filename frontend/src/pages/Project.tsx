@@ -21,6 +21,7 @@ export default function Project() {
   const [search, setSearch] = useState('')
   const [force, setForce] = useState(false)
   const [fullHash, setFullHash] = useState(false)
+  const [strictHash, setStrictHash] = useState(false)
 
   const { data: project } = useQuery({
     queryKey: ['project', id],
@@ -57,7 +58,7 @@ export default function Project() {
 
   const startJob = useMutation({
     mutationFn: (type: 'scan' | 'detect') =>
-      api<JobOut>(endpoints.createJob(id, type), { method: 'POST', body: JSON.stringify({ force, options: { full_hash: fullHash } }) }),
+      api<JobOut>(endpoints.createJob(id, type), { method: 'POST', body: JSON.stringify({ force, options: { full_hash: fullHash, strict_full_hash: strictHash } }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs', id] }),
   })
 
@@ -116,9 +117,10 @@ export default function Project() {
       </div>
 
       <div className="mb-4 flex gap-4 text-xs text-slate-400">
-        <label><input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> 强制重分析</label>
-        <label><input type="checkbox" checked={fullHash} onChange={(e) => setFullHash(e.target.checked)} /> 全量内容校验（读取全部原片，增加 I/O）</label>
-        <span>默认头/中/尾快速校验，极端碰撞仍可能漏检。</span>
+        <label><input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> 强制重新探测 / 重分析</label>
+        <label><input type="checkbox" checked={fullHash} onChange={(e) => { setFullHash(e.target.checked); if (!e.target.checked) setStrictHash(false) }} /> 后台完整校验（每文件完整读取一遍）</label>
+        <label><input type="checkbox" disabled={!fullHash} checked={strictHash} onChange={(e) => setStrictHash(e.target.checked)} /> 严格复核（处理后再完整读取一遍）</label>
+        <span>默认头/中/尾快速校验，极端碰撞仍可能漏检；扫描强制选项重新 FFprobe，检测强制选项重新抽帧。</span>
       </div>
       {startJob.error && <p className="mb-4 text-sm text-red-400">{startJob.error.message}</p>}
       {cancel.error && <p className="mb-4 text-sm text-red-400">{cancel.error.message}</p>}
@@ -127,16 +129,26 @@ export default function Project() {
           <h2 className="mb-2 text-sm font-semibold text-slate-200">任务</h2>
           <ul className="flex flex-col gap-2">
             {jobs.slice(0, 5).map((job) => (
-              <li key={job.id} className="flex items-center gap-3 text-sm">
+              <li key={job.id} className="flex flex-wrap items-center gap-3 text-sm">
                 <Badge tone={statusTone[job.status] ?? 'slate'}>{job.status === 'cancelled' ? '正在停止 / 已取消' : job.status}</Badge>
                 {(job.status === 'pending' || job.status === 'running') && <Button variant="ghost" disabled={cancel.isPending} onClick={() => cancel.mutate(job.id)}>取消</Button>}
-                {job.status === 'cancelled' && <span className="text-xs text-slate-500">当前编码可能仍在结束，后续项目任务会等待它停止。</span>}
-                <span className="text-slate-300">{job.job_type === 'scan' ? '素材建库' : '片段检测'}</span>
+                {job.status === 'cancelled' && <span className="text-xs text-slate-500">当前读取或编码返回后会停止，后续项目任务会等待它结束。</span>}
+                <span className="text-slate-300">{{ scan: '素材建库', detect: '片段检测', package: '分析包', proxies: '二轮代理', roughcut: '粗剪' }[job.job_type] ?? job.job_type}</span>
+                <span className="text-xs text-slate-500" title={job.id}>编号 {job.id.slice(0, 8)}</span>
                 <span className="text-slate-500">
                   {job.stats.done ?? 0}/{job.stats.total ?? 0}
                   {job.stats.failed ? ` · 失败 ${job.stats.failed}` : ''}
                 </span>
+                {job.stats.signature_mode && <span className="text-xs text-slate-400">
+                  {job.stats.signature_mode === 'full' ? '完整 SHA-256' : '快速采样'} ·
+                  {{ queued: '等待后台处理', enumerating: '后台建立清单', hashing: '读取校验', hash_recheck: '严格复核', processing: '处理素材', complete: '处理结束' }[job.stats.phase ?? 'queued'] ?? job.stats.phase}
+                  {job.stats.current_file && ` · ${job.stats.current_file}`}
+                  {job.stats.signature_mode === 'full' && ` · 读盘 ${formatSize(job.stats.bytes_read ?? 0)} / ${formatSize(job.stats.total_bytes ?? 0)} · 校验 ${job.stats.processed_files ?? 0}/${job.stats.total_files ?? 0}`}
+                  {(job.stats.strict_extra_bytes ?? 0) > 0 && ` · 复核额外读取 ${formatSize(job.stats.strict_extra_bytes!)}`}
+                  {(job.stats.hash_restarts ?? 0) > 0 && ` · 重读未完成文件 ${job.stats.hash_restarts} 次，实际读盘量可能超过计划`}
+                </span>}
                 {job.error && <span className="truncate text-red-400">{job.error}</span>}
+                {(job.failures?.items ?? []).slice(0, 3).map((failure) => <span key={`${failure.kind}:${failure.ref}`} className="text-xs text-red-300">{failure.message}</span>)}
                 {typeof job.resume_token.warning === 'string' && <span className="text-xs text-amber-300">{job.resume_token.warning}</span>}
               </li>
             ))}

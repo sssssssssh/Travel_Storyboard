@@ -113,3 +113,70 @@ def test_patch_note_is_persisted_and_readable(client, seeded):
     _, _, sid, _, _, _ = seeded
     assert client.patch(f'/api/segments/{sid}', json={'note': 'from PATCH'}).status_code == 200
     assert client.get(f'/api/segments/{sid}').json()['note'] == 'from PATCH'
+
+
+def test_disjoint_latest_trim_is_retained_for_review_with_audit():
+    result = Segment(detected_start_sec=0, detected_end_sec=5, quality_metrics={})
+    row = Segment(start_sec=8, end_sec=10, is_trimmed=True, user_rating='favorite',
+                  story_role='高潮', status='confirmed', quality_metrics={})
+    assert analyzer._apply_algorithm_result(row, result)
+    assert (row.start_sec, row.end_sec, row.is_trimmed) == (8, 10, True)
+    assert row.user_rating == 'favorite' and row.story_role == '高潮'
+    assert row.status == 'needs_review'
+    assert row.quality_metrics['manual_trim_audit'][-1]['action'] == 'preserved_for_review'
+
+
+@pytest.mark.parametrize('fault', ['extract', 'publish', 'commit', 'cancel'])
+def test_failed_background_preserves_concurrently_saved_annotation(client, seeded, monkeypatch, fault):
+    from sqlalchemy import event
+    from app.models import Job
+    from app.services.runner import JobCancelled
+    pid, asset, sid, fid, path, _ = seeded
+    with session_scope() as s:
+        job = Job(project_id=pid, job_type='detect', status='running')
+        s.add(job); s.flush(); jid = job.id
+    entered, release = Event(), Event()
+    original = analyzer.extract_frame
+    def paused(*args, **kwargs):
+        entered.set(); assert release.wait(5)
+        if fault == 'extract': raise RuntimeError('injected extract error')
+        original(*args, **kwargs)
+    monkeypatch.setattr(analyzer, 'extract_frame', paused)
+    def fail(*a, **kw): raise RuntimeError('injected commit error')
+    if fault == 'commit': event.listen(Frame, 'before_insert', fail)
+    if fault == 'publish': monkeypatch.setattr(Path, 'replace', lambda *a, **kw: fail())
+    try:
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(analyzer._analyze_asset, pid, asset, None, jid)
+            assert entered.wait(5)
+            try:
+                assert client.post(f'/api/segments/{sid}/annotate', json={
+                    'rating': 'favorite', 'note': 'saved during analysis', 'in_sec': 2, 'out_sec': 8, 'story_role': '开场'}).status_code == 200
+                if fault == 'cancel': assert client.post(f'/api/jobs/{jid}/cancel').status_code == 200
+            finally:
+                release.set()
+            with pytest.raises(JobCancelled if fault == 'cancel' else RuntimeError): future.result(5)
+    finally:
+        if fault == 'commit': event.remove(Frame, 'before_insert', fail)
+        with session_scope() as s: s.get(Job, jid).status = 'cancelled' if fault == 'cancel' else 'failed'
+    with session_scope() as s:
+        row = s.get(Segment, sid)
+        assert (row.start_sec, row.end_sec, row.is_trimmed) == (2, 8, True)
+        assert row.user_rating == 'favorite' and row.story_role == '开场'
+        assert s.scalars(select(UserAnnotation).where(UserAnnotation.segment_id == sid)).one().note == 'saved during analysis'
+        assert s.get(Frame, fid) is not None and path.is_file()
+
+
+def test_stale_plan_reference_requires_review_before_new_outputs(client, seeded, monkeypatch):
+    from app.services.timeline_export import build_edit_plan
+    from app.services.story_planner import _select_representative_frames
+    pid, asset, sid, _, _, detection = seeded
+    shot = {'asset_id': asset.id, 'segment_id': sid, 'source_in_sec': 1, 'source_out_sec': 4}
+    assert build_edit_plan(pid, [shot])['errors'] == []
+    monkeypatch.setattr(analyzer, 'detect_segments', lambda *a, **kw: detection(0, 6))
+    analyzer._analyze_asset(pid, asset)
+    assert build_edit_plan(pid, [shot])['errors']
+    sampled, _ = _select_representative_frames(pid, 12, 24)
+    assert sid not in {p['segment_id'] for p in sampled}
+    with session_scope() as s:
+        assert s.scalars(select(EditPlanShot).where(EditPlanShot.project_id == pid)).one().segment_id == sid

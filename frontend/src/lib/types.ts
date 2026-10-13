@@ -43,6 +43,8 @@ export interface AssetListOut {
 }
 
 export interface SegmentListItem {
+  status?: string
+  note?: string
   id: string
   asset_id: string
   start_sec: number
@@ -117,7 +119,10 @@ export interface JobOut {
   project_id: string
   job_type: string
   status: string
-  stats: { total?: number; done?: number; failed?: number; skipped?: number }
+  stats: { total?: number; done?: number; failed?: number; skipped?: number;
+    phase?: string; current_file?: string; signature_mode?: string; bytes_read?: number;
+    total_bytes?: number; processed_files?: number; total_files?: number; strict_extra_bytes?: number;
+    forced_reprobe?: number; skipped_unchanged?: number; hash_passes?: number; hash_restarts?: number }
   failures?: { count?: number; items?: JobFailureItem[] }
   resume_token: Record<string, unknown>
   error: string

@@ -170,7 +170,7 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
     budget = _Budget(limit_bytes=int(max_mb * 1024 * 1024))
 
     with session_scope() as s:
-        stmt = select(Segment).where(Segment.project_id == project_id)
+        stmt = select(Segment).where(Segment.project_id == project_id, Segment.status != "needs_review")
         if rating:
             stmt = stmt.where(Segment.user_rating == rating)
         else:

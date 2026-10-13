@@ -83,6 +83,8 @@ def _validate_shot(
         problems.append("asset_id not found in this project")
     if segment is None:
         problems.append("segment_id not found in this project")
+    elif segment.status == "needs_review":
+        problems.append("segment needs review after source/detection changes; choose a current segment")
 
     # The cross-reference the audit flagged as missing: a shot must not pair one
     # video's metadata with another video's timecodes.

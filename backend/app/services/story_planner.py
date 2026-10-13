@@ -71,6 +71,8 @@ def import_review_requests(project_id: str, data: dict) -> dict:
                 problems.append("asset_id not found")
             if not seg:
                 problems.append("segment_id not found")
+            elif seg.status == "needs_review":
+                problems.append("segment needs review after detection changes")
 
             start = item.get("start_sec")
             end = item.get("end_sec")
@@ -224,7 +226,7 @@ def _select_representative_frames(
     with session_scope() as s:
         segments = s.scalars(
             select(Segment)
-            .where(Segment.project_id == project_id, Segment.user_rating != "exclude")
+            .where(Segment.project_id == project_id, Segment.user_rating != "exclude", Segment.status != "needs_review")
             .order_by(Segment.created_at)
         ).all()
         total_segments = len(segments)

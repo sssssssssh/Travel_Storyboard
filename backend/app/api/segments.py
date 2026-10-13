@@ -133,10 +133,12 @@ def list_segments(
             for a in db.scalars(select(Asset).where(Asset.id.in_(ids))).all()
         }
 
+    notes = dict(db.execute(select(UserAnnotation.segment_id, UserAnnotation.note).where(UserAnnotation.segment_id.in_([r.id for r in rows]))).all())
     items = [
         SegmentListItem(
             id=r.id,
             status=r.status,
+            note=notes.get(r.id, ""),
             asset_id=r.asset_id,
             start_sec=r.start_sec,
             end_sec=r.end_sec,

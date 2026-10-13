@@ -206,7 +206,7 @@ function ExportEditor({ id }: { id: string }) {
                     <div className="truncate text-slate-300">{s.asset_display_name}</div>
                     <div>{formatTimeCode(s.start_sec)} – {formatTimeCode(s.end_sec)}</div>
                   </div>
-                  <Button variant="ghost" onClick={() => addToPlan(s)}>+</Button>
+                  <Button variant="ghost" disabled={s.status === 'needs_review'} onClick={() => addToPlan(s)}>{s.status === 'needs_review' ? '需要复核' : '+'}</Button>
                 </li>
               ))}
             </ul>

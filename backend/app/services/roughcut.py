@@ -19,7 +19,7 @@ from sqlalchemy import select
 from ..config import get_settings
 from ..database import session_scope
 from ..ffmpeg import locate_ffmpeg, run
-from ..models import Asset, EditPlanShot, Job
+from ..models import Asset, EditPlanShot, Job, Segment
 from ..paths import project_cache_dir, rel_to_data
 from .runner import JobFailures, raise_if_cancelled, register_task, update_job
 
@@ -108,6 +108,7 @@ def roughcut_task(job_id: str) -> None:
         assets = {
             a.id: a for a in s.scalars(select(Asset).where(Asset.project_id == project_id)).all()
         }
+        segments = {g.id: g for g in s.scalars(select(Segment).where(Segment.project_id == project_id)).all()}
         pairs = [(sh, assets.get(sh.asset_id)) for sh in shots]
 
     work = project_cache_dir(project_id) / "roughcut"
@@ -139,6 +140,13 @@ def roughcut_task(job_id: str) -> None:
             )
             done += 1
             update_job(job_id, stats={"total": total, "done": done, "failed": failed})
+            continue
+        segment = segments.get(sh.segment_id)
+        if segment is None or segment.asset_id != asset.id or segment.status == 'needs_review':
+            failed += 1
+            failures.record(kind='shot', ref=sh.id, message=f'shot #{sh.order}: 镜头源引用已变化或需要复核，请更新剪辑计划')
+            done += 1
+            update_job(job_id, stats={'total': total, 'done': done, 'failed': failed})
             continue
         duration = _clamp_duration(sh, asset)
         if duration <= 0:

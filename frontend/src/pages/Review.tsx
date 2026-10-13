@@ -42,6 +42,7 @@ export default function Review() {
   const [page, setPage] = useState(0)
   const [selected, setSelected] = useState<SegmentListItem | null>(null)
   const [note, setNote] = useState('')
+  const [storyRole, setStoryRole] = useState('')
   const [inSec, setInSec] = useState('')
   const [outSec, setOutSec] = useState('')
 
@@ -67,7 +68,8 @@ export default function Review() {
 
   function openSegment(s: SegmentListItem) {
     setSelected(s)
-    setNote('')
+    setNote(s.note ?? '')
+    setStoryRole(s.story_role)
     setInSec(String(s.start_sec))
     setOutSec(String(s.end_sec))
   }
@@ -77,6 +79,7 @@ export default function Review() {
     annotate.mutate({ in_sec: Number(inSec), out_sec: Number(outSec) })
   }
 
+  const selectedView = data?.items.find((s) => s.id === selected?.id) ?? selected
   const totalPages = data ? Math.max(1, Math.ceil(data.total / LIMIT)) : 1
 
   return (
@@ -143,6 +146,7 @@ export default function Review() {
                           {hints.map((h) => (
                             <Badge key={h} tone={h === '模糊' ? 'yellow' : 'red'}>{h}</Badge>
                           ))}
+                          {s.status === 'needs_review' && <Badge tone="yellow">需要复核</Badge>}
                           {s.user_rating !== 'pending' && (
                             <Badge tone="blue">{RATINGS.find((r) => r.key === s.user_rating)?.label ?? s.user_rating}</Badge>
                           )}
@@ -167,26 +171,28 @@ export default function Review() {
           )}
         </div>
 
-        {selected && (
+        {selectedView && (
           <aside className="w-80 shrink-0 overflow-auto border-l border-ink-800 bg-ink-900 p-4">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-white">镜头详情</h2>
               <button className="text-slate-500 hover:text-slate-300" onClick={() => setSelected(null)}>✕</button>
             </div>
             <div className="mb-3 aspect-video w-full overflow-hidden rounded-lg bg-ink-800">
-              {selected.thumbnail ? (
-                <img src={mediaUrl(id, selected.thumbnail)} alt="" className="h-full w-full object-contain" />
+              {selectedView.thumbnail ? (
+                <img src={mediaUrl(id, selectedView.thumbnail)} alt="" className="h-full w-full object-contain" />
               ) : (
                 <div className="flex h-full items-center justify-center text-xs text-slate-600">无预览</div>
               )}
             </div>
+            {selectedView.status === 'needs_review' && <p className="mb-3 text-xs text-amber-300">需要复核：{String(selectedView.quality_metrics.analysis_warning ?? '检测边界发生变化，旧镜头已保留；请使用新的检测镜头检查并更新剪辑计划。')}</p>}
+            {annotate.error && <p className="mb-3 text-xs text-red-400">{annotate.error.message}</p>}
             <dl className="mb-4 space-y-1.5 text-sm">
-              <div className="flex justify-between"><dt className="text-slate-500">素材</dt><dd className="max-w-[200px] truncate text-slate-200" title={selected.asset_display_name}>{selected.asset_display_name}</dd></div>
-              <div className="flex justify-between"><dt className="text-slate-500">入点</dt><dd className="text-slate-200">{selected.start_sec.toFixed(2)}s</dd></div>
-              <div className="flex justify-between"><dt className="text-slate-500">出点</dt><dd className="text-slate-200">{selected.end_sec.toFixed(2)}s</dd></div>
-              <div className="flex justify-between"><dt className="text-slate-500">时长</dt><dd className="text-slate-200">{selected.duration_sec.toFixed(2)}s</dd></div>
-              <div className="flex justify-between"><dt className="text-slate-500">边界</dt><dd className="text-slate-200">{reasonLabel[selected.boundary_reason] ?? selected.boundary_reason}</dd></div>
-              <div className="flex justify-between"><dt className="text-slate-500">清晰度</dt><dd className="text-slate-200">{(selected.quality_metrics.blur_min as number)?.toFixed(0) ?? '—'}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">素材</dt><dd className="max-w-[200px] truncate text-slate-200" title={selectedView.asset_display_name}>{selectedView.asset_display_name}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">入点</dt><dd className="text-slate-200">{selectedView.start_sec.toFixed(2)}s</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">出点</dt><dd className="text-slate-200">{selectedView.end_sec.toFixed(2)}s</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">时长</dt><dd className="text-slate-200">{selectedView.duration_sec.toFixed(2)}s</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">边界</dt><dd className="text-slate-200">{reasonLabel[selectedView.boundary_reason] ?? selectedView.boundary_reason}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">清晰度</dt><dd className="text-slate-200">{(selectedView.quality_metrics.blur_min as number)?.toFixed(0) ?? '—'}</dd></div>
             </dl>
 
             <div className="mb-4">
@@ -197,7 +203,7 @@ export default function Review() {
                     key={r.key}
                     onClick={() => annotate.mutate({ rating: r.key })}
                     className={`rounded-md border px-2 py-1.5 text-xs transition-colors ${
-                      selected.user_rating === r.key
+                      selectedView.user_rating === r.key
                         ? 'border-accent bg-accent/20 text-white'
                         : 'border-ink-700 text-slate-300 hover:border-ink-600'
                     }`}
@@ -220,6 +226,12 @@ export default function Review() {
               </Button>
             </div>
 
+            <div className="mb-4">
+              <label className="mb-1.5 block text-xs font-medium uppercase text-slate-500">故事用途
+                <input className={inputClass} value={storyRole} onChange={(e) => setStoryRole(e.target.value)} />
+              </label>
+              <Button variant="ghost" disabled={annotate.isPending} onClick={() => annotate.mutate({ story_role: storyRole })}>保存用途</Button>
+            </div>
             <div>
               <div className="mb-1.5 text-xs font-medium uppercase text-slate-500">备注</div>
               <textarea

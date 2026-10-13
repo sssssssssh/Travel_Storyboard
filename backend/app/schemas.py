@@ -130,6 +130,7 @@ class SegmentOut(ORMModel):
 
 
 class SegmentListItem(BaseModel):
+    note: str = ""
     status: str = "candidate"
     id: str
     asset_id: str
