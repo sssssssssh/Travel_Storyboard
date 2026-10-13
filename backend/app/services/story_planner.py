@@ -24,6 +24,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from collections import deque
 
 from sqlalchemy import select
 
@@ -233,11 +234,21 @@ def _select_representative_frames(
             s.scalars(select(Asset).where(Asset.project_id == project_id)).all()
         )
 
-        ranked = sorted(
-            segments,
-            key=lambda g: (_PRIORITY_ORDER.get(_rating_rank(g.user_rating), 3), g.created_at),
-        )
-        sampled = ranked[:max_segments_sampled]
+        # A first representative per asset before any second representative.
+        # Among first-round assets, their best manual rating wins; ties are stable.
+        groups: dict[str, deque] = {}
+        for segment in sorted(segments, key=lambda g: (_rating_rank(g.user_rating), g.start_sec, g.id)):
+            groups.setdefault(segment.asset_id, deque()).append(segment)
+        sampled = []
+        while groups and len(sampled) < max_segments_sampled:
+            order = sorted(groups, key=lambda aid: (
+                _rating_rank(groups[aid][0].user_rating), aid))
+            for aid in order:
+                if len(sampled) >= max_segments_sampled:
+                    break
+                sampled.append(groups[aid].popleft())
+                if not groups[aid]:
+                    del groups[aid]
         seg_ids = [g.id for g in sampled]
         frames_by_seg: dict[str, list[Frame]] = {}
         if seg_ids:
@@ -262,26 +273,16 @@ def _select_representative_frames(
             for g in sampled
         ]
 
-    # Round-robin by asset so the sample spreads across source videos.
-    by_asset: dict[str, list[dict]] = {}
-    for meta in seg_meta:
-        by_asset.setdefault(meta["asset_id"], []).append(meta)
-
     picked: list[dict] = []
-    queues = list(by_asset.values())
-    while queues and len(picked) < max_images:
-        for q in list(queues):
-            if not q:
-                queues.remove(q)
+    for meta in seg_meta:
+        if len(picked) >= max_images:
+            break
+        midpoint = (meta["start_sec"] + meta["end_sec"]) / 2
+        frames = sorted(frames_by_seg.get(meta["segment_id"], []),
+                        key=lambda f: (abs(f.time_sec - midpoint), f.time_sec, f.id))
+        for frame in frames:
+            if not meta["start_sec"] <= frame.time_sec <= meta["end_sec"]:
                 continue
-            meta = q.pop(0)
-            if len(picked) >= max_images:
-                break
-            frames = frames_by_seg.get(meta["segment_id"], [])
-            if not frames:
-                continue
-            # Middle frame is the most representative.
-            frame = frames[len(frames) // 2]
             try:
                 path = resolve_in_project(project_id, frame.image_path)
             except ValueError:
@@ -289,6 +290,7 @@ def _select_representative_frames(
             if not path.is_file():
                 continue
             picked.append({**meta, "frame_id": frame.id, "frame_time_sec": frame.time_sec, "path": path})
+            break
 
     covered_segments = len({p["segment_id"] for p in picked})
     covered_assets = len({p["asset_id"] for p in picked})
@@ -302,7 +304,9 @@ def _select_representative_frames(
         "assets_covered_by_images": covered_assets,
         "images_sent": len(picked),
         "segments_not_covered": max(0, candidates_total - covered_segments),
-        "complete": covered_segments >= candidates_total and candidates_total > 0,
+        "assets_not_covered": max(0, library_assets - covered_assets),
+        "candidate_assets_not_covered": max(0, candidate_assets - covered_assets),
+        "complete": covered_segments == candidates_total and covered_assets == library_assets and candidates_total > 0,
     }
     return picked, coverage
 

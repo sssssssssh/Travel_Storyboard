@@ -167,11 +167,12 @@ def test_coverage_reports_what_was_not_seen(seeded):
     assert coverage["library_assets"] == 4
 
 
-def test_coverage_is_complete_when_all_segments_get_an_image(seeded):
+def test_eligible_coverage_does_not_claim_excluded_library_is_seen(seeded):
     project_id, _, _ = seeded
     _, coverage = _select_representative_frames(project_id, max_images=50, max_segments_sampled=50)
     assert coverage["segments_covered_by_images"] == coverage["candidate_segments"]
-    assert coverage["complete"] is True
+    assert coverage["assets_covered_by_images"] < coverage["library_assets"]
+    assert coverage["complete"] is False
 
 
 # --- validation of model output ---------------------------------------------
@@ -391,3 +392,39 @@ def test_direct_analyze_survives_persistent_garbage(seeded, monkeypatch):
     assert result["problems"]
     # The raw reply is surfaced so the user can see what happened.
     assert "still not json" in result["raw"]
+
+
+def test_budget_one_prefers_favorite_even_if_created_later(seeded):
+    pid, _, segments = seeded
+    with session_scope() as s:
+        for seg_id, _, rating in segments:
+            s.get(Segment, seg_id).user_rating = 'pending' if rating == 'favorite' else 'favorite' if rating == 'pending' else rating
+    picked, _ = _select_representative_frames(pid, 1, 24)
+    assert picked[0]['user_rating'] == 'favorite'
+
+
+def test_fairness_happens_before_candidate_cap(client):
+    pid = client.post('/api/projects', json={'name': 'large-library'}).json()['id']
+    for i in range(60):
+        aid = str(uuid.uuid4())
+        with session_scope() as s:
+            s.add(Asset(id=aid, project_id=pid, source_path=f'/v/{i}.mp4', display_name=f'{i:03}.mp4'))
+        for j in range(50 if i == 0 else 1):
+            sid, fid = str(uuid.uuid4()), str(uuid.uuid4())
+            path = frames_dir(pid, aid) / f'{fid}.jpg'
+            _jpeg(path)
+            with session_scope() as s:
+                s.add(Segment(id=sid, project_id=pid, asset_id=aid, start_sec=j*2, end_sec=j*2+2))
+                s.flush()
+                s.add(Frame(id=fid, segment_id=sid, asset_id=aid, time_sec=j*2+1, image_path=str(path)))
+    picked, coverage = _select_representative_frames(pid, 12, 24)
+    assert len({p['asset_id'] for p in picked}) == 12
+    assert coverage['images_sent'] == 12
+    assert coverage['assets_not_covered'] == 48
+    assert coverage['complete'] is False
+    again, _ = _select_representative_frames(pid, 12, 24)
+    assert [p['frame_id'] for p in picked] == [p['frame_id'] for p in again]
+    picked[0]['path'].unlink()
+    after, coverage = _select_representative_frames(pid, 12, 24)
+    assert all(p['path'].is_file() for p in after)
+    assert coverage['assets_covered_by_images'] == len({p['asset_id'] for p in after})
