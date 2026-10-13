@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, downloadUrl, endpoints, reviewProxyUrl } from '../lib/api'
+import { api, downloadUrl, endpoints } from '../lib/api'
 import type {
   DirectAnalysisResult,
   ImportResult,
@@ -12,7 +12,7 @@ import type {
 import { useJob } from '../lib/useJob'
 import { Badge, Button, Card, Field, inputClass } from '../components/ui'
 
-const priorityTone: Record<string, string> = { high: 'red', medium: 'yellow', low: 'slate' }
+import ReviewRequestCard from '../components/ReviewRequestCard'
 
 export default function AIDirector() {
   const { id = '' } = useParams()
@@ -24,6 +24,12 @@ export default function AIDirector() {
   const [jobKind, setJobKind] = useState('')
 
   const job = useJob(jobId)
+  useEffect(() => {
+    if (job.data && job.data.status !== 'running' && job.data.status !== 'pending') {
+      qc.invalidateQueries({ queryKey: ['review-requests', id] })
+      qc.invalidateQueries({ queryKey: ['packages', id] })
+    }
+  }, [job.data?.status, job.data, id, qc])
 
   const packages = useQuery({
     queryKey: ['packages', id],
@@ -33,6 +39,7 @@ export default function AIDirector() {
   const requests = useQuery({
     queryKey: ['review-requests', id],
     queryFn: () => api<ReviewRequestOut[]>(endpoints.reviewRequests(id)),
+    refetchInterval: job.data?.status === 'running' || job.data?.status === 'pending' ? 1500 : false,
   })
 
   function startJob(type: string, body?: Record<string, unknown>) {
@@ -164,10 +171,10 @@ export default function AIDirector() {
         {importReq.isError && <div className="mt-2 text-sm text-red-400">JSON 解析失败：{importReq.error instanceof Error ? importReq.error.message : ''}</div>}
         {importResult && (
           <div className="mt-2 text-sm">
-            <span className="text-emerald-300">成功 {importResult.created} 条</span>
+            <span className="text-emerald-300">成功 {importResult.created} 条 · 已存在 {importResult.duplicates?.length ?? 0} 条</span>
             {importResult.errors.length > 0 && (
               <ul className="mt-1 space-y-1 text-red-400">
-                {importResult.errors.map((e) => <li key={e.index}>第 {e.index} 条：{e.message}</li>)}
+                {importResult.errors.map((e) => <li key={e.index}>第 {e.request_index} 条 · {e.segment_id} [{e.error_code}]：{e.message}</li>)}
               </ul>
             )}
           </div>
@@ -180,27 +187,12 @@ export default function AIDirector() {
         <Button variant="ghost" disabled={buildProxies.isPending} onClick={() => buildProxies.mutate()}>
           生成低清预览（按优先级）
         </Button>
+        {(buildProxies.error || buildPackage.error) && <p className="mt-2 text-red-400">{(buildProxies.error || buildPackage.error)?.message}</p>}
+        {requests.error && <p className="mt-2 text-red-400">{requests.error.message}</p>}
         {requests.data && requests.data.length > 0 && (
-          <ul className="mt-3 divide-y divide-ink-800">
-            {requests.data.map((r) => (
-              <li key={r.id} className="flex items-center gap-3 py-2 text-sm">
-                <Badge tone={priorityTone[r.priority] ?? 'slate'}>{r.priority}</Badge>
-                <span className="text-slate-300">{r.start_sec.toFixed(1)}s–{r.end_sec.toFixed(1)}s</span>
-                <span className="truncate text-slate-500">{r.reason}</span>
-                <Badge tone={r.status === 'proxied' ? 'green' : r.status === 'failed' ? 'red' : 'slate'}>{r.status}</Badge>
-                {r.proxy_ref && (
-                  <a
-                    className="text-accent hover:underline"
-                    href={reviewProxyUrl(id, r.id)}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    预览
-                  </a>
-                )}
-              </li>
-            ))}
-          </ul>
+          <div className="mt-3 space-y-3">
+            {requests.data.map((r) => <ReviewRequestCard key={r.id} projectId={id} request={r} />)}
+          </div>
         )}
       </Card>
 

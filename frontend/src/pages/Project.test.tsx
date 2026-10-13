@@ -12,7 +12,7 @@ function setup(active = true) {
     if (options?.method === 'POST') return { id: 'new-job', status: 'pending' } as never
     if (path.endsWith('/jobs')) return (active ? [{ id: 'hash', job_type: 'scan', status: 'running',
       stats: { done: 0, total: 2, phase: 'hashing', current_file: '旅行.mp4', signature_mode: 'full',
-        bytes_read: 1048576, total_bytes: 8388608, processed_files: 0, total_files: 2 }, resume_token: {}, error: '' }] : []) as never
+        needs_review: 2, source_changed: 1, bytes_read: 1048576, total_bytes: 8388608, processed_files: 0, total_files: 2 }, resume_token: {}, error: '' }] : []) as never
     if (path.includes('/assets')) return { items: [], total: 0 } as never
     return { id: 'p', name: 'test', stats: { asset_count: 2, asset_succeeded: 2, asset_failed: 0, segment_count: 1, total_duration_sec: 3, total_size_bytes: 3 } } as never
   })
@@ -23,6 +23,8 @@ test('shows background hashing file, bytes and signature mode', async () => {
   setup()
   await screen.findByText(/完整 SHA-256/)
   expect(screen.getByText(/旅行.mp4/)).toBeTruthy()
+  expect(screen.getByRole('link', { name: '需要人工复核 2 个镜头' })).toBeTruthy()
+  expect(screen.getByText(/源文件已变化 1 项/)).toBeTruthy()
   expect(screen.getByText(/1.0.*8.0/)).toBeTruthy()
 })
 
@@ -36,4 +38,16 @@ test('passes force and explicit strict recheck options to the new scan job', asy
   await waitFor(() => expect(api).toHaveBeenCalledWith('/api/projects/p/jobs/scan', expect.objectContaining({ method: 'POST' })))
   const request = vi.mocked(api).mock.calls.find((call) => call[1]?.method === 'POST')![1]!
   expect(JSON.parse(request.body as string)).toEqual({ force: true, options: { full_hash: true, strict_full_hash: true } })
+})
+
+test('defaults to quick verification and explains the per-task 200GB read cost', async () => {
+  setup(false)
+  await screen.findByText('test')
+  expect((screen.getByLabelText('后台完整校验（每文件完整读取一遍）') as HTMLInputElement).checked).toBe(false)
+  expect((screen.getByLabelText('严格复核（处理后再完整读取一遍）') as HTMLInputElement).checked).toBe(false)
+  expect(screen.getByText(/200GB.*400GB/)).toBeTruthy()
+  fireEvent.click(screen.getByText('扫描建库'))
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/projects/p/jobs/scan', expect.objectContaining({ method: 'POST' })))
+  const request = vi.mocked(api).mock.calls.find((call) => call[1]?.method === 'POST')![1]!
+  expect(JSON.parse(request.body as string).options).toEqual({ full_hash: false, strict_full_hash: false })
 })

@@ -122,7 +122,8 @@ export interface JobOut {
   stats: { total?: number; done?: number; failed?: number; skipped?: number;
     phase?: string; current_file?: string; signature_mode?: string; bytes_read?: number;
     total_bytes?: number; processed_files?: number; total_files?: number; strict_extra_bytes?: number;
-    forced_reprobe?: number; skipped_unchanged?: number; hash_passes?: number; hash_restarts?: number }
+    forced_reprobe?: number; skipped_unchanged?: number; hash_passes?: number; hash_restarts?: number; needs_review?: number; source_changed?: number; files_generated?: number; bytes?: number;
+    skipped_budget?: number; requested_duration_sec?: number; output_duration_sec?: number }
   failures?: { count?: number; items?: JobFailureItem[] }
   resume_token: Record<string, unknown>
   error: string
@@ -161,6 +162,22 @@ export interface ReviewPackageOut {
   created_at: string
 }
 
+export interface ReviewSegmentContext {
+  id: string
+  asset_id: string
+  display_name: string
+  start_sec: number
+  end_sec: number
+  detected_start_sec: number
+  detected_end_sec: number
+  user_rating: string
+  story_role: string
+  note: string
+  status: string
+  change_reason: string
+  thumbnail: string | null
+}
+
 export interface ReviewRequestOut {
   id: string
   project_id: string
@@ -174,11 +191,19 @@ export interface ReviewRequestOut {
   status: string
   proxy_ref: string
   created_at: string
+  supersedes_request_id?: string
+  superseded_by_request_id?: string
+  disposition_at?: string | null
+  validation_error?: { error_code: string; message: string } | null
+  segment_context?: ReviewSegmentContext | null
+  current_segments?: ReviewSegmentContext[]
+  plan_shot_ids?: string[]
 }
 
 export interface ImportResult {
   created: number
-  errors: { index: number; message: string }[]
+  errors: { index: number; request_index: number; segment_id: string; error_code: string; message: string }[]
+  duplicates?: { index: number; request_id: string; message: string }[]
 }
 
 export interface EditPlanShotOut {

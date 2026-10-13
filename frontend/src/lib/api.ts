@@ -137,6 +137,7 @@ export const endpoints = {
   packages: (id: string) => `/api/projects/${id}/packages`,
   packageDownload: (id: string) => `/api/packages/${id}/download`,
   reviewRequests: (id: string) => `/api/projects/${id}/review-requests`,
+  reviewDisposition: (id: string, requestId: string) => `/api/projects/${id}/review-requests/${requestId}/disposition`,
   importReviewRequests: (id: string) => `/api/projects/${id}/review-requests/import`,
   buildProxies: (id: string) => `/api/projects/${id}/review-requests/proxies`,
   analyzeStory: (id: string) => `/api/projects/${id}/story/analyze`,

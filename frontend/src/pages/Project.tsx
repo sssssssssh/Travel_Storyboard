@@ -122,6 +122,7 @@ export default function Project() {
         <label><input type="checkbox" disabled={!fullHash} checked={strictHash} onChange={(e) => setStrictHash(e.target.checked)} /> 严格复核（处理后再完整读取一遍）</label>
         <span>默认头/中/尾快速校验，极端碰撞仍可能漏检；扫描强制选项重新 FFprobe，检测强制选项重新抽帧。</span>
       </div>
+      <p className="mb-4 text-xs text-amber-300">完整哈希按每个任务计算读取成本：200GB 素材分别运行完整哈希扫描和检测，可能额外读取约 400GB；严格二次复核继续增加读取量。中断重读与 FFmpeg 解码 I/O 另计，不承诺固定完成时间。</p>
       {startJob.error && <p className="mb-4 text-sm text-red-400">{startJob.error.message}</p>}
       {cancel.error && <p className="mb-4 text-sm text-red-400">{cancel.error.message}</p>}
       {jobs && jobs.length > 0 && (
@@ -141,12 +142,14 @@ export default function Project() {
                 </span>
                 {job.stats.signature_mode && <span className="text-xs text-slate-400">
                   {job.stats.signature_mode === 'full' ? '完整 SHA-256' : '快速采样'} ·
-                  {{ queued: '等待后台处理', enumerating: '后台建立清单', hashing: '读取校验', hash_recheck: '严格复核', processing: '处理素材', complete: '处理结束' }[job.stats.phase ?? 'queued'] ?? job.stats.phase}
+                  {{ queued: '等待后台处理', enumerating: '后台建立清单', hashing: '读取校验', hash_recheck: '严格复核', processing: '处理素材', complete: '处理结束', cancelled: '已取消', source_changed: '源文件已变化', needs_review: '需要人工复核' }[job.stats.phase ?? 'queued'] ?? job.stats.phase}
                   {job.stats.current_file && ` · ${job.stats.current_file}`}
                   {job.stats.signature_mode === 'full' && ` · 读盘 ${formatSize(job.stats.bytes_read ?? 0)} / ${formatSize(job.stats.total_bytes ?? 0)} · 校验 ${job.stats.processed_files ?? 0}/${job.stats.total_files ?? 0}`}
                   {(job.stats.strict_extra_bytes ?? 0) > 0 && ` · 复核额外读取 ${formatSize(job.stats.strict_extra_bytes!)}`}
                   {(job.stats.hash_restarts ?? 0) > 0 && ` · 重读未完成文件 ${job.stats.hash_restarts} 次，实际读盘量可能超过计划`}
                 </span>}
+                {(job.stats.source_changed ?? 0) > 0 && <span className="text-xs text-red-300">源文件已变化 {job.stats.source_changed} 项，请重新扫描/检测</span>}
+                {(job.stats.needs_review ?? 0) > 0 && <Link to={`/project/${id}/review`} className="text-xs text-amber-300 underline">需要人工复核 {job.stats.needs_review} 个镜头</Link>}
                 {job.error && <span className="truncate text-red-400">{job.error}</span>}
                 {(job.failures?.items ?? []).slice(0, 3).map((failure) => <span key={`${failure.kind}:${failure.ref}`} className="text-xs text-red-300">{failure.message}</span>)}
                 {typeof job.resume_token.warning === 'string' && <span className="text-xs text-amber-300">{job.resume_token.warning}</span>}

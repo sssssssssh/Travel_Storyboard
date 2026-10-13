@@ -12,12 +12,13 @@ test('loads persisted note and warns about a retained stale shot without overwri
     start_sec: 0, end_sec: 10, detected_start_sec: 0, detected_end_sec: 10, is_trimmed: false,
     duration_sec: 10, user_rating: 'favorite', story_role: '高潮', boundary_reason: 'hard_cut',
     thumbnail: null, quality_metrics: { analysis_warning: '旧镜头已保留' }, content_tags: {} }
-  vi.mocked(api).mockResolvedValue({ items: [segment], total: 1, offset: 0, limit: 60 })
+  vi.mocked(api).mockImplementation(async (path) => (path.endsWith('/review-requests') ? [] : path.endsWith('/edit-plan') ? { shots: [{ segment_id: 's' }] } : { items: [segment], total: 1, offset: 0, limit: 60 }) as never)
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(<QueryClientProvider client={qc}><MemoryRouter initialEntries={['/p/p']}><Routes><Route path="/p/:id" element={<Review />} /></Routes></MemoryRouter></QueryClientProvider>)
   fireEvent.click(await screen.findByRole('button', { name: /clip.mp4/ }))
   const input = screen.getByPlaceholderText('这段镜头的故事价值、用途…') as HTMLTextAreaElement
   expect(input.value).toBe('stored note')
+  expect(await screen.findByRole('link', { name: '人工更新剪辑计划' })).toBeTruthy()
   expect(screen.getByText(/需要复核：旧镜头已保留/)).toBeTruthy()
   fireEvent.change(input, { target: { value: 'unsaved latest note' } })
   await act(async () => qc.setQueryData(['segments', 'p', '', '', 0], { items: [{ ...segment, note: 'server update' }], total: 1 }))

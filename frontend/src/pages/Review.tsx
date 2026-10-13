@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, endpoints, mediaUrl } from '../lib/api'
-import type { SegmentListItem, SegmentListOut } from '../lib/types'
+import type { EditPlanOut, ReviewRequestOut, SegmentListItem, SegmentListOut } from '../lib/types'
+import ReviewRequestCard from '../components/ReviewRequestCard'
 import { formatTimeCode } from '../lib/format'
 import { Badge, Button, EmptyState, Spinner, inputClass } from '../components/ui'
 
@@ -57,6 +58,19 @@ export default function Review() {
     queryFn: () => api<SegmentListOut>(endpoints.segments(id, `?${query.toString()}`)),
   })
 
+  const selectedView = data?.items.find((s) => s.id === selected?.id) ?? selected
+  const reviewRequests = useQuery({
+    queryKey: ['review-requests', id],
+    queryFn: () => api<ReviewRequestOut[]>(endpoints.reviewRequests(id)),
+    enabled: selectedView?.status === 'needs_review',
+  })
+
+  const savedPlan = useQuery({
+    queryKey: ['edit-plan', id],
+    queryFn: () => api<EditPlanOut>(endpoints.editPlan(id)),
+    enabled: selectedView?.status === 'needs_review',
+  })
+
   const annotate = useMutation({
     mutationFn: (payload: Record<string, unknown>) =>
       api(endpoints.annotate(selected!.id), { method: 'POST', body: JSON.stringify(payload) }),
@@ -79,7 +93,6 @@ export default function Review() {
     annotate.mutate({ in_sec: Number(inSec), out_sec: Number(outSec) })
   }
 
-  const selectedView = data?.items.find((s) => s.id === selected?.id) ?? selected
   const totalPages = data ? Math.max(1, Math.ceil(data.total / LIMIT)) : 1
 
   return (
@@ -185,6 +198,14 @@ export default function Review() {
               )}
             </div>
             {selectedView.status === 'needs_review' && <p className="mb-3 text-xs text-amber-300">需要复核：{String(selectedView.quality_metrics.analysis_warning ?? '检测边界发生变化，旧镜头已保留；请使用新的检测镜头检查并更新剪辑计划。')}</p>}
+            {selectedView.status === 'needs_review' && <div className="mb-4 space-y-3">
+              <p className="text-xs text-slate-400">旧选择 {selectedView.start_sec}–{selectedView.end_sec}s；旧检测 {selectedView.detected_start_sec}–{selectedView.detected_end_sec}s。原片：{selectedView.asset_display_name}。</p>
+              <Link className="text-sm text-accent underline" to={`/project/${id}/ai`}>进入 AI 导演处理当前镜头与复核请求</Link>
+              {savedPlan.data?.shots?.some((shot) => shot.segment_id === selectedView.id) && <p className="text-xs text-amber-300">旧镜头仍被剪辑计划引用，会阻断新粗剪；<Link className="text-accent underline" to={`/project/${id}/export`}>人工更新剪辑计划</Link>。</p>}
+              {savedPlan.error && <p className="text-xs text-red-400">计划引用检查失败：{savedPlan.error.message}</p>}
+              {reviewRequests.error && <p className="text-xs text-red-400">{reviewRequests.error.message}</p>}
+              {reviewRequests.data?.filter((r) => r.segment_id === selectedView.id).map((r) => <ReviewRequestCard key={r.id} projectId={id} request={r} />)}
+            </div>}
             {annotate.error && <p className="mb-3 text-xs text-red-400">{annotate.error.message}</p>}
             <dl className="mb-4 space-y-1.5 text-sm">
               <div className="flex justify-between"><dt className="text-slate-500">素材</dt><dd className="max-w-[200px] truncate text-slate-200" title={selectedView.asset_display_name}>{selectedView.asset_display_name}</dd></div>
