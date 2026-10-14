@@ -5,13 +5,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import Project from './Project'
 import { api } from '../lib/api'
+import type { JobOut } from '../lib/types'
 vi.mock('../lib/api', async (original) => ({ ...await original<typeof import('../lib/api')>(), api: vi.fn() }))
 afterEach(() => { cleanup(); vi.clearAllMocks() })
-function setup(active = true) {
+function setup(active = true, status = 'running', cleanupStats?: JobOut['stats']['cleanup']) {
   vi.mocked(api).mockImplementation(async (path, options) => {
     if (options?.method === 'POST') return { id: 'new-job', status: 'pending' } as never
-    if (path.endsWith('/jobs')) return (active ? [{ id: 'hash', job_type: 'scan', status: 'running',
-      stats: { done: 0, total: 2, phase: 'hashing', current_file: '旅行.mp4', signature_mode: 'full',
+    if (path.endsWith('/jobs')) return (active ? [{ id: 'hash', job_type: 'scan', status,
+      stats: { cleanup: cleanupStats, done: 0, total: 2, phase: 'hashing', current_file: '旅行.mp4', signature_mode: 'full',
         needs_review: 2, source_changed: 1, bytes_read: 1048576, total_bytes: 8388608, processed_files: 0, total_files: 2 }, resume_token: {}, error: '' }] : []) as never
     if (path.includes('/assets')) return { items: [], total: 0 } as never
     return { id: 'p', name: 'test', stats: { asset_count: 2, asset_succeeded: 2, asset_failed: 0, segment_count: 1, total_duration_sec: 3, total_size_bytes: 3 } } as never
@@ -50,4 +51,25 @@ test('defaults to quick verification and explains the per-task 200GB read cost',
   await waitFor(() => expect(api).toHaveBeenCalledWith('/api/projects/p/jobs/scan', expect.objectContaining({ method: 'POST' })))
   const request = vi.mocked(api).mock.calls.find((call) => call[1]?.method === 'POST')![1]!
   expect(JSON.parse(request.body as string).options).toEqual({ full_hash: false, strict_full_hash: false })
+})
+
+
+test('cancelled jobs with no cleanup result never claim recovery', async () => {
+  setup(true, 'cancelled')
+  await screen.findByText('任务已停止；尚无本次清理统计')
+  expect(screen.queryByText(/暂存资源已回收/)).toBeNull()
+})
+
+test('failed cleanup on a stopped job offers scoped safety retry', async () => {
+  setup(true, 'cancelled', { ok: false, retryable: true, error_code: 'CLEANUP_FAILED', residual_count: 2 })
+  await screen.findByText(/有暂存残留，需安全重试/)
+  fireEvent.click(screen.getByText('安全重试清理'))
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/api/projects/p/jobs/hash/cleanup-retry', { method: 'POST' }))
+})
+
+test('cancelling jobs cannot offer cleanup retry or claim cleanup completed', async () => {
+  setup(true, 'cancelling', { ok: false, retryable: true })
+  await screen.findByText(/已收到取消请求/)
+  expect(screen.queryByText('安全重试清理')).toBeNull()
+  expect(screen.queryByText(/已清理：/)).toBeNull()
 })

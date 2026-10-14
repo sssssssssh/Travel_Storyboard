@@ -146,3 +146,14 @@ def list_jobs(project_id: str, db: Session = Depends(get_db)):
     return db.scalars(
         select(Job).where(Job.project_id == project_id).order_by(Job.created_at.desc())
     ).all()
+
+
+@router.post('/projects/{project_id}/jobs/{job_id}/cleanup-retry', response_model=JobOut)
+def retry_cleanup(project_id: str, job_id: str, db: Session = Depends(get_db)):
+    from ..services.staging_cleanup import retry_job_cleanup, CleanupRetryError
+    try:
+        retry_job_cleanup(project_id, job_id)
+    except CleanupRetryError as exc:
+        raise HTTPException(status_code=exc.status, detail={'error_code': exc.code}) from exc
+    db.rollback()
+    return db.get(Job, job_id)

@@ -1,3 +1,4 @@
+import CleanupNotice from '../components/CleanupNotice'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -80,6 +81,10 @@ export default function Project() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs', id] }),
   })
 
+  const retryCleanup = useMutation({
+    mutationFn: (jid: string) => api<JobOut>(`/api/projects/${id}/jobs/${jid}/cleanup-retry`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs', id] }),
+  })
   const cancel = useMutation({
     mutationFn: (jid: string) => api<JobOut>(endpoints.cancelJob(jid), { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs', id] }),
@@ -142,6 +147,7 @@ export default function Project() {
       </div>
       <p className="mb-4 text-xs text-amber-300">完整哈希按每个任务计算读取成本：200GB 素材分别运行完整哈希扫描和检测，可能额外读取约 400GB；严格二次复核继续增加读取量。中断重读与 FFmpeg 解码 I/O 另计，不承诺固定完成时间。</p>
       {startJob.error && <p className="mb-4 text-sm text-red-400">{startJob.error.message}</p>}
+      {retryCleanup.error && <p className="mb-4 text-sm text-red-400">{retryCleanup.error.message}</p>}
       {cancel.error && <p className="mb-4 text-sm text-red-400">{cancel.error.message}</p>}
       {jobs && jobs.length > 0 && (
         <Card className="mb-6">
@@ -152,7 +158,8 @@ export default function Project() {
                 <Badge tone={statusTone[job.status] ?? 'slate'}>{statusLabel[job.status] ?? job.status}</Badge>
                 {(job.status === 'pending' || job.status === 'running') && <Button variant="ghost" disabled={cancel.isPending} onClick={() => cancel.mutate(job.id)}>取消</Button>}
                 {job.status === 'cancelling' && <span className="text-xs text-amber-300">已收到取消请求，正在停止编码并清理暂存；完成后才会释放项目锁。</span>}
-                {job.status === 'cancelled' && <span className="text-xs text-slate-500">已取消，暂存资源已回收；可重新提交任务。</span>}
+                {!OCCUPYING_STATUSES.includes(job.status) && (job.status === 'cancelled' || job.stats.cleanup) && <CleanupNotice cleanup={job.stats.cleanup} />}
+                {!hasActive && !OCCUPYING_STATUSES.includes(job.status) && job.stats.cleanup?.ok === false && job.stats.cleanup.retryable && <Button variant="ghost" disabled={retryCleanup.isPending} onClick={() => retryCleanup.mutate(job.id)}>安全重试清理</Button>}
                 <span className="text-slate-300">{{ scan: '素材建库', detect: '片段检测', package: '分析包', proxies: '二轮代理', roughcut: '粗剪' }[job.job_type] ?? job.job_type}</span>
                 <span className="text-xs text-slate-500" title={job.id}>编号 {job.id.slice(0, 8)}</span>
                 <span className="text-slate-500">

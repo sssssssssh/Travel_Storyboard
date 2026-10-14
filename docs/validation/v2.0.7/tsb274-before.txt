@@ -1,0 +1,23 @@
+.FF                                                                      [100%]
+=================================== FAILURES ===================================
+______ test_terminal_cleanup_retry_is_authenticated_scoped_and_idempotent ______
+backend/tests/test_cleanup_reporting.py:31: in test_terminal_cleanup_retry_is_authenticated_scoped_and_idempotent
+    assert client.post(url).status_code == 409  # worker still runs
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: assert 405 == 409
+E    +  where 405 = <Response [405 Method Not Allowed]>.status_code
+E    +    where <Response [405 Method Not Allowed]> = post('/api/projects/5e78fd15-478b-4443-b79d-94439f2d1a93/jobs/be85af01-40f7-4202-ae98-7fc8e0963166/cleanup-retry')
+E    +      where post = <starlette.testclient.TestClient object at 0x106d53620>.post
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.staging_cleanup:staging_cleanup.py:305 CLEANUP_FAILED project=5e78fd15-478b-4443-b79d-94439f2d1a93 job=be85af01-40f7-4202-ae98-7fc8e0963166 error=PermissionError
+____________ test_retry_cannot_adopt_old_or_invented_cleanup_paths _____________
+backend/tests/test_cleanup_reporting.py:48: in test_retry_cannot_adopt_old_or_invented_cleanup_paths
+    assert client.post(f'/api/projects/{pid}/jobs/{jid}/cleanup-retry').status_code == 409
+E   AssertionError: assert 405 == 409
+E    +  where 405 = <Response [405 Method Not Allowed]>.status_code
+E    +    where <Response [405 Method Not Allowed]> = post('/api/projects/2e687648-9fab-4b48-bc04-241af8b2494b/jobs/59bb24c7-b4c4-4008-bd97-2044b2eecb35/cleanup-retry')
+E    +      where post = <starlette.testclient.TestClient object at 0x1108c99a0>.post
+=========================== short test summary info ============================
+FAILED backend/tests/test_cleanup_reporting.py::test_terminal_cleanup_retry_is_authenticated_scoped_and_idempotent
+FAILED backend/tests/test_cleanup_reporting.py::test_retry_cannot_adopt_old_or_invented_cleanup_paths
+2 failed, 1 passed in 0.89s

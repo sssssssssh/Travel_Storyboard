@@ -219,6 +219,10 @@ def record_cleanup_result(job_id: str, report: dict) -> None:
         stats = dict(job.stats or {})
         prior = stats.get("cleanup", {})
         items = dict(prior.get("items", {}))
+        previous = items.get(report['path'], {})
+        report = dict(report)
+        for field in ('removed_files', 'removed_bytes'):
+            report[field] += int(previous.get(field, 0))
         items[report['path']] = report
         reports = list(items.values())
         failures = [r for r in reports if not r['ok']]

@@ -323,3 +323,41 @@ def cleanup_staging_or_log(project_id: str, stage: str | Path, *, owner_job_id: 
         except Exception:
             logger.exception('Could not record cleanup outcome job=%s', owner_job_id)
     return result
+
+
+class CleanupRetryError(RuntimeError):
+    def __init__(self, status: int, code: str):
+        self.status, self.code = status, code
+        super().__init__(code)
+
+
+def retry_job_cleanup(project_id: str, job_id: str) -> None:
+    """Retry registered stages of a stopped job; never take a path from HTTP."""
+    from ..database import session_scope
+    from ..models import Job
+    from .runner import project_lock, TERMINAL_STATUSES, EXCLUSIVE_STATUSES
+    from sqlalchemy import select
+    with session_scope() as s:
+        job = s.get(Job, job_id)
+        if job is None or job.project_id != project_id:
+            raise CleanupRetryError(404, 'JOB_NOT_FOUND')
+    lock = project_lock(project_id)
+    if not lock.acquire(blocking=False): raise CleanupRetryError(409, 'JOB_CONFLICT')
+    try:
+        with session_scope() as s:
+            job = s.get(Job, job_id)
+            if job.status not in TERMINAL_STATUSES:
+                raise CleanupRetryError(409, 'JOB_STILL_ACTIVE')
+            if s.scalars(select(Job).where(Job.project_id == project_id,
+                        Job.status.in_(EXCLUSIVE_STATUSES))).first() is not None:
+                raise CleanupRetryError(409, 'JOB_CONFLICT')
+        with _GUARD:
+            stages = [p for p, owner in _OWNERS.items()
+                      if (owner.project_id, owner.job_id) == (project_id, job_id)]
+        if not stages:
+            raise CleanupRetryError(409, ERR_NOT_OWNED)
+        # Bound each invocation to this job's recorded set; each deletion repeats
+        # every safety check. No discovery, no adoption after process restart.
+        for stage in stages:
+            cleanup_staging_or_log(project_id, stage, owner_job_id=job_id)
+    finally: lock.release()

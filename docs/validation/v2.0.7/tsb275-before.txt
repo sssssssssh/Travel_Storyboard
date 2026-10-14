@@ -1,0 +1,37 @@
+FFFFF                                                                    [100%]
+=================================== FAILURES ===================================
+_ test_deep_chinese_old_orphan_removed_but_referenced_young_and_stage_kept[270] _
+backend/tests/test_orphan_frame_safety.py:33: in test_deep_chinese_old_orphan_removed_but_referenced_young_and_stage_kept
+    assert analyzer.cleanup_orphan_frames(pid) == 1
+E   AssertionError: assert 2 == 1
+E    +  where 2 = <function cleanup_orphan_frames at 0x119dc28e0>('1fda4048-9b23-431d-b222-981b95158f1d')
+E    +    where <function cleanup_orphan_frames at 0x119dc28e0> = analyzer.cleanup_orphan_frames
+_ test_deep_chinese_old_orphan_removed_but_referenced_young_and_stage_kept[320] _
+backend/tests/test_orphan_frame_safety.py:33: in test_deep_chinese_old_orphan_removed_but_referenced_young_and_stage_kept
+    assert analyzer.cleanup_orphan_frames(pid) == 1
+E   AssertionError: assert 2 == 1
+E    +  where 2 = <function cleanup_orphan_frames at 0x119dc28e0>('d505deb4-0429-4c64-bca5-997c246162c9')
+E    +    where <function cleanup_orphan_frames at 0x119dc28e0> = analyzer.cleanup_orphan_frames
+________ test_frame_root_and_nested_directory_links_are_never_followed _________
+backend/tests/test_orphan_frame_safety.py:48: in test_frame_root_and_nested_directory_links_are_never_followed
+    assert 'ORPHAN' in caplog.text
+E   AssertionError: assert 'ORPHAN' in ''
+E    +  where '' = <_pytest.logging.LogCaptureFixture object at 0x11ad86120>.text
+____________ test_orphan_listing_error_is_observable_and_retryable _____________
+backend/tests/test_orphan_frame_safety.py:55: in test_orphan_listing_error_is_observable_and_retryable
+    original = analyzer._orphan_entries
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'app.services.analyzer' has no attribute '_orphan_entries'
+_______________ test_active_detection_defers_old_orphan_deletion _______________
+backend/tests/test_orphan_frame_safety.py:70: in test_active_detection_defers_old_orphan_deletion
+    assert analyzer.cleanup_orphan_frames(pid) == 0
+E   AssertionError: assert 1 == 0
+E    +  where 1 = <function cleanup_orphan_frames at 0x119dc28e0>('38ad5d60-6098-4717-b962-2f11f8701271')
+E    +    where <function cleanup_orphan_frames at 0x119dc28e0> = analyzer.cleanup_orphan_frames
+=========================== short test summary info ============================
+FAILED backend/tests/test_orphan_frame_safety.py::test_deep_chinese_old_orphan_removed_but_referenced_young_and_stage_kept[270]
+FAILED backend/tests/test_orphan_frame_safety.py::test_deep_chinese_old_orphan_removed_but_referenced_young_and_stage_kept[320]
+FAILED backend/tests/test_orphan_frame_safety.py::test_frame_root_and_nested_directory_links_are_never_followed
+FAILED backend/tests/test_orphan_frame_safety.py::test_orphan_listing_error_is_observable_and_retryable
+FAILED backend/tests/test_orphan_frame_safety.py::test_active_detection_defers_old_orphan_deletion
+5 failed in 0.96s

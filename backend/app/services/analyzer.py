@@ -17,6 +17,8 @@ rating, note, review requests or edit-plan references.
 from __future__ import annotations
 
 import logging
+import os
+import stat
 import math
 import shutil
 import uuid
@@ -37,6 +39,7 @@ from ..ffmpeg import (
     safe_replace,
     safe_stat,
     safe_unlink,
+    long_path,
 )
 from ..models import Asset, EditPlanShot, Frame, Job, ReviewRequest, Segment, UserAnnotation, utcnow
 from ..paths import frames_dir, rel_to_data, resolve_in_project, staging_dir
@@ -45,6 +48,8 @@ from .frames import select_rep_times
 from .quality import analyze_frame, hamming, phash
 from .runner import (
     JobCancelled,
+    EXCLUSIVE_STATUSES,
+    project_lock,
     JobFailures,
     cancel_check_for,
     raise_if_cancelled,
@@ -52,7 +57,7 @@ from .runner import (
     register_task,
     update_job,
 )
-from .staging_cleanup import cleanup_staging_or_log, create_owned_staging
+from .staging_cleanup import cleanup_staging_or_log, create_owned_staging, pinned_directory
 
 logger = logging.getLogger(__name__)
 
@@ -107,39 +112,74 @@ def _referenced_frame_paths(project_id: str) -> set[Path]:
     return kept
 
 
-def cleanup_orphan_frames(project_id: str, grace_sec: float = 3600) -> int:
-    """Remove only aged, unreferenced JPEGs within this project's frame cache.
+def _orphan_entries(path: Path, fd):
+    return os.listdir(fd if fd is not None else long_path(path))
 
-    Safe after an interrupted publish, and retryable after cleanup errors.
-    Symlinks and external files are never followed for deletion.
+
+def _collect_orphan_jpegs(path: Path, fd, kept: set[Path], cutoff: float) -> int:
+    removed = 0
+    for name in _orphan_entries(path, fd):
+        candidate = path / name
+        try:
+            info = (os.stat(name, dir_fd=fd, follow_symlinks=False) if fd is not None
+                    else os.lstat(long_path(candidate)))
+            if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
+                logger.warning('ORPHAN_PATH_REFUSED: linked cache entry')
+                continue
+            if stat.S_ISDIR(info.st_mode):
+                if fd is not None:
+                    child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                    try: removed += _collect_orphan_jpegs(candidate, child, kept, cutoff)
+                    finally: os.close(child)
+                else:
+                    with pinned_directory(candidate):
+                        removed += _collect_orphan_jpegs(candidate, None, kept, cutoff)
+            elif (stat.S_ISREG(info.st_mode) and candidate.suffix.lower() == '.jpg'
+                  and info.st_mtime < cutoff and candidate not in kept):
+                if fd is not None: os.unlink(name, dir_fd=fd)
+                else: safe_unlink(candidate, missing_ok=False)
+                removed += 1
+        except OSError:
+            logger.warning('ORPHAN_CLEANUP_FAILED: unreadable cache entry; retry later', exc_info=True)
+    return removed
+
+
+def cleanup_orphan_frames(project_id: str, grace_sec: float = 3600) -> int:
+    """Aged unreferenced frames only; never current stages or linked trees.
+
+    DB writer + project lock serialize the reference snapshot against publication.
+    While detect is active, even aged uncommitted publications are protected.
     """
     from ..paths import project_cache_dir
-    project_root = project_cache_dir(project_id).resolve()
-    roots = [(project_root / name).resolve() for name in ("frames", "staging")]
-    kept = _referenced_frame_paths(project_id)
+    from ..database import begin_write as begin_cleanup_write
+    root = project_cache_dir(project_id)
+    cache = root / 'frames'
     freed = 0
-    for root in roots:
-        if not root.is_dir() or not root.is_relative_to(project_root):
-            continue
-        for path in root.rglob("*.jpg"):
-            try:
-                resolved = resolve_in_project(project_id, rel_to_data(path))
-                if (path.is_symlink() or not resolved.is_relative_to(root)
-                        or resolved in kept or time.time() - path.stat().st_mtime < grace_sec):
-                    continue
-                path.unlink()
-                freed += 1
-            except (OSError, ValueError):
-                logger.warning("Could not clean orphan frame", exc_info=True)
-    stage_root = roots[1]
-    if stage_root.is_relative_to(project_root) and stage_root.is_dir():
-        for directory in sorted(stage_root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
-            try:
-                if (directory.is_dir() and not directory.is_symlink()
-                        and time.time() - directory.stat().st_mtime >= grace_sec):
-                    directory.rmdir()  # refuses nonempty folders, never recurses
-            except OSError:
-                pass
+    try:
+        with project_lock(project_id), session_scope() as s:
+            begin_cleanup_write(s)
+            active = s.scalars(select(Job).where(Job.project_id == project_id,
+                Job.job_type == 'detect', Job.status.in_(EXCLUSIVE_STATUSES))).first()
+            if active is not None:
+                return 0  # not evidence of removal; safely defer maintenance
+            kept = _referenced_frame_paths(project_id)
+            for directory in (root, cache):
+                info = os.lstat(long_path(directory))
+                if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
+                    logger.warning('ORPHAN_PATH_REFUSED project=%s: linked frame root', project_id)
+                    return 0
+            with pinned_directory(root) as parent:
+                if parent is not None:
+                    fd = os.open('frames', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                    try: freed = _collect_orphan_jpegs(cache, fd, kept, time.time() - grace_sec)
+                    finally: os.close(fd)
+                else:
+                    with pinned_directory(cache):
+                        freed = _collect_orphan_jpegs(cache, None, kept, time.time() - grace_sec)
+    except FileNotFoundError:
+        return freed
+    except Exception:
+        logger.warning('ORPHAN_CLEANUP_FAILED project=%s: scan failed; retry later', project_id, exc_info=True)
     return freed
 
 
