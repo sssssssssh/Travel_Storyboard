@@ -44,7 +44,7 @@ TSB-273 补充复现：**2 failed / 4 passed**，见 `tsb273-before.txt`。
 | 前端测试 | **20 passed** |
 | 受控终态 CAS | **2,000 次**，无遗留 cancelling |
 | 反向接线验证 | 两次均失败，恢复后通过 |
-| Windows / Ubuntu CI | a28820d 的 7/7 成功：Windows 媒体 442 passed / 0 skipped，Ubuntu 398 passed / 44 平台 skipped；最终文档 HEAD 的对应 run 见交付回复 |
+| Windows / Ubuntu CI | a28820d 的 7/7 成功：Windows 媒体 442 passed / 0 skipped，Ubuntu 398 passed / 44 平台 skipped；最终交付 HEAD 的对应 run 见交付回复 |
 
 后端命令：指定 `TRAVELSB_FFMPEG_PATH`、`TRAVELSB_FFPROBE_PATH`，执行
 `TSB_REQUIRE_FFMPEG=1 python -m pytest -q -o addopts='' --tb=short --junitxml=... backend/tests`。
@@ -58,6 +58,10 @@ TSB-273 补充复现：**2 failed / 4 passed**，见 `tsb273-before.txt`。
 提交引用，保留真实 ffprobe 解码，并加强 >=270 路径、时长、HTTP Range 和完整标识断言；
 不 skip、不放宽断言。失败 run `38583030723` 为 437 passed / 1 failed，LongPathsEnabled=0；
 该 run 其余 6 个作业成功。后续 a28820d 的 7/7 全部成功（run 38583888355），见 CI.md。
+文档 HEAD 893e069 的再次验证在 Ubuntu/Python 3.13 暴露 TC-29 旧测试将终态 DB
+快照误当作项目已解锁。按设计终态必须先于解锁，期间返回 409 正确。该测试改为两个
+Event 清理阶段 + worker Future 完成后再尝试；加强两阶段 409 无新增行、取消中不写
+finished_at、最终严格 202，取消固定 sleep。失败证据见 terminal-before-unlock-test.txt。
 
 ## 范围与尚未完成
 
@@ -71,4 +75,4 @@ TSB-273 补充复现：**2 failed / 4 passed**，见 `tsb273-before.txt`。
 - **TSB-277 Windows 8～10 段真实旅行素材验收未执行**。
 - **60+ 段 / 200GB 全量性能未执行**，不依据合成素材或样本耗时外推。
 
-代码 SHA a28820d 的 CI 已达标，文档 HEAD 对应 CI 在交付前另行核对。结论：**代码整改完成，真实素材发布门禁未完成**。
+代码 SHA a28820d 的 CI 已达标，最终交付 HEAD 对应 CI 在交付前另行核对。结论：**代码整改完成，真实素材发布门禁未完成**。

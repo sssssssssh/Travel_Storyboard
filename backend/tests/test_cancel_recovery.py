@@ -512,38 +512,52 @@ def test_artifacts_are_not_cross_deleted_between_projects(client, swap_task):
 # ==========================================================================
 
 def test_repeat_request_stays_blocked_until_cleanup_finishes(client, swap_task):
-    """TC-29: the block must last until the *cleanup* is done, not the click."""
-    cleanup_started = threading.Event()
-    cleanup_done = threading.Event()
-    task_entered = threading.Event()
-    release = threading.Event()
+    """TC-29: cleanup and worker unlock are independently observable phases."""
+    cleanup_started, cleanup_done = threading.Event(), threading.Event()
+    task_entered, release = threading.Event(), threading.Event()
+    finish_cleanup = threading.Event()
 
     def _task(job_id: str) -> None:
         task_entered.set()
-        release.wait(timeout=20)
-        # Model the real ordering: the task body returns only after its staging
-        # cleanup has run, and `_run` settles the state after that.
+        assert release.wait(20)
         cleanup_started.set()
-        time.sleep(0.3)
+        assert finish_cleanup.wait(20)
         cleanup_done.set()
 
     swap_task("detect", _task)
-
     project = _make_project(client, "tc29")
-    job_id = client.post(f"/api/projects/{project['id']}/jobs/detect",
-                         json={}).json()["id"]
-    assert task_entered.wait(10)
-    client.post(f"/api/jobs/{job_id}/cancel")
-
-    # While the task body is still executing, the project must stay blocked.
-    blocked = client.post(f"/api/projects/{project['id']}/jobs/detect", json={})
-    assert blocked.status_code == 409, blocked.text
-
-    release.set()
-    assert cleanup_done.wait(15), "the worker never finished its cleanup"
-
-    # Only now may the row settle and the project reopen.
-    assert _wait_terminal(job_id) == STATUS_CANCELLED
-    reopened = client.post(f"/api/projects/{project['id']}/jobs/detect", json={})
-    assert reopened.status_code in (200, 201, 202), reopened.text
-    _wait_terminal(reopened.json()["id"])
+    pid = project['id']
+    response = client.post(f"/api/projects/{pid}/jobs/detect", json={})
+    assert response.status_code == 202
+    job_id = response.json()['id']
+    try:
+        assert task_entered.wait(10)
+        assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 200
+        for in_cleanup in (False, True):
+            if in_cleanup:
+                release.set()
+                assert cleanup_started.wait(10)
+            with session_scope() as s:
+                before = len(s.scalars(select(Job).where(Job.project_id == pid)).all())
+                row = s.get(Job, job_id)
+                assert row.status == STATUS_CANCELLING and row.finished_at is None
+            blocked = client.post(f"/api/projects/{pid}/jobs/detect", json={})
+            assert blocked.status_code == 409, blocked.text
+            with session_scope() as s:
+                assert len(s.scalars(select(Job).where(Job.project_id == pid)).all()) == before
+        finish_cleanup.set()
+        assert cleanup_done.wait(10)
+        # A visible terminal row precedes unlock by design. Wait for the
+        # entire worker, not for a DB snapshot or a scheduling sleep.
+        with runner_mod.runner._submit_lock:
+            future = runner_mod.runner._futures[job_id]
+        future.result(15)
+        assert client.get(f"/api/jobs/{job_id}").json()['status'] == STATUS_CANCELLED
+        reopened = client.post(f"/api/projects/{pid}/jobs/detect", json={})
+        assert reopened.status_code == 202, reopened.text
+        with runner_mod.runner._submit_lock:
+            next_future = runner_mod.runner._futures[reopened.json()['id']]
+        next_future.result(15)
+    finally:
+        release.set()
+        finish_cleanup.set()

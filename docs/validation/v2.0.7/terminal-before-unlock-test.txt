@@ -1,0 +1,11 @@
+SHA 893e069fff812120d0057a9bdf8dc8544382444a
+run https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38585193617
+job 115925519365 (Ubuntu/Python 3.13)
+Old test read a terminal DB row before worker released the project lock; 409 is correct during this interval.
+        assert cleanup_done.wait(15), "the worker never finished its cleanup"
+        # Only now may the row settle and the project reopen.
+        assert _wait_terminal(job_id) == STATUS_CANCELLED
+        reopened = client.post(f"/api/projects/{project['id']}/jobs/detect", json={})
+E       assert 409 in (200, 201, 202)
+FAILED tests/test_cancel_recovery.py::test_repeat_request_stays_blocked_until_cleanup_finishes - AssertionError: {"detail":{"error_code":"JOB_CONFLICT","message":"项目已有正在运行的互斥任务（正在停止或清理中），请等待其完成","active_job_type":"","active_job_id":""}}
+assert 409 in (200, 201, 202)

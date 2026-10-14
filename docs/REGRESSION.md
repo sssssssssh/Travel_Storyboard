@@ -471,7 +471,9 @@ Windows 实片待执行样本、记录表与最终结论见 [RELEASE_V2_0_2.md](
 
 额外：test_terminal_races.py 的 DB I/O、4 次重试耗尽用例断言结构化错误和未写
 finished_at。两次反向接线验证记录于 `docs/validation/v2.0.7/reverse-*-wiring.txt`。
-全量首次发现的两个旧测试调度缺口改为显式调度/锁同步，不删除、skip 或放宽断言。
+全量及最终 CI 发现的旧测试调度缺口改为显式调度/锁同步，不删除、skip 或放宽断言。
+TC-29 进一步用 Event 控制清理阶段，等待 worker Future 返回后才断言 202；两个占用
+阶段均断言 409 无新增行/finished_at 未写，不以终态可见冒充项目锁已释放。
 
 手工门禁 **TSB-277 未执行**：Windows 真机 8～10 段旅行视频，端到端与取消时间线、
 原片哈希/大小/mtime 一致、历史人工字段/复核/计划保持。另行执行 60+ 段/200GB

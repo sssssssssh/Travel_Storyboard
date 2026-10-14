@@ -20,6 +20,8 @@
 上述 a28820d 全部转绿。失败证据见 windows-first-run.txt，不删除或弱化用例。
 
 此记录在随后文档提交中保存，因此记录的代码 SHA 与文档 HEAD 区分。
-文档提交不改变 runtime 或 tests，且同样触发 CI。最终文档 HEAD 自身的精确 run URL
+文档提交也触发 CI。893e069 再次验证发现旧 TC-29 以终态快照代替 worker 解锁的
+测试时序缺口；后续仅加强该测试为 Event/Future 同步，不改变上述 runtime。
+最终 HEAD 自身的精确 run URL
 在交付回复给出；该 run 的 media-platform.json 包含对应最终完整 SHA。
 不得用此处的 a28820d 冒充最终 HEAD。TSB-277 和 200GB 性能仍未执行。

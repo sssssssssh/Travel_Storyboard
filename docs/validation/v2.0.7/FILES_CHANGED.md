@@ -62,3 +62,5 @@
 - `frontend/src/lib/types.ts`
 - `frontend/src/pages/Project.test.tsx`
 - `frontend/src/pages/Project.tsx`
+- `backend/tests/test_cancel_recovery.py`
+- `docs/validation/v2.0.7/terminal-before-unlock-test.txt`
