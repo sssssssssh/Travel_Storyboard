@@ -1,0 +1,58 @@
+SHA b71dbcac02f22597d8be6bab1e0be4d3897cd56e
+run https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38583030723
+Windows media failure: legacy test looked for fixed roughcut.mp4; new committed reference existed.
+LongPathsEnabled=0
+ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+ffprobe version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2007-2026 the FFmpeg developers
+ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+PASSED tests/test_staging_ownership.py::test_non_leaf_shapes_are_rejected_without_changing_bytes[roughcut/history]
+PASSED tests/test_staging_ownership.py::test_non_leaf_shapes_are_rejected_without_changing_bytes[roughcut/output]
+PASSED tests/test_staging_ownership.py::test_non_leaf_shapes_are_rejected_without_changing_bytes[proxies/staging]
+PASSED tests/test_staging_ownership.py::test_non_leaf_shapes_are_rejected_without_changing_bytes[staging/asset]
+PASSED tests/test_staging_ownership.py::test_non_leaf_shapes_are_rejected_without_changing_bytes[roughcut/staging-]
+PASSED tests/test_staging_ownership.py::test_non_leaf_shapes_are_rejected_without_changing_bytes[frames/staging-evil]
+PASSED tests/test_staging_ownership.py::test_non_leaf_shapes_are_rejected_without_changing_bytes[packages/staging-evil]
+PASSED tests/test_staging_ownership.py::test_non_leaf_shapes_are_rejected_without_changing_bytes[roughcut/staging-a/child]
+PASSED tests/test_staging_ownership.py::test_non_leaf_shapes_are_rejected_without_changing_bytes[proxies/staging/a/child]
+PASSED tests/test_staging_ownership.py::test_internal_stage_alias_cannot_delete_another_stage
+PASSED tests/test_staging_ownership.py::test_exact_owned_shapes_delete_only_their_files[roughcut/staging-run]
+PASSED tests/test_staging_ownership.py::test_exact_owned_shapes_delete_only_their_files[proxies/staging/token]
+PASSED tests/test_staging_ownership.py::test_exact_owned_shapes_delete_only_their_files[staging/<asset>/token]
+PASSED tests/test_staging_ownership.py::test_different_jobs_cannot_adopt_or_delete_each_others_stage
+PASSED tests/test_staging_ownership.py::test_cross_project_owner_and_asset_are_rejected
+PASSED tests/test_staging_ownership.py::test_raw_path_segments_are_checked_before_normalization[/../roughcut/staging-run]
+PASSED tests/test_staging_ownership.py::test_raw_path_segments_are_checked_before_normalization[/./roughcut/staging-run]
+PASSED tests/test_staging_ownership.py::test_raw_path_segments_are_checked_before_normalization[//roughcut/staging-run]
+PASSED tests/test_staging_ownership.py::test_middle_parent_link_is_refused_without_following[True]
+PASSED tests/test_staging_ownership.py::test_middle_parent_link_is_refused_without_following[False]
+PASSED tests/test_staging_ownership.py::test_link_swap_after_preflight_is_blocked_by_identity_recheck
+PASSED tests/test_staging_ownership.py::test_owned_chinese_stage_beyond_max_path_is_really_removed[270]
+PASSED tests/test_staging_ownership.py::test_owned_chinese_stage_beyond_max_path_is_really_removed[320]
+PASSED tests/test_staging_ownership.py::test_unreadable_scan_is_failure_not_empty_success
+PASSED tests/test_staging_ownership.py::test_windows_open_file_reports_real_residual_bytes
+PASSED tests/test_analysis_cancel_commit.py::test_cancel_lands_after_last_poll_before_write_transaction
+PASSED tests/test_analysis_cancel_commit.py::test_transaction_cancellation_preserves_all_manual_history[cancelling]
+PASSED tests/test_analysis_cancel_commit.py::test_transaction_cancellation_preserves_all_manual_history[cancelled]
+PASSED tests/test_analysis_cancel_commit.py::test_analysis_writer_commits_before_queued_cancel_is_accepted
+PASSED tests/test_analysis_cancel_commit.py::test_cancel_after_new_jpeg_publish_reclaims_only_uncommitted_files
+PASSED tests/test_analysis_cancel_commit.py::test_cancel_and_source_change_keep_error_classification_visible
+PASSED tests/test_publish_cancel.py::test_cancel_after_last_roughcut_poll_does_not_publish_or_touch_history
+PASSED tests/test_publish_cancel.py::test_each_committed_roughcut_preserves_previous_bytes_and_serves_latest
+PASSED tests/test_orphan_frame_safety.py::test_deep_chinese_old_orphan_removed_but_referenced_young_and_stage_kept[270]
+PASSED tests/test_orphan_frame_safety.py::test_deep_chinese_old_orphan_removed_but_referenced_young_and_stage_kept[320]
+PASSED tests/test_orphan_frame_safety.py::test_frame_root_and_nested_directory_links_are_never_followed[root]
+PASSED tests/test_orphan_frame_safety.py::test_frame_root_and_nested_directory_links_are_never_followed[nested]
+PASSED tests/test_orphan_frame_safety.py::test_orphan_listing_error_is_observable_and_retryable
+PASSED tests/test_orphan_frame_safety.py::test_active_detection_defers_old_orphan_deletion
+================== 1 failed, 437 passed in 127.30s (0:02:07) ==================

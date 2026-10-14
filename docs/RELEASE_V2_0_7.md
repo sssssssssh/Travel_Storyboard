@@ -44,7 +44,7 @@ TSB-273 补充复现：**2 failed / 4 passed**，见 `tsb273-before.txt`。
 | 前端测试 | **20 passed** |
 | 受控终态 CAS | **2,000 次**，无遗留 cancelling |
 | 反向接线验证 | 两次均失败，恢复后通过 |
-| Windows / Ubuntu CI | 结果待最终 HEAD run 核对；见 CI.md 和交付回复，不能用本机结果代替 |
+| Windows / Ubuntu CI | a28820d 的 7/7 成功：Windows 媒体 442 passed / 0 skipped，Ubuntu 398 passed / 44 平台 skipped；最终文档 HEAD 的对应 run 见交付回复 |
 
 后端命令：指定 `TRAVELSB_FFMPEG_PATH`、`TRAVELSB_FFPROBE_PATH`，执行
 `TSB_REQUIRE_FFMPEG=1 python -m pytest -q -o addopts='' --tb=short --junitxml=... backend/tests`。
@@ -57,7 +57,7 @@ TSB-273 补充复现：**2 failed / 4 passed**，见 `tsb273-before.txt`。
 测试仍找固定 roughcut.mp4（产品已改为保留历史的独立路径）。测试改为核对精确 Job
 提交引用，保留真实 ffprobe 解码，并加强 >=270 路径、时长、HTTP Range 和完整标识断言；
 不 skip、不放宽断言。失败 run `38583030723` 为 437 passed / 1 failed，LongPathsEnabled=0；
-该 run 其余 6 个作业成功。最终运行另行核对。
+该 run 其余 6 个作业成功。后续 a28820d 的 7/7 全部成功（run 38583888355），见 CI.md。
 
 ## 范围与尚未完成
 
@@ -71,4 +71,4 @@ TSB-273 补充复现：**2 failed / 4 passed**，见 `tsb273-before.txt`。
 - **TSB-277 Windows 8～10 段真实旅行素材验收未执行**。
 - **60+ 段 / 200GB 全量性能未执行**，不依据合成素材或样本耗时外推。
 
-最终 CI 达标后，结论为：**代码整改完成，真实素材发布门禁未完成**。
+代码 SHA a28820d 的 CI 已达标，文档 HEAD 对应 CI 在交付前另行核对。结论：**代码整改完成，真实素材发布门禁未完成**。

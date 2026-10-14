@@ -128,7 +128,7 @@ $x=[xml](Get-Content tsb.xml); $s=$x.testsuites.testsuite; if(-not $s){$s=$x.tes
 cd frontend
 pnpm run typecheck    # tsc --noEmit
 pnpm run lint         # eslint
-pnpm run test         # vitest run（当前 14 passed）
+pnpm run test         # vitest run（当前 20 passed）
 pnpm run build
 ```
 
@@ -253,6 +253,11 @@ TSB-261 起改为两层，且**锁序固定为「先项目锁、后 DB 写事务
 形状为 `staging-*` / `staging/<asset>/<token>` / `proxies/staging/<token>` 的目录。
 **绝不**跟随 symlink/junction —— 实测过一个跟随链接的实现会把项目外目录整个删掉。
 `shutil.rmtree(ignore_errors=True)` **不能**作为"清理已完成"的证据。
+v2.0.7 起，先通过 `create_owned_staging` 原子新建并登记 Job/项目/素材与目录身份；
+已有目录或 owner 字符串不可授予删除权。形状必须精确到任务叶目录，父目录和所有
+链接拒绝，枚举后重验身份，POSIX fd / Windows 固定目录句柄限定删除。
+`cancelled` 仅表示工作停止，清理成功/失败/未知按 cleanup 统计展示。
+重试只限停止任务的已登记 stage，不接收路径、不接管重启后的未知孤儿。
 
 ### 5.9 终止媒体进程要回收整棵树
 
@@ -269,7 +274,7 @@ TSB-261 起改为两层，且**锁序固定为「先项目锁、后 DB 写事务
 - **CI 全绿只证明自动化与合成素材路径通过**，不构成实机验收证据。
 - 真机 + **8～10 段真实旅行素材**端到端验收与 60+ 视频 / 200GB 全量性能
   **尚未执行**。最近一轮记录见
-  [docs/validation/v2.0.6/WINDOWS_REAL_FOOTAGE.md](docs/validation/v2.0.6/WINDOWS_REAL_FOOTAGE.md)
+  [docs/validation/v2.0.7/WINDOWS_REAL_FOOTAGE.md](docs/validation/v2.0.7/WINDOWS_REAL_FOOTAGE.md)
   （v2.0.3/v2.0.4 的历史记录在同级目录）。
 - 在这些记录补齐前，**不得**宣称已满足真实素材发布门禁。
 - 不要用耗时外推 200GB 的性能结论。

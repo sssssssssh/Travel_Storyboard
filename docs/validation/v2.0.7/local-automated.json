@@ -194,7 +194,9 @@
     "typecheck": "passed",
     "lint": "passed",
     "tests_passed": 20,
-    "build": "passed"
+    "build": "passed",
+    "node": "24.19.0",
+    "pnpm": "9.15.9"
   },
   "terminal_cas_interleavings": 2000,
   "real_windows_footage": "未执行",

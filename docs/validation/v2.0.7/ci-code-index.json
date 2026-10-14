@@ -1,0 +1,85 @@
+{
+  "tested_sha": "a28820da537e4707a2d0aea701ddc5385db3013b",
+  "run_id": 38583888355,
+  "run_url": "https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38583888355",
+  "jobs": [
+    {
+      "id": 115920605371,
+      "name": "Backend (Python 3.13)",
+      "labels": [
+        "windows-latest"
+      ],
+      "conclusion": "success"
+    },
+    {
+      "id": 115920605384,
+      "name": "Frontend",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "conclusion": "success"
+    },
+    {
+      "id": 115920605462,
+      "name": "Required FFmpeg (ubuntu-latest)",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "conclusion": "success"
+    },
+    {
+      "id": 115920605635,
+      "name": "Backend (Python 3.11)",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "conclusion": "success"
+    },
+    {
+      "id": 115920605701,
+      "name": "Backend (Python 3.13)",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "conclusion": "success"
+    },
+    {
+      "id": 115920605724,
+      "name": "Backend (Python 3.11)",
+      "labels": [
+        "windows-latest"
+      ],
+      "conclusion": "success"
+    },
+    {
+      "id": 115920605995,
+      "name": "Required FFmpeg (windows-latest)",
+      "labels": [
+        "windows-latest"
+      ],
+      "conclusion": "success"
+    }
+  ],
+  "media": {
+    "windows": {
+      "passed": 442,
+      "failed": 0,
+      "skipped": 0,
+      "LongPathsEnabled": 0,
+      "ffmpeg": "9.0.2",
+      "ffprobe": "9.0.2"
+    },
+    "ubuntu": {
+      "passed": 398,
+      "failed": 0,
+      "skipped": 44
+    }
+  },
+  "frontend": {
+    "tests_passed": 20,
+    "typecheck": "success",
+    "lint": "success",
+    "build": "success"
+  },
+  "TSB-277": "未执行"
+}
