@@ -9,23 +9,30 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..models import Job, Project, utcnow
 from ..schemas import JobCreate, JobOut
+from ..services.job_service import (
+    VALID_JOB_TYPES,
+    InvalidJobType,
+    JobConflict,
+    JobRequest,
+    ProjectNotFound,
+    create_project_job,
+)
 from ..services.runner import (
     ACTIVE_STATUSES,
-    EXCLUSIVE_JOB_TYPES,
     STATUS_CANCELLED,
-    STATUS_PENDING,
     runner,
-    project_lock,
 )
 from .deps import get_db
 
 router = APIRouter(tags=["jobs"])
 
-VALID_JOB_TYPES = {"scan", "detect", "package", "proxies", "roughcut"}
 
-
-def _job_config(project: Project, job_type: str, options: dict, force: bool) -> dict:
+def _job_config(project: Project, request: JobRequest) -> dict:
+    """Build the type-specific config snapshot for a job."""
     settings = get_settings()
+    options = request.options
+    job_type = request.job_type
+    force = request.force
     if job_type == "scan":
         return {"source_roots": list(project.source_roots or []), "force": force,
                 "full_hash": bool(options.get("full_hash", False) or options.get("strict_full_hash", False)),
@@ -61,57 +68,27 @@ def create_job(
     body: JobCreate | None = None,
     db: Session = Depends(get_db),
 ):
-    lock = project_lock(project_id)
-    if not lock.acquire(blocking=False):
-        raise HTTPException(status_code=409, detail="Project worker is active or stopping; wait for it to finish")
+    """Create and enqueue a project job.
+
+    Exclusivity, validation and the insert are handled by the shared
+    ``create_project_job`` service (TSB-242) so this endpoint and the
+    review-request proxy endpoint behave identically.
+    """
+    options = (body.options if body else None) or {}
+    force = bool(body.force) if body else False
     try:
-        if job_type not in VALID_JOB_TYPES:
-            raise HTTPException(
-                status_code=422, detail=f"job_type must be one of {sorted(VALID_JOB_TYPES)}"
-            )
-        project = db.get(Project, project_id)
-        if project is None:
-            raise HTTPException(status_code=404, detail="Project not found")
-
-        # Cache-mutating jobs are exclusive per project (audit P0-04): two detect
-        # runs over the same asset folder would race on frames/ and the DB.
-        if job_type in EXCLUSIVE_JOB_TYPES:
-            active = db.scalars(
-                select(Job).where(
-                    Job.project_id == project_id,
-                    Job.status.in_(ACTIVE_STATUSES),
-                )
-            ).all()
-            blocking = [j for j in active if j.job_type in EXCLUSIVE_JOB_TYPES]
-            if blocking:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        f"Project already has an active job "
-                        f"({blocking[0].job_type} {blocking[0].id}); wait for it to finish"
-                    ),
-                )
-
-        options = (body.options if body else None) or {}
-        force = bool(body.force) if body else False
-        config = _job_config(project, job_type, options, force)
-        job = Job(
-            project_id=project_id,
-            job_type=job_type,
-            config_snapshot=config,
-            stats={"total": 0, "done": 0, "failed": 0, "phase": "queued",
-                   "signature_mode": "full" if config.get("full_hash") else "quick",
-                   "bytes_read": 0, "total_bytes": 0, "processed_files": 0, "total_files": 0},
-            failures={"count": 0, "items": []},
+        return create_project_job(
+            db,
+            project_id,
+            JobRequest(job_type=job_type, options=options, force=force),
+            config_builder=_job_config,
         )
-        db.add(job)
-        db.commit()
-        db.refresh(job)
-        runner.submit(job.id)
-        return job
-
-    finally:
-        lock.release()
+    except InvalidJobType as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ProjectNotFound:
+        raise HTTPException(status_code=404, detail="Project not found") from None
+    except JobConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail()) from exc
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)

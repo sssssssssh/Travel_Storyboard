@@ -9,6 +9,13 @@ from sqlalchemy.orm import Session
 from ..database import begin_write
 from ..models import Asset, EditPlanShot, Job, Project, ReviewRequest, Segment, UserAnnotation, utcnow
 from ..schemas import ImportResult, JobCreate, JobOut, ReviewRequestOut, ReviewRequestsImport, ReviewDisposition
+from ..services.job_service import (
+    InvalidJobType,
+    JobConflict,
+    JobRequest,
+    ProjectNotFound,
+    create_project_job,
+)
 from ..services.runner import runner
 from ..services.story_planner import direct_analyze, import_review_requests
 from ..services.review_validation import (ReviewValidationError, validate_review, verified_source,
@@ -128,21 +135,33 @@ def dispose_review_request(project_id: str, request_id: str, payload: ReviewDisp
 def build_proxies(
     project_id: str, body: JobCreate | None = None, db: Session = Depends(get_db)
 ):
-    project = db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+    """Enqueue a round-2 proxy job.
+
+    Goes through the shared job service (TSB-242) so it honours the same
+    per-project exclusivity as every other heavy job. Previously this endpoint
+    inserted a Job directly, so rapid clicks could queue several of them.
+
+    Request/response shape is unchanged: 202 with the created JobOut.
+    """
     options = (body.options if body else None) or {}
-    job = Job(
-        project_id=project_id,
-        job_type="proxies",
-        config_snapshot={"max_total_mb": options.get("max_total_mb", 300)},
-        stats={"total": 0, "done": 0, "failed": 0},
-    )
-    db.add(job)
-    db.commit()
-    db.refresh(job)
-    runner.submit(job.id)
-    return job
+    try:
+        return create_project_job(
+            db,
+            project_id,
+            JobRequest(job_type="proxies", options=options, force=False),
+            config_builder=_proxy_job_config,
+        )
+    except ProjectNotFound:
+        raise HTTPException(status_code=404, detail="Project not found") from None
+    except JobConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail()) from exc
+    except InvalidJobType as exc:  # pragma: no cover - fixed job_type
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _proxy_job_config(project: Project, request: JobRequest) -> dict:
+    """Config snapshot for the proxy job (unchanged from the previous inline dict)."""
+    return {"max_total_mb": request.options.get("max_total_mb", 300)}
 
 
 @router.post("/projects/{project_id}/story/analyze")
