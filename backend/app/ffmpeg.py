@@ -432,7 +432,7 @@ def _popen_kwargs() -> dict:
     """Process-group flags so a whole media tree can be reclaimed.
 
     Detached from our console/process group, so terminating it cannot take the
-    server down with it, and a shell-spawned grandchild dies with the group.
+    server down with it, and so a media tree can be addressed as a unit.
     """
     if os.name == "nt":
         # CREATE_NEW_PROCESS_GROUP: Ctrl-Break/terminate semantics stay local.
@@ -440,19 +440,213 @@ def _popen_kwargs() -> dict:
     return {"start_new_session": True}  # setsid: own process group
 
 
-def _terminate_tree(proc: subprocess.Popen) -> None:
-    """Politely terminate *proc*, then kill it if it lingers.
+# --- Windows Job Object ------------------------------------------------------
+#
+# CREATE_NEW_PROCESS_GROUP only makes the child a group leader; it does not give
+# us a handle that covers its *descendants*. A Job Object does: every process the
+# child spawns is automatically a member, and KILL_ON_JOB_CLOSE reclaims the
+# whole set even if the original parent has already exited — which is precisely
+# the case a `terminate()` on the parent cannot handle (TSB-263).
+#
+# Deliberately scoped to one Job per media process: no global kill, no
+# name-based lookup, so another project's concurrent encode is never touched.
 
-    Scoped to this one process/group on purpose: a project-wide or name-based
-    kill would reach other projects' concurrent jobs, which the task book
-    forbids.
+_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+_JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
+_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION = 1
+
+
+def _create_kill_on_close_job(pid: int):
+    """Bind process *pid* into a new Job Object that kills on close.
+
+    Returns an opaque handle to keep alive for the process's lifetime, or
+    ``None`` when the platform refuses (the caller then falls back to signalling
+    the process group). Never raises: a failure here must degrade, not break the
+    pipeline.
     """
-    if proc.poll() is not None:
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+        class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", wintypes.LARGE_INTEGER),
+                ("PerJobUserTimeLimit", wintypes.LARGE_INTEGER),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.POINTER(ctypes.c_ulong)),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class IO_COUNTERS(ctypes.Structure):
+            _fields_ = [
+                ("ReadOperationCount", ctypes.c_ulonglong),
+                ("WriteOperationCount", ctypes.c_ulonglong),
+                ("OtherOperationCount", ctypes.c_ulonglong),
+                ("ReadTransferCount", ctypes.c_ulonglong),
+                ("WriteTransferCount", ctypes.c_ulonglong),
+                ("OtherTransferCount", ctypes.c_ulonglong),
+            ]
+
+        class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                ("IoInfo", IO_COUNTERS),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+        job = kernel32.CreateJobObjectW(None, None)
+        if not job:
+            return None
+
+        info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+        info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not kernel32.SetInformationJobObject(
+            wintypes.HANDLE(job),
+            _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+        ):
+            kernel32.CloseHandle(wintypes.HANDLE(job))
+            return None
+
+        PROCESS_SET_QUOTA = 0x0100
+        PROCESS_TERMINATE = 0x0001
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        handle = kernel32.OpenProcess(
+            PROCESS_SET_QUOTA | PROCESS_TERMINATE, False, pid
+        )
+        if not handle:
+            kernel32.CloseHandle(wintypes.HANDLE(job))
+            return None
+
+        assigned = kernel32.AssignProcessToJobObject(
+            wintypes.HANDLE(job), wintypes.HANDLE(handle)
+        )
+        kernel32.CloseHandle(wintypes.HANDLE(handle))
+        if not assigned:
+            # Already in a job that forbids nesting (older Windows / CI hosts):
+            # degrade to group signalling rather than failing the run.
+            kernel32.CloseHandle(wintypes.HANDLE(job))
+            return None
+        return job
+    except Exception:  # noqa: BLE001 - optional hardening, never fatal
+        logger.debug("Could not create a kill-on-close job object", exc_info=True)
+        return None
+
+
+def _close_job(job) -> None:
+    """Closing a KILL_ON_JOB_CLOSE job reclaims every member process."""
+    if job is None or os.name != "nt":
         return
     try:
-        proc.terminate()
+        import ctypes
+        from ctypes import wintypes
+
+        ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(
+            wintypes.HANDLE(job)
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("Could not close the media job object", exc_info=True)
+
+
+def _terminate_tree(proc: subprocess.Popen, job=None, pgid: int | None = None) -> None:
+    """Stop the whole process *tree* started for this run.
+
+    Order of business (TSB-263):
+
+    1. Windows: closing the kill-on-close Job Object reclaims parent **and**
+       descendants, including ones whose parent already exited.
+    2. POSIX: signal the child's own process group (it called ``setsid``), then
+       escalate to ``SIGKILL`` for survivors.
+    3. Always finish by reaping the direct child so no zombie is left and the
+       pipes can be closed.
+
+    Scope is deliberately limited to this run: a per-process group or per-process
+    Job. There is no name-based or system-wide kill, because that would reach
+    another project's concurrent encode — the task book forbids it, and
+    ``test_no_global_name_based_kill_is_used`` guards the rule.
+    """
+    if job is not None:
+        _close_job(job)
+
+    if os.name == "nt":
+        # No portable group signal on Windows; the child was told to terminate,
+        # and the Job Object (when available) has already taken the descendants.
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+        except OSError:
+            pass
+    else:
+        _signal_group(proc, pgid)
+
+    _reap(proc)
+
+
+def _signal_group(proc: subprocess.Popen, pgid: int | None) -> None:
+    """POSIX: terminate this run's process group, escalating if it lingers."""
+    import signal
+
+    # Prefer the group recorded at spawn time. Re-reading it from a possibly
+    # reaped child could target a *recycled* group id, so a live lookup is only
+    # a fallback and is verified against the pid we started.
+    group = pgid
+    if group is None:
+        try:
+            group = os.getpgid(proc.pid)
+        except (ProcessLookupError, OSError):
+            group = None
+    if group is None or group <= 0:
+        try:
+            proc.terminate()
+        except OSError:
+            pass
+        return
+
+    def _killpg(sig) -> None:
+        try:
+            os.killpg(group, sig)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+
+    _killpg(signal.SIGTERM)
+    deadline = time.monotonic() + CANCEL_GRACE_SEC
+    while time.monotonic() < deadline:
+        if _group_gone(group):
+            return
+        time.sleep(0.05)
+    # Still alive after the grace period: force it, group-wide.
+    _killpg(signal.SIGKILL)
+
+
+def _group_gone(group: int) -> bool:
+    import signal
+
+    try:
+        os.killpg(group, 0)
+    except (ProcessLookupError, PermissionError):
+        return True
     except OSError:
-        pass
+        return True
+    return False
+
+
+def _reap(proc: subprocess.Popen) -> None:
+    """Wait for the direct child to exit, killing it outright if it will not."""
     try:
         proc.wait(timeout=CANCEL_GRACE_SEC)
         return
@@ -466,6 +660,7 @@ def _terminate_tree(proc: subprocess.Popen) -> None:
         proc.wait(timeout=CANCEL_GRACE_SEC)
     except subprocess.TimeoutExpired:
         logger.warning("Media process %s did not exit after kill()", proc.pid)
+
 
 
 def run(
@@ -521,6 +716,19 @@ def run(
             f"Executable not found: {cmd[0]}", code=ERR_EXECUTABLE_MISSING
         ) from exc
 
+    # Bind the tree so descendants can be reclaimed as a unit (TSB-263). On
+    # Windows this is a kill-on-close Job Object; on POSIX we signal the group
+    # the child created for itself via setsid.
+    job = _create_kill_on_close_job(child.pid)
+    pgid: int | None
+    if os.name == "nt":
+        pgid = None
+    else:
+        try:
+            pgid = os.getpgid(child.pid)
+        except OSError:
+            pgid = None
+
     deadline = time.monotonic() + timeout
     try:
         while True:
@@ -531,19 +739,23 @@ def run(
                 break
             except subprocess.TimeoutExpired:
                 if cancel_check():
-                    _terminate_tree(child)
+                    _terminate_tree(child, job=job, pgid=pgid)
+                    job = None
                     raise FFmpegCancelled(
                         f"媒体进程已取消：{' '.join(cmd[:6])} ..."
                     ) from None
                 if time.monotonic() >= deadline:
-                    _terminate_tree(child)
+                    _terminate_tree(child, job=job, pgid=pgid)
+                    job = None
                     raise FFmpegTimeout(
                         f"命令超时（{timeout}s）：{' '.join(cmd[:6])} ..."
                     ) from None
     finally:
-        # Never leave the child running or the pipes open, whatever happened.
-        if child.poll() is None:
-            _terminate_tree(child)
+        # Never leave the child (or its descendants) running, and never leak the
+        # job handle — closing it is what reclaims the tree.
+        if job is not None or child.poll() is None:
+            _terminate_tree(child, job=job, pgid=pgid)
+            job = None
         for stream in (child.stdout, child.stderr):
             if stream is not None:
                 try:
