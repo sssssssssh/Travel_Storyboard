@@ -125,7 +125,7 @@ export interface JobOut {
     forced_reprobe?: number; skipped_unchanged?: number; hash_passes?: number; hash_restarts?: number; needs_review?: number; source_changed?: number; files_generated?: number; bytes?: number;
     skipped_budget?: number; requested_duration_sec?: number; output_duration_sec?: number;
     cleanup?: { ok: boolean; error_code?: string; retryable?: boolean; removed_files?: number;
-      removed_bytes?: number; residual_count?: number; residual_bytes?: number; residual_paths?: string[] } }
+      removed_bytes?: number; residual_count?: number; residual_bytes?: number | null; residual_paths?: string[] } }
   failures?: { count?: number; items?: JobFailureItem[] }
   resume_token: Record<string, unknown>
   error: string

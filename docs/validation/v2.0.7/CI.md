@@ -25,3 +25,6 @@
 最终 HEAD 自身的精确 run URL
 在交付回复给出；该 run 的 media-platform.json 包含对应最终完整 SHA。
 不得用此处的 a28820d 冒充最终 HEAD。TSB-277 和 200GB 性能仍未执行。
+
+最终实现补充旧版单条 cleanup 失败记录的兼容保留与未知残留大小表达，新增后端/前端
+各 1 项，最终本机 469 passed / 44 平台 skipped、前端 21 passed；最终对应 CI 据交付回复。

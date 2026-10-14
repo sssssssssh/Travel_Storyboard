@@ -1,0 +1,10 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ test_legacy_single_cleanup_failure_survives_resumed_stage_success _______
+backend/tests/test_cleanup_reporting.py:62: in test_legacy_single_cleanup_failure_survives_resumed_stage_success
+    assert result['ok'] is False, 'a resumed run must not erase a legacy cleanup failure'
+E   AssertionError: a resumed run must not erase a legacy cleanup failure
+E   assert True is False
+=========================== short test summary info ============================
+FAILED backend/tests/test_cleanup_reporting.py::test_legacy_single_cleanup_failure_survives_resumed_stage_success
+1 failed, 3 deselected in 0.86s

@@ -128,7 +128,7 @@ $x=[xml](Get-Content tsb.xml); $s=$x.testsuites.testsuite; if(-not $s){$s=$x.tes
 cd frontend
 pnpm run typecheck    # tsc --noEmit
 pnpm run lint         # eslint
-pnpm run test         # vitest run（当前 20 passed）
+pnpm run test         # vitest run（当前 21 passed）
 pnpm run build
 ```
 

@@ -436,7 +436,7 @@ Windows 实片待执行样本、记录表与最终结论见 [RELEASE_V2_0_2.md](
 ## v2.0.7（TSB-271～277）确定性取消与删除安全
 
 以下 28 条均可定位到自动化用例。短名的文件在 `backend/tests/`；Windows 特定场景
-仅按平台事实跳过，强制媒体作业缺工具仍失败。六个新套件共 **56 个参数化用例**。
+仅按平台事实跳过，强制媒体作业缺工具仍失败。六个新套件共 **57 个参数化用例**。
 
 | 场景 | 任务 | 证据用例（文件::函数，参数见源码） |
 |---|---|---|
@@ -478,3 +478,5 @@ TC-29 进一步用 Event 控制清理阶段，等待 worker Future 返回后才�
 手工门禁 **TSB-277 未执行**：Windows 真机 8～10 段旅行视频，端到端与取消时间线、
 原片哈希/大小/mtime 一致、历史人工字段/复核/计划保持。另行执行 60+ 段/200GB
 性能验证。清单见 `docs/validation/v2.0.7/WINDOWS_REAL_FOOTAGE.md`。
+
+RT274-02 升级恢复补充：test_cleanup_reporting.py::test_legacy_single_cleanup_failure_survives_resumed_stage_success，旧版单条失败统计不被新 stage 成功覆盖；CleanupNotice.test.tsx 验证未知大小不会冒称 0 字节。

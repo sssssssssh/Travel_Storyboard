@@ -13,14 +13,14 @@
 | TSB-272 | 顶层目录白名单误认 history/父目录；`resolve()` 可把内部链接变为另一个 stage；owner 字符串只是日志 | 精确匹配三种叶目录；创建时 `mkdir(exist_ok=False)` 登记真实 Job/项目/素材归属及目录、祖先 dev/inode。拒绝接管已有目录。删除时重验原始段、所有权、目录身份和每一级链接；POSIX 用 no-follow dir_fd，Windows 用禁止删除/改名共享的目录句柄。预扫描拒绝链接，枚举后再次验证身份；只 unlink 文件和 rmdir 空目录，不递归 rmtree。 |
 | TSB-273 | 分析写事务只识别 `cancelled`，已接受 `cancelling` 仍提交 | 共享 `raise_if_cancelled_in_session` 在同一 SQLite 写事务读取 `CANCEL_REQUESTED_STATES`；回滚只回收本轮唯一且无永久引用的新 JPEG，使用长路径安全删除。验证取消先提交、分析写锁先取得、历史人工状态/计划/复核引用不变。代理、分析包也统一事务内判断。 |
 | TSB-273 审查扩展 | 粗剪最后一次轮询到发布间仍有窗口，固定文件名覆盖历史 | 定向测试先复现：取消后仍发布、旧文件字节改变。新粗剪使用独立文件名，发布和 Job 路径在同一写事务；失败仅回收本次文件。原 REST 地址读取最新已提交引用，旧固定文件名兼容回退。历史粗剪不删除/覆盖。 |
-| TSB-274 | 只保存失败统计，进度替换 stats 后丢失；UI 固定声称已回收 | 每个 stage 成功/失败均聚合保存，单次成功不掩盖其他残留；进度更新和统计合并使用写事务保留 cleanup。UI 显示成功/失败/未知，有限项目相对路径。新增认证、项目/Job 限定的 cleanup-retry（不接收路径），仅停止的任务、项目无活跃任务、进程内真实创建记录才能重试；每次重验安全边界并实测残留。 |
+| TSB-274 | 只保存失败统计，进度替换 stats 后丢失；UI 固定声称已回收 | 每个 stage 成功/失败均聚合保存，单次成功不掩盖其他残留；进度更新和统计合并使用写事务保留 cleanup；旧版单条失败也保留为历史项，不被恢复后成功覆盖。未知残留大小显示待核对。UI 显示成功/失败/未知，有限项目相对路径。新增认证、项目/Job 限定的 cleanup-retry（不接收路径），仅停止的任务、项目无活跃任务、进程内真实创建记录才能重试；每次重验安全边界并实测残留。 |
 | TSB-275 | rglob/stat/unlink 在深路径下失效，旧逻辑也遍历 stage | 单独的孤儿 JPEG 回收器，只进入 frames；不进入任何 stage。项目锁+DB 写锁固定引用快照；检测活跃时延后回收。POSIX fd/Windows 长路径和固定目录句柄遍历，不跟随 symlink/junction；只删过宽限期、无引用的普通 JPEG，失败/拒绝可观察且可重试。 |
-| TSB-276 | 缺确定交错、安全反向验证及完整证据 | 新增 6 个后端套件共 56 个参数化用例，前端新增 6 项。全部加入 Ubuntu/Windows 强制媒体清单。Windows 媒体作业验证 `LongPathsEnabled=0`，上传 JUnit 和精确 SHA/版本/策略；文档提交也触发 CI，以便最终 HEAD 有独立运行。 |
+| TSB-276 | 缺确定交错、安全反向验证及完整证据 | 新增 6 个后端套件共 57 个参数化用例，前端新增 7 项。全部加入 Ubuntu/Windows 强制媒体清单。Windows 媒体作业验证 `LongPathsEnabled=0`，上传 JUnit 和精确 SHA/版本/策略；文档提交也触发 CI，以便最终 HEAD 有独立运行。 |
 
 基线 P1 定向测试：**11 failed / 7 passed**，见 `p1-before.txt`。
 TSB-273 补充复现：**2 failed / 4 passed**，见 `tsb273-before.txt`。
 粗剪扩展：见 `publication-before.txt`。P2 复现见 `tsb274-before.txt`、
-`tsb275-before.txt`。反向撤掉创建者登记或事务内取消接线，两次均按预期失败；
+`tsb275-before.txt`。旧统计兼容复现见 `legacy-cleanup-before.txt`（修复前 1 failed）。反向撤掉创建者登记或事务内取消接线，两次均按预期失败；
 正确实现随后恢复并验证，见 `reverse-*-wiring.txt`。
 
 ## 线性化与状态语义
@@ -39,9 +39,9 @@ TSB-273 补充复现：**2 failed / 4 passed**，见 `tsb273-before.txt`。
 
 | 检查 | 结果 |
 |---|---|
-| 后端全量，`TSB_REQUIRE_FFMPEG=1` | **468 passed / 0 failed / 44 skipped**，512 项；44 项均 Windows 专属平台事实，缺工具 skip 仍失败 |
+| 后端全量，`TSB_REQUIRE_FFMPEG=1` | **469 passed / 0 failed / 44 skipped**，513 项；44 项均 Windows 专属平台事实，缺工具 skip 仍失败 |
 | 前端 typecheck / lint / build | 全部通过 |
-| 前端测试 | **20 passed** |
+| 前端测试 | **21 passed** |
 | 受控终态 CAS | **2,000 次**，无遗留 cancelling |
 | 反向接线验证 | 两次均失败，恢复后通过 |
 | Windows / Ubuntu CI | a28820d 的 7/7 成功：Windows 媒体 442 passed / 0 skipped，Ubuntu 398 passed / 44 平台 skipped；最终交付 HEAD 的对应 run 见交付回复 |

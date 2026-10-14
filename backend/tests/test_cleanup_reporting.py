@@ -47,3 +47,22 @@ def test_retry_cannot_adopt_old_or_invented_cleanup_paths(client):
     r.finalize_job(jid, 'cancelled')
     assert client.post(f'/api/projects/{pid}/jobs/{jid}/cleanup-retry').status_code == 409
     assert (stage / 'owned.bin').read_bytes() == b'owned bytes'
+
+
+def test_legacy_single_cleanup_failure_survives_resumed_stage_success(client):
+    pid, jid, stage = owned(client)
+    legacy = stage.with_name('staging-legacy'); legacy.mkdir()
+    leftover = legacy / 'legacy.bin'; leftover.write_bytes(b'legacy residual')
+    previous = c.CleanupResult(path=str(legacy), ok=False, error_code='CLEANUP_FAILED',
+        residual_paths=[str(leftover)], retryable=True).as_dict()
+    previous.pop('residual_bytes')  # original v2.0.6 format had no measured byte count
+    r.merge_job_stats(jid, {'cleanup': previous})
+    assert c.cleanup_staging_or_log(pid, stage, owner_job_id=jid).ok
+    r.update_job(jid, stats={'done': 1})
+    with session_scope() as s:
+        result = s.get(Job, jid).stats['cleanup']
+        assert result['ok'] is False, 'a resumed run must not erase a legacy cleanup failure'
+        assert result['error_code'] == 'CLEANUP_FAILED'
+        assert result['residual_paths'] and not result['residual_paths'][0].startswith('/')
+        assert result['residual_bytes'] is None and not result['retryable']
+    assert leftover.read_bytes() == b'legacy residual'

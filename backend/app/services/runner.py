@@ -222,6 +222,23 @@ def record_cleanup_result(job_id: str, report: dict) -> None:
         stats = dict(job.stats or {})
         prior = stats.get("cleanup", {})
         items = dict(prior.get("items", {}))
+        if prior.get('ok') is False and not items:
+            # v2.0.6 persisted a single result. Preserve it when a recovered
+            # job creates a new stage; a successful new run cannot erase it.
+            from pathlib import Path
+            from ..paths import project_cache_dir
+            root = project_cache_dir(job.project_id)
+            def summary(value):
+                path = Path(value)
+                if not path.is_absolute(): return path.as_posix()
+                try: return path.relative_to(root).as_posix()
+                except ValueError: return '[legacy-unavailable]'
+            legacy = dict(prior)
+            legacy['path'] = summary(prior.get('path', '[legacy]'))
+            legacy['residual_paths'] = [summary(p) for p in prior.get('residual_paths', [])]
+            legacy['residual_count'] = max(int(prior.get('residual_count', 0)), len(legacy['residual_paths']), 1)
+            legacy['retryable'] = False  # no current-process creator evidence
+            items[legacy['path']] = legacy
         previous = items.get(report['path'], {})
         report = dict(report)
         for field in ('removed_files', 'removed_bytes'):
@@ -236,7 +253,8 @@ def record_cleanup_result(job_id: str, report: dict) -> None:
             'removed_files': sum(r['removed_files'] for r in reports),
             'removed_bytes': sum(r['removed_bytes'] for r in reports),
             'residual_count': sum(r.get('residual_count', len(r['residual_paths'])) for r in failures),
-            'residual_bytes': sum(r.get('residual_bytes', 0) for r in failures),
+            'residual_bytes': (sum(r['residual_bytes'] for r in failures)
+                               if all(r.get('residual_bytes') is not None for r in failures) else None),
             'residual_paths': [p for r in failures for p in r['residual_paths']][:5],
         }
         job.stats = stats

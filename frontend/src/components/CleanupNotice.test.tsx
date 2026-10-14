@@ -17,3 +17,9 @@ test('failed cleanup displays residuals and only a bounded path summary', () => 
   expect(screen.getByText(/有暂存残留，需安全重试.*9 字节.*CLEANUP_FAILED/)).toBeTruthy()
   expect(screen.queryByText(/Users|alice|private/)).toBeNull()
 })
+
+test('unknown residual byte count never claims zero bytes', () => {
+  render(<CleanupNotice cleanup={{ ok: false, residual_count: 1, residual_bytes: null }} />)
+  expect(screen.getByText(/残留大小待核对/)).toBeTruthy()
+  expect(screen.queryByText(/0 字节/)).toBeNull()
+})

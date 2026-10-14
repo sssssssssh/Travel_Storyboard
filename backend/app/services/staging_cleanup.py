@@ -31,7 +31,7 @@ class CleanupResult:
     removed_bytes: int = 0
     residual_paths: list[str] = field(default_factory=list)
     retryable: bool = False
-    residual_bytes: int = 0
+    residual_bytes: int | None = None
     residual_count: int = 0
 
     def as_dict(self) -> dict:
