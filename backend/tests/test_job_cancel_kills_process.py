@@ -468,17 +468,21 @@ def test_roughcut_passes_a_cancel_check_to_its_encodes():
     params = inspect.signature(mod._extract_normalized).parameters
     assert "cancel_check" in params, "_extract_normalized lost its cancel_check"
 
-    src = inspect.getsource(mod.roughcut_task)
+    # Checked across the module rather than one function: the encode body moved
+    # into `_roughcut_body` during the TSB-262 staging refactor, and a guard that
+    # pins a specific function name would fail for the move instead of for the
+    # defect it exists to catch.
+    src = inspect.getsource(mod)
     assert "cancel_check_for(job_id)" in src, (
-        "roughcut_task no longer builds a cancel callback — cancelling a rough "
-        "cut would again wait for the encode to finish"
+        "roughcut no longer builds a cancel callback — cancelling a rough cut "
+        "would again wait for the encode to finish"
     )
     assert "cancel_check=cancel_check" in src, (
-        "roughcut_task does not forward its cancel callback into the encode"
+        "roughcut does not forward its cancel callback into the encode"
     )
     assert "except FFmpegCancelled" in src, (
-        "roughcut_task would count a cancelled encode as one more failed clip "
-        "and keep encoding"
+        "roughcut would count a cancelled encode as one more failed clip and "
+        "keep encoding"
     )
 
 

@@ -55,6 +55,7 @@ from .runner import (
     register_task,
     update_job,
 )
+from .staging_cleanup import cleanup_staging_or_log
 
 logger = logging.getLogger(__name__)
 
@@ -291,7 +292,10 @@ def proxies_task(job_id: str) -> None:
                     'bytes': total_bytes, 'skipped_budget': skipped_budget, 'files_generated': files_generated,
                     'requested_duration_sec': requested_duration, 'output_duration_sec': output_duration})
     finally:
-        shutil.rmtree(staging, ignore_errors=True)
+        # TSB-262: use the restricted helper rather than a bare
+        # `rmtree(ignore_errors=True)`, which reports success whether or not the
+        # deep-path tree was actually removed and cannot be audited afterwards.
+        cleanup_staging_or_log(project_id, staging, owner_job_id=job_id)
 
 
 def _select_representative_frames(

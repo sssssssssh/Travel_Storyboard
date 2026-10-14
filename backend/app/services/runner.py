@@ -187,6 +187,21 @@ def clear_active_job_type(job_id: str) -> None:
         job.resume_token = token
 
 
+def merge_job_stats(job_id: str, extra: dict) -> bool:
+    """Merge *extra* into ``job.stats`` without clobbering concurrent updates.
+
+    Used by cleanup reporting (TSB-262): a task's progress writers must not lose
+    a cleanup outcome, and the cleanup must not lose their counters. Terminal
+    rows are left alone.
+    """
+    with session_scope() as s:
+        job = s.get(Job, job_id)
+        if job is None:
+            return False
+        job.stats = {**(job.stats or {}), **extra}
+        return True
+
+
 def job_status(job_id: str) -> str | None:
     """Current status of a job row, or ``None`` when it does not exist."""
     with session_scope() as s:

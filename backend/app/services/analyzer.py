@@ -50,6 +50,7 @@ from .runner import (
     register_task,
     update_job,
 )
+from .staging_cleanup import cleanup_staging_or_log
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +238,32 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
     reused_ids: set[str] = set()
     phash_pairs: list[tuple[str, str]] = []
 
+    # TSB-262: this run must collect its own staging whatever happens — cancel
+    # during sampling, cancel during the Nth frame, a failed publication, or a
+    # crash. Previously only the success and transaction-failure paths removed
+    # it, so a cancel mid-extraction left the whole sampled JPEG set behind.
+    try:
+        return _analyze_asset_inner(
+            project_id, asset, stage, work_dir, detection, settings, job_id,
+            source, context, source_state, signature_before, run_id, run_token,
+            old_by_key, old_ids, new_segments, new_frames, reused_ids,
+            phash_pairs,
+        )
+    finally:
+        cleanup_staging_or_log(project_id, stage, owner_job_id=job_id)
+
+
+def _analyze_asset_inner(
+    project_id, asset, stage, work_dir, detection, settings, job_id,
+    source, context, source_state, signature_before, run_id, run_token,
+    old_by_key, old_ids, new_segments, new_frames, reused_ids,
+    phash_pairs,
+):
+    # Imported here (not in the caller) so the inner body has them in scope after
+    # the TSB-262 split; a split that strands a local only fails on the line that
+    # happens to use it.
+    from .checkpoints import verify_after_processing, verify_source
+
     for boundary in detection.boundaries:
         if job_id:
             raise_if_cancelled(job_id)
@@ -367,7 +394,8 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
             safe_replace(src, work_dir / name)
             with safe_image_open(work_dir / name) as image:
                 image.load()
-        shutil.rmtree(stage, ignore_errors=True)
+        # Staging is collected by `_analyze_asset`'s finally block (TSB-262),
+        # which also covers the cancel paths this line used to miss.
 
         # Persist.
         if job_id:
@@ -429,7 +457,7 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
                 (work_dir / name).unlink(missing_ok=True)
             except OSError:
                 logger.warning("Could not remove failed publication", exc_info=True)
-        shutil.rmtree(stage, ignore_errors=True)
+        # Staging removal is handled by the caller's finally (TSB-262).
         raise
 
     # Garbage-collect JPEGs from the previous run that are no longer referenced

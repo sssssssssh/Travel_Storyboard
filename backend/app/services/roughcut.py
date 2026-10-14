@@ -40,6 +40,7 @@ from .runner import (
     register_task,
     update_job,
 )
+from .staging_cleanup import cleanup_staging_or_log
 
 logger = logging.getLogger(__name__)
 
@@ -143,12 +144,34 @@ def _extract_normalized(source: str, start: float, dur: float, out: Path,
 
 @register_task("roughcut")
 def roughcut_task(job_id: str) -> None:
-    failures = JobFailures(job_id)
+    """Rough-cut entry point: guarantees this run's staging is collected.
+
+    TSB-262: the staging directory used to be removed only on the success path,
+    so a cancel, timeout or failed encode leaked every clip it had written. The
+    cleanup now runs in ``finally`` — before the worker returns and therefore
+    before the project mutex is released — and reports residual bytes instead of
+    hiding them behind ``ignore_errors=True``.
+    """
+    project_id = _project_for_job(job_id)
+    if project_id is None:
+        return
+
+    stage = project_cache_dir(project_id) / "roughcut" / ("staging-" + str(uuid.uuid4()))
+    safe_mkdir(stage)
+    try:
+        _roughcut_body(job_id, project_id, stage)
+    finally:
+        cleanup_staging_or_log(project_id, stage, owner_job_id=job_id)
+
+
+def _project_for_job(job_id: str) -> str | None:
     with session_scope() as s:
         job = s.get(Job, job_id)
-        if job is None:
-            return
-        project_id = job.project_id
+        return job.project_id if job is not None else None
+
+
+def _roughcut_body(job_id: str, project_id: str, stage: Path) -> None:
+    failures = JobFailures(job_id)
 
     with session_scope() as s:
         shots = s.scalars(
@@ -165,8 +188,6 @@ def roughcut_task(job_id: str) -> None:
     work = project_cache_dir(project_id) / "roughcut"
     safe_mkdir(work)
 
-    stage = work / ("staging-" + str(uuid.uuid4()))
-    safe_mkdir(stage)
     # Cancelling the job must stop the in-flight encode, not wait it out.
     cancel_check = cancel_check_for(job_id)
     clips: list[Path] = []
@@ -271,7 +292,8 @@ def roughcut_task(job_id: str) -> None:
     # Re-check after the concat: a cancel during it must never publish (TSB-253).
     raise_if_cancelled(job_id)
     _long_replace(temporary, out)
-    shutil.rmtree(stage, ignore_errors=True)
+    # Staging is collected by `roughcut_task`'s finally block (TSB-262), which
+    # also covers the cancel/timeout/failure paths this line used to miss.
     # Drop any stale file from the other naming variant so /roughcut is unambiguous.
     stale = work / ("roughcut.mp4" if incomplete else "roughcut_INCOMPLETE.mp4")
     if safe_is_file(stale):
