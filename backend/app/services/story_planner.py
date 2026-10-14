@@ -52,6 +52,43 @@ logger = logging.getLogger(__name__)
 
 _PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
+# --- TSB-243: proxy duration acceptance -------------------------------------
+#
+# A proxy is only usable if its real duration matches what was asked for. Two
+# allowances are needed:
+#
+#  * absolute — a very short request (0.6 s) is only a few frames, so encoder
+#    rounding alone can shift it by a frame or two;
+#  * relative — a long request must match proportionally, not just within the
+#    absolute window.
+#
+# Both are generous enough for real encoders and far tighter than the failure
+# this guards against (a wrong range or a clamped clip).
+PROXY_DURATION_ABS_TOLERANCE_SEC = 0.25
+PROXY_DURATION_REL_TOLERANCE = 0.10
+
+
+def _verify_proxy_duration(requested_sec: float, actual_sec: float) -> None:
+    """Raise when a generated proxy's real duration is wrong.
+
+    Checked with ffprobe against the encoded file, so it catches a truncated
+    source range, a mis-clamped seek or an encoder that produced almost nothing.
+    """
+    if not math.isfinite(actual_sec) or actual_sec <= 0:
+        raise ReviewValidationError('MEDIA_UNREADABLE', '生成的预览时长无效')
+
+    tolerance = max(
+        PROXY_DURATION_ABS_TOLERANCE_SEC,
+        requested_sec * PROXY_DURATION_REL_TOLERANCE,
+    )
+    drift = abs(actual_sec - requested_sec)
+    if drift > tolerance:
+        raise ReviewValidationError(
+            'DURATION_MISMATCH',
+            f'预览实际时长 {actual_sec:.3f}s 与请求 {requested_sec:.3f}s 不符'
+            f'（偏差 {drift:.3f}s，上限 {tolerance:.3f}s）',
+        )
+
 # Budgets for one direct analysis pass.
 DEFAULT_MAX_IMAGES = 12
 DEFAULT_MAX_SEGMENTS = 60
@@ -154,7 +191,17 @@ def proxies_task(job_id: str) -> None:
                 size = safe_stat(temp).st_size
                 media = probe_media(temp)
                 if size <= 0 or media.video.width <= 0 or not math.isfinite(media.duration_sec) or media.duration_sec <= 0:
+                    # The encoder produced something unreadable — a system
+                    # failure, not a problem with the user's request, so this
+                    # stays a plain error (→ `failed` / PROXY_FAILED) rather than
+                    # being routed to `needs_review`.
                     raise ValueError('生成的预览不可读取')
+                # TSB-243: verify the *actual* duration, not just that a file
+                # exists. A wrong-length proxy used to be published as `proxied`.
+                # A mismatch IS a request/asset problem, so it is raised as a
+                # ReviewValidationError and lands in `needs_review`.
+                requested = end - start
+                _verify_proxy_duration(requested, media.duration_sec)
                 if size > budget - total_bytes:
                     skipped_budget += 1
                     failed += 1

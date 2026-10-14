@@ -197,7 +197,11 @@ class ReviewPackage(Base):
     project_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True
     )
-    version: Mapped[str] = mapped_column(String(32), default="")
+    # TSB-244: this is `<job_id or timestamp>-<32 hex>` — up to 69 characters
+    # (36 + 1 + 32). It was declared String(32), so the model disagreed with what
+    # the builder actually stores. SQLite ignores the length, but any stricter
+    # backend (or a future migration) would truncate or reject it.
+    version: Mapped[str] = mapped_column(String(80), default="")
     package_dir: Mapped[str] = mapped_column(Text, default="")  # relative to data dir
     status: Mapped[str] = mapped_column(String(32), default="ready")
     file_count: Mapped[int] = mapped_column(Integer, default=0)
