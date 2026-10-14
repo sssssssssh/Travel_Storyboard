@@ -1,0 +1,16 @@
+FF....                                                                   [100%]
+=================================== FAILURES ===================================
+__________ test_cancel_lands_after_last_poll_before_write_transaction __________
+backend/tests/test_analysis_cancel_commit.py:22: in test_cancel_lands_after_last_poll_before_write_transaction
+    with pytest.raises(JobCancelled):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE JobCancelled
+____ test_transaction_cancellation_preserves_all_manual_history[cancelling] ____
+backend/tests/test_analysis_cancel_commit.py:56: in test_transaction_cancellation_preserves_all_manual_history
+    with pytest.raises(JobCancelled): analyzer._analyze_asset(pid, asset, job_id=jid)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE JobCancelled
+=========================== short test summary info ============================
+FAILED backend/tests/test_analysis_cancel_commit.py::test_cancel_lands_after_last_poll_before_write_transaction
+FAILED backend/tests/test_analysis_cancel_commit.py::test_transaction_cancellation_preserves_all_manual_history[cancelling]
+2 failed, 4 passed in 1.11s

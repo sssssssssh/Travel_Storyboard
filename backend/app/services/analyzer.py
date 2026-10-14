@@ -36,6 +36,7 @@ from ..ffmpeg import (
     safe_mkdir,
     safe_replace,
     safe_stat,
+    safe_unlink,
 )
 from ..models import Asset, EditPlanShot, Frame, Job, ReviewRequest, Segment, UserAnnotation, utcnow
 from ..paths import frames_dir, rel_to_data, resolve_in_project, staging_dir
@@ -47,6 +48,7 @@ from .runner import (
     JobFailures,
     cancel_check_for,
     raise_if_cancelled,
+    raise_if_cancelled_in_session,
     register_task,
     update_job,
 )
@@ -402,10 +404,7 @@ def _analyze_asset_inner(
             begin_write(s)
             verify_source(source_state)
             if job_id:
-                job = s.get(Job, job_id)
-                if job is not None and job.status == 'cancelled':
-                    from .runner import JobCancelled
-                    raise JobCancelled('Cancelled before frame commit')
+                raise_if_cancelled_in_session(s, job_id)
             latest = {row.id: row for row in s.scalars(select(Segment).where(Segment.asset_id == asset.id))}
             referenced = set(s.scalars(select(EditPlanShot.segment_id).where(EditPlanShot.segment_id.in_(old_ids))))
             referenced.update(s.scalars(select(ReviewRequest.segment_id).where(ReviewRequest.segment_id.in_(old_ids))))
@@ -452,7 +451,9 @@ def _analyze_asset_inner(
         # newly published files, leaving crash leftovers to the grace cleaner.
         for name in produced:
             try:
-                (work_dir / name).unlink(missing_ok=True)
+                candidate = work_dir / name
+                if candidate not in _referenced_frame_paths(project_id):
+                    safe_unlink(candidate)
             except OSError:
                 logger.warning("Could not remove failed publication", exc_info=True)
         # Staging removal is handled by the caller's finally (TSB-262).
@@ -471,7 +472,7 @@ def _analyze_asset_inner(
             continue
         try:
             if safe_is_file(candidate) and candidate.parent == work_dir.resolve():
-                candidate.unlink()
+                safe_unlink(candidate)
                 freed += 1
         except OSError:
             logger.debug("Could not remove stale frame %s", candidate)

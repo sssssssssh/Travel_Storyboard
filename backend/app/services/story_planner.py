@@ -52,6 +52,7 @@ from .runner import (
     JobFailures,
     cancel_check_for,
     raise_if_cancelled,
+    raise_if_cancelled_in_session,
     register_task,
     update_job,
 )
@@ -230,7 +231,7 @@ def proxies_task(job_id: str) -> None:
                 final = root / f'{uuid.uuid4().hex[:16]}.mp4'
                 with session_scope() as s:
                     begin_write(s)
-                    raise_if_cancelled(job_id)
+                    raise_if_cancelled_in_session(s, job_id)
                     rr = s.get(ReviewRequest, req_id)
                     if rr is None or rr.project_id != project_id or rr.status != 'pending':
                         raise ReviewValidationError('REQUEST_CHANGED', '请求已被暂缓、撤回或替代，旧预览已保留')

@@ -17,7 +17,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from ..config import get_settings
-from ..database import session_scope
+from ..database import begin_write, session_scope
 from ..ffmpeg import (
     FFmpegCancelled,
     locate_ffmpeg,
@@ -37,6 +37,7 @@ from .runner import (
     JobFailures,
     cancel_check_for,
     raise_if_cancelled,
+    raise_if_cancelled_in_session,
     register_task,
     update_job,
 )
@@ -273,7 +274,9 @@ def _roughcut_body(job_id: str, project_id: str, stage: Path) -> None:
     # A rough cut missing shots must never look like the finished edit
     # (audit P1-08): the filename says so and the job ends partial_failed.
     incomplete = failed > 0
-    out = work / ("roughcut_INCOMPLETE.mp4" if incomplete else "roughcut.mp4")
+    # Per-attempt immutable publication: historical rough cuts keep their bytes.
+    label = "roughcut_INCOMPLETE" if incomplete else "roughcut"
+    out = work / f"{label}-{uuid.uuid4().hex[:16]}.mp4"
     temporary = stage / out.name
     raise_if_cancelled(job_id)
     run(
@@ -291,29 +294,21 @@ def _roughcut_body(job_id: str, project_id: str, stage: Path) -> None:
     )
     # Re-check after the concat: a cancel during it must never publish (TSB-253).
     raise_if_cancelled(job_id)
-    _long_replace(temporary, out)
-    # Staging is collected by `roughcut_task`'s finally block (TSB-262), which
-    # also covers the cancel/timeout/failure paths this line used to miss.
-    # Drop any stale file from the other naming variant so /roughcut is unambiguous.
-    stale = work / ("roughcut.mp4" if incomplete else "roughcut_INCOMPLETE.mp4")
-    if safe_is_file(stale):
-        try:
-            safe_unlink(stale)
-        except OSError:
-            pass
-
-    update_job(
-        job_id,
-        resume_token={
-            "path": rel_to_data(out),
-            "size": safe_stat(out).st_size,
-            "incomplete": incomplete,
-            "shots_included": len(clips),
-            "shots_total": total,
-            "missing_shots": [item["ref"] for item in failures.items],
-            # Lets the UI explain any drift from the saved plan's total.
-            "planned_duration_sec": round(planned_total, 3),
-            "actual_duration_sec": round(actual_total, 3),
-            "clamped_shots": clamped,
-        },
-    )
+    try:
+        with session_scope() as s:
+            begin_write(s)
+            raise_if_cancelled_in_session(s, job_id)
+            _long_replace(temporary, out)
+            job = s.get(Job, job_id)
+            job.resume_token = {
+                "path": rel_to_data(out), "size": safe_stat(out).st_size,
+                "incomplete": incomplete, "shots_included": len(clips),
+                "shots_total": total,
+                "missing_shots": [item["ref"] for item in failures.items],
+                "planned_duration_sec": round(planned_total, 3),
+                "actual_duration_sec": round(actual_total, 3), "clamped_shots": clamped,
+            }
+    except Exception:
+        # Only the new, uncommitted publication is ours; never legacy outputs.
+        safe_unlink(out)
+        raise

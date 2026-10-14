@@ -23,10 +23,11 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..ffmpeg import safe_is_file, safe_serving_path
-from ..models import Frame, Project, ReviewRequest
+from ..models import Frame, Project, ReviewRequest, Job
 from ..paths import project_cache_dir, rel_to_data, resolve_in_project
 from .deps import get_db
 
@@ -174,22 +175,24 @@ def get_roughcut(project_id: str, db: Session = Depends(get_db)):
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    work = project_cache_dir(project_id) / "roughcut"
-    for name in ("roughcut.mp4", "roughcut_INCOMPLETE.mp4"):
-        # safe_is_file: a deep workspace can put this past MAX_PATH, where plain
-        # is_file() returns False and the route would answer 404 (TSB-251).
-        candidate = work / name
+    # New publications are immutable; choose the latest committed Job reference.
+    # Legacy fixed filenames remain readable without any data migration.
+    jobs = db.scalars(select(Job).where(Job.project_id == project_id,
+                                       Job.job_type == 'roughcut').order_by(Job.created_at.desc(), Job.id.desc()))
+    candidates = [(j.resume_token['path'], bool(j.resume_token.get('incomplete')))
+                  for j in jobs if (j.resume_token or {}).get('path')]
+    work = project_cache_dir(project_id) / 'roughcut'
+    candidates.extend([(rel_to_data(work / 'roughcut.mp4'), False),
+                       (rel_to_data(work / 'roughcut_INCOMPLETE.mp4'), True)])
+    for ref, incomplete in candidates:
+        resolved = resolve_in_project(project_id, ref)
         try:
-            present = safe_is_file(candidate)
+            present = safe_is_file(resolved)
         except PermissionError as exc:
-            raise HTTPException(status_code=403, detail="Rough cut is not readable") from exc
+            raise HTTPException(status_code=403, detail='Rough cut is not readable') from exc
         if present:
-            resolved = _resolve_artifact(db, project_id, rel_to_data(candidate))
-            return _serve(
-                resolved,
-                media_type="video/mp4",
-                filename=name,
-                content_disposition_type="inline",
-                headers={"X-Roughcut-Incomplete": str(name != "roughcut.mp4").lower()},
-            )
+            resolved = _resolve_artifact(db, project_id, ref)
+            return _serve(resolved, media_type='video/mp4', filename=resolved.name,
+                          content_disposition_type='inline',
+                          headers={'X-Roughcut-Incomplete': str(incomplete).lower()})
     raise HTTPException(status_code=404, detail="Rough cut not generated yet")

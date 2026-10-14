@@ -50,7 +50,7 @@ from ..ffmpeg import (
 from ..models import Asset, Frame, Job, ReviewPackage, Segment
 from ..paths import project_cache_dir, rel_to_data, resolve_in_project
 from .review_validation import EPSILON_SEC, INVALID_SEGMENT_STATUSES, ReviewValidationError, validate_review, verified_source
-from .runner import JobFailures, raise_if_cancelled, register_task, update_job
+from .runner import JobFailures, raise_if_cancelled, raise_if_cancelled_in_session, register_task, update_job
 
 # Defaults; overridable per job via options.
 DEFAULT_MAX_PACKAGE_MB = 200
@@ -485,7 +485,7 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
         with session_scope() as s:
             begin_write(s)
             if job_id:
-                raise_if_cancelled(job_id)
+                raise_if_cancelled_in_session(s, job_id)
             for seg in segments:
                 if seg.id not in {g['segment_id'] for g in segments_json}:
                     continue

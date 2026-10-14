@@ -258,6 +258,13 @@ def raise_if_cancelled(job_id: str) -> None:
         raise JobCancelled("Job cancelled by user")
 
 
+def raise_if_cancelled_in_session(session, job_id: str) -> None:
+    """Read under the caller's SQLite writer; cancellation linearizes here."""
+    job = session.get(Job, job_id)
+    if job is not None and job.status in CANCEL_REQUESTED_STATES:
+        raise JobCancelled("Cancelled before transaction commit")
+
+
 def cancel_check_for(job_id: str | None):
     """Build a pollable cancel callback for a job, or ``None`` without one.
 
