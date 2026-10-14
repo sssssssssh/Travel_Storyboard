@@ -177,7 +177,7 @@ pnpm run build
 
 - **给 AI 协作者与新贡献者（先读这个）**：[AGENTS.md](AGENTS.md) —— 硬约束、工作流纪律、环境事实与常见坑
 - 完整设计：[docs/DESIGN.md](docs/DESIGN.md)
-- 回归测试清单（T01–T21 + v2.0.4/v2.0.5 新增）：[docs/REGRESSION.md](docs/REGRESSION.md)
+- 回归测试清单（T01–T25 + v2.0.4/v2.0.5/v2.0.6 新增）：[docs/REGRESSION.md](docs/REGRESSION.md)
 - 需求来源：`Travel_Storyboard_v2.0_详细设计方案.md`
 
 ## 持续集成
@@ -257,3 +257,19 @@ AI 导演与分镜审阅现在可查看旧区间、最新检测候选、收藏�
 实测：Windows（`LongPathsEnabled=0`）下 **398 passed / 0 failed / 0 skipped**（基线 376 + 新增 22），`skipped=0` 表示媒体用例实际执行。详见 [v2.0.5 发布记录](docs/RELEASE_V2_0_5.md) 与 [测试记录](docs/validation/v2.0.5/backend-windows-py3.13.md)。
 
 **本轮未完成**：Windows 实机 8～10 段真实旅行素材验收（RT-18/19）仍未执行。在其实机记录补齐前，v2.0.5 同样不应宣称已满足真实素材发布门禁。
+
+## v2.0.6 取消状态与资源清理闭环
+
+建立「请求取消 → 停止实际处理 → 完成清理 → 释放互斥 → 最终取消」的可验证闭环，关闭 TSB-261 ~ TSB-264。
+
+**取消中状态**：此前 cancel 直接把状态写成终态 `cancelled`，而互斥只认 `pending/running`。用户一点取消，项目立刻显得空闲 —— 尽管 worker 还在编码、仍持有项目锁、暂存尚未回收，新互斥任务因此可被提前接受。现在引入**非终态** `cancelling`：取消只写「已请求」，worker 真正退出并完成清理后才写 `cancelled` 与 `finished_at`；`cancelling` 期间新互斥任务返回 **409**（不是排队）。互斥改为「项目锁 + 数据库」两层保证，锁序固定为先项目锁后写事务。
+
+**暂存必达清理**：粗剪此前只在成功路径删除暂存，取消/超时/失败均提前返回并留下整目录已编码片段。现在每个任务的暂存回收包在 `try/finally` 中，**先于**互斥释放；清理走正向白名单（只允许 `staging-*`、`staging/<asset>/<token>`、`proxies/staging/<token>`），拒绝正式产物目录、数据目录、素材目录与项目外路径，且**不跟随链接**。失败以 `CleanupResult` 记录残留路径、字节与可重试标记，不用 `ignore_errors=True` 当「已清理」的证据。
+
+**进程树终止**：`terminate()` 此前只作用于直接子进程，孙进程会存活。现在 Windows 用 **Job Object + `KILL_ON_JOB_CLOSE`**、POSIX 用独立进程组信号回收整棵树，含父进程已先退出的情况。作用域仅限本次启动，**禁止**按进程名全局终止。
+
+修复过程中由测试发现并修复三个真实缺陷：清理会**跟随 junction 删除项目外数据**；深路径下 `FileNotFoundError` 被当成「空目录」导致清理「成功」却什么都没删；清理计数在目录已删除时报告 `removed_files=0`。
+
+实测：Windows（`LongPathsEnabled=0`）下 **453 passed / 0 failed / 0 skipped**（基线 398 + 新增 55）。详见 [v2.0.6 发布记录](docs/RELEASE_V2_0_6.md) 与 [测试记录](docs/validation/v2.0.6/backend-windows-py3.13.md)。
+
+**本轮未完成**：真实素材实机验收（TC-29/30）未执行。按任务书标准，本轮结论为**「代码级整改通过，发布门禁未完成」**。

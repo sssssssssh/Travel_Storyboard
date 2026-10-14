@@ -69,7 +69,7 @@
 ### 3.4 更新回归清单
 
 在 [docs/REGRESSION.md](docs/REGRESSION.md) 增加新用例映射（用例 → 任务号 → 守护的行为）。
-需要人工确认的加进手动表 T01–T21。
+需要人工确认的加进手动表 T01–T25。
 
 ### 3.5 文档中的数字必须与实际一致
 
@@ -181,11 +181,16 @@ TSB-253：协作式取消只在**条目之间**检查，正在跑的 FFmpeg 会�
 - `code == "CANCELLED"` 的异常记为**取消**而非 `failed`；
 - **测试必须断言时延**，只断言终态测不出这个缺陷。
 
-### 5.4 任务互斥必须在同一事务内
+### 5.4 任务互斥必须在同一事务内，且要"两层"
 
 仅靠进程内锁或前端禁用按钮挡不住并发：两个请求可在"检查"与"提交"之间交错。
 互斥检查与 INSERT 必须在同一 `BEGIN IMMEDIATE` 事务内完成，冲突返回 409
 并带冲突任务类型与 ID。
+
+TSB-261 起改为两层，且**锁序固定为「先项目锁、后 DB 写事务」**：
+先非阻塞获取 worker 持有的同一 `project_lock`（拿不到即 409），再进事务检查并插入。
+反向获取会与 runner 死锁。判定互斥时用 `EXCLUSIVE_STATUSES`
+（含 `cancelling`）而不是 `ACTIVE_STATUSES`。
 
 ### 5.5 代理时长要实测验收
 
@@ -198,6 +203,31 @@ TSB-253：协作式取消只在**条目之间**检查，正在跑的 FFmpeg 会�
 `String(32)` 存 69 字符在 SQLite 上不会报错，但更严格的后端或未来迁移会截断。
 声明列宽时要按**实际生成值**校验（TSB-244 的教训）。
 
+### 5.7 取消有"请求"与"完成"两个阶段
+
+`cancelled` 是终态，只在 worker **真正退出并完成清理后**写；请求阶段写非终态
+`cancelling`。把两者混为一谈会让项目在旧任务仍持锁时显得空闲。
+
+- 三组状态集合不可混用（见 [DESIGN.md §8.1](docs/DESIGN.md)）：
+  `ACTIVE_STATUSES`（可运行）、`CANCEL_REQUESTED_STATES`（该停了）、
+  `EXCLUSIVE_STATUSES`（占着项目）。
+- `finished_at` 只在真正停下后写；取消请求时**不写**。
+- 排队任务的取消由 `converge_pending_cancellations()` 收敛，否则永远停在 `cancelling`。
+- 恢复时不把 `cancelling` 改回 `running`，也不重跑已请求取消的编码。
+
+### 5.8 清理只动"自己的暂存"，且不跟随链接
+
+`staging_cleanup.cleanup_owned_staging()` 是正向白名单：只接受本项目工作区内、
+形状为 `staging-*` / `staging/<asset>/<token>` / `proxies/staging/<token>` 的目录。
+**绝不**跟随 symlink/junction —— 实测过一个跟随链接的实现会把项目外目录整个删掉。
+`shutil.rmtree(ignore_errors=True)` **不能**作为"清理已完成"的证据。
+
+### 5.9 终止媒体进程要回收整棵树
+
+`terminate()` 只作用于直接子进程，孙进程会存活。Windows 走 Job Object
+（`KILL_ON_JOB_CLOSE`），POSIX 走独立进程组信号。作用域仅限本次启动，
+**禁止** `/IM`、`pkill`、`killall` 这类全局终止。
+
 ---
 
 ## 六、关于"验收"的诚实要求
@@ -205,11 +235,14 @@ TSB-253：协作式取消只在**条目之间**检查，正在跑的 FFmpeg 会�
 这是本项目最重要的一条纪律（C8）：
 
 - **CI 全绿只证明自动化与合成素材路径通过**，不构成实机验收证据。
-- 真机 + **8～10 段真实旅行素材**端到端验收（RT-18/19）与
-  60+ 视频 / 200GB 全量性能**尚未执行**，记录见
-  [docs/validation/v2.0.4/WINDOWS_REAL_FOOTAGE.md](docs/validation/v2.0.4/WINDOWS_REAL_FOOTAGE.md)。
+- 真机 + **8～10 段真实旅行素材**端到端验收与 60+ 视频 / 200GB 全量性能
+  **尚未执行**。最近一轮记录见
+  [docs/validation/v2.0.6/WINDOWS_REAL_FOOTAGE.md](docs/validation/v2.0.6/WINDOWS_REAL_FOOTAGE.md)
+  （v2.0.3/v2.0.4 的历史记录在同级目录）。
 - 在这些记录补齐前，**不得**宣称已满足真实素材发布门禁。
 - 不要用耗时外推 200GB 的性能结论。
+- 任务书要求的结论措辞：证据不足时写**「代码级整改通过，发布门禁未完成」**，
+  而不是「已修复」「已通过」。
 
 ---
 

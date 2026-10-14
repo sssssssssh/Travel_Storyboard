@@ -168,6 +168,86 @@ python -m pytest -q
 > 本机实测（`tools/probe_cancel_latency.py`）：同一 8 秒媒体命令，
 > 旧路径 8.44s 才返回，新路径 0.73s 即中止，回收 7.71s。
 
+### v2.0.6 新增（TSB-261 ~ TSB-264）
+
+`test_cancel_lifecycle.py`（14）—— 取消中状态与互斥状态机
+
+| 用例 | 任务 | 守护的行为 |
+| --- | --- | --- |
+| `::test_cancelling_is_non_terminal_and_exclusive` | TSB-261 | `cancelling` 既非终态、又在互斥集合内；`ACTIVE_STATUSES` 仍只含 `pending/running` |
+| `::test_cancelling_is_not_treated_as_runnable` | TSB-261 | `cancelling` **不得**被改回 `running` |
+| `::test_cancel_while_running_enters_cancelling` | TSB-261 | **原缺陷**：取消只请求，不直接跳终态；不提前写 `finished_at` |
+| `::test_new_exclusive_job_is_rejected_while_cancelling` | TSB-261 | **原缺陷**：旧任务真正退出前，新互斥任务必须 409 且不建行 |
+| `::test_exclusive_jobs_allowed_after_the_worker_really_stops` | TSB-261 | worker 退出后恢复正常受理（TC-02） |
+| `::test_pending_job_cancelled_before_it_runs_converges` | TSB-261 | 未调度的取消不会永远停在 `cancelling`（TC-03） |
+| `::test_repeated_cancel_is_idempotent` | TSB-261 | 重复取消幂等返回 200/cancelling（TC-04） |
+| `::test_concurrent_cancels_produce_one_clean_terminal_state` | TSB-261 | 6 线程并发取消只有一个干净终态（TC-04） |
+| `::test_cancel_of_a_finished_job_keeps_its_terminal_state` | TSB-261 | 终态不可变，迟到取消 409（任务书 §2.5） |
+| `::test_natural_success_is_not_overwritten_by_a_cancel` | TSB-261 | 成功与取消竞争时终态唯一（TC-05） |
+| `::test_cancelled_job_does_not_get_a_failure_entry` | TSB-261 | 取消不污染失败清单（TC-06） |
+| `::test_recovery_does_not_rerun_a_cancelling_job` | TSB-261 | 重启不重跑已请求取消的任务（TC-10） |
+| `::test_recovery_still_resumes_genuinely_interrupted_jobs` | TSB-261 | 无回归：`pending/running` 仍被重新派发 |
+| `::test_another_project_is_unaffected_by_a_cancelling_job` | TSB-261 | 互斥是项目级，B 不受 A 取消影响（TC-08） |
+
+`test_cancel_cleanup.py`（21）—— 暂存资源必达清理
+
+| 用例 | 任务 | 守护的行为 |
+| --- | --- | --- |
+| `::test_cleanup_removes_a_task_owned_stage` | TSB-262 | 本任务暂存被真正删除 |
+| `::test_cleanup_is_idempotent_on_a_missing_stage` | TSB-262 | 重复清理不误报失败 |
+| `::test_cleanup_refuses_the_workspace_root` | TSB-262 | 拒绝项目工作区根 |
+| `::test_cleanup_refuses_published_directories` | TSB-262 | 拒绝 `frames/proxies/roughcut/packages`（TC-13） |
+| `::test_cleanup_refuses_a_path_outside_the_project` | TSB-262 | 拒绝项目外路径 |
+| `::test_cleanup_refuses_the_data_root_and_user_source_dir` | TSB-262 | 拒绝数据目录与素材目录 |
+| `::test_cleanup_allows_analyzer_staging_pattern` | TSB-262 | `staging/<asset>/<token>` 合法 |
+| `::test_cleanup_allows_proxies_staging_pattern` | TSB-262 | `proxies/staging/<token>` 合法 |
+| `::test_cleanup_reports_failure_instead_of_swallowing_it` | TSB-262 | 清理失败可观测、可重试；**不**用 `ignore_errors` 当证据（TC-17） |
+| `::test_cleanup_result_carries_traceable_details` | TSB-262 | 结果含残留路径/字节/重试标记 |
+| `::test_count_tree_measures_before_deleting` | TSB-262 | 统计不修改文件 |
+| `::test_cancelled_roughcut_removes_its_staging` | TSB-262 | **原缺陷**：取消粗剪回收暂存（TC-11/12） |
+| `::test_failed_roughcut_removes_its_staging` | TSB-262 | 失败路径同样回收 |
+| `::test_roughcut_staging_is_cleaned_on_the_success_path_too` | TSB-262 | 无回归：成功路径照常发布并清理 |
+| `::test_stale_roughcut_output_survives_a_cancelled_rerun` | TSB-262 | **不**删除历史正式产物（TC-12） |
+| `::test_cancelled_detection_does_not_leak_frame_staging` | TSB-262 | 取消抽帧回收暂存（TC-14） |
+| `::test_cleanup_handles_deep_staging_paths` | TSB-262 | ≥270 字符 stage **真的**被删除（TC-18） |
+| `::test_cleanup_counts_deep_staging_bytes` | TSB-262 | 深路径字节统计正确 |
+| `::test_cleanup_refuses_a_symlink_pointing_outside` | TSB-262 | **严重**：链接逃逸时外部数据绝不被删（TC-20） |
+| `::test_cleanup_accounting_matches_what_actually_disappeared` | TSB-262 | 计数反映真实消失量 |
+| `::test_staging_is_cleaned_before_the_job_reports_cancelled` | TSB-262 | 清理先于终态与释放互斥 |
+
+`test_media_process_tree.py`（10）—— 进程树定向终止
+
+| 用例 | 任务 | 守护的行为 |
+| --- | --- | --- |
+| `::test_tree_harness_really_creates_a_grandchild` | TSB-263 | 守卫测试本身有效：链路是真实存活的两个进程 |
+| `::test_cancel_kills_the_whole_descendant_tree` | TSB-263 | **原缺陷**：取消回收父**与孙**进程（TC-21/22） |
+| `::test_cancel_reports_only_after_the_tree_is_stopped` | TSB-263 | 报告取消时树已确实停止 |
+| `::test_timeout_also_reclaims_the_tree` | TSB-263 | 超时同样回收（TC-23） |
+| `::test_parent_exiting_first_still_reclaims_the_grandchild` | TSB-263 | 父进程先退出仍回收孙进程（区分真进程树回收） |
+| `::test_cancelling_one_run_leaves_an_unrelated_run_alone` | TSB-263 | 不误杀并发任务（TC-22） |
+| `::test_cancel_between_polls_still_reclaims_late_descendants` | TSB-263 | 迟到的后代也被回收 |
+| `::test_terminate_errors_do_not_leave_the_tree_running` | TSB-263 | `terminate()` 抛异常仍不留活进程 |
+| `::test_grace_period_is_short_enough_to_be_useful` | TSB-263 | 宽限期上限 |
+| `::test_no_global_name_based_kill_is_used` | TSB-263 | **静态守卫**：禁用 `/IM`、`pkill`、`killall` |
+
+`test_cancel_recovery.py`（10）—— 回归矩阵与端到端一致性
+
+| 用例 | 任务 | 守护的行为 |
+| --- | --- | --- |
+| `::test_job_list_reports_cancelling_and_the_blocking_job` | TSB-264 | HTTP 列表暴露 `cancelling` 与阻塞对象（TC-24） |
+| `::test_single_job_endpoint_matches_the_list` | TSB-264 | 单任务接口与列表一致（TC-24） |
+| `::test_cancelled_run_preserves_ratings_notes_trims_and_plan` | TSB-264 | 评分/备注/裁剪/计划/检测边界全保留（TC-25） |
+| `::test_rerun_after_a_cancel_still_works_and_keeps_user_state` | TSB-264 | 取消后可重跑且人工状态不丢（TC-25） |
+| `::test_cancelled_scan_preserves_checkpoints` | TSB-264 | 取消保留断点，下次可续跑（TC-25） |
+| `::test_multiple_projects_cancel_concurrently_without_deadlock` | TSB-264 | 多项目并发取消不死锁（TC-26） |
+| `::test_queued_job_beyond_the_pool_is_cancelled_without_running` | TSB-264 | 超出线程池的排队任务取消后收敛且不执行（TC-03/26） |
+| `::test_interleaved_create_and_cancel_across_projects` | TSB-264 | 反复创建/取消不重复派发（TC-26） |
+| `::test_artifacts_are_not_cross_deleted_between_projects` | TSB-264 | 跨项目产物不被误删（TC-26） |
+| `::test_repeat_request_stays_blocked_until_cleanup_finishes` | TSB-264 | 阻断持续到**清理完成**而非点击瞬间（TC-29） |
+
+> **测试纪律**：并发用 `Event`/`Barrier` 等可观察条件同步，不用 `sleep` 当竞争验证。
+> 状态机、清理、进程树三项均做反向验证：撤去保护后对应用例立即失败（记录见发布文档）。
+
 ---
 
 ## 二、手动回归（需要 FFmpeg + 真实素材）
@@ -197,8 +277,14 @@ python -m pytest -q
 | T19 | OTIO 可导入 | 导出 OTIO → 在 DaVinci Resolve / Premiere（如支持）中导入 | 镜头数与时长与 CSV/JSON 一致；若 NLE 不支持请记录版本 |
 | T20 | 取消**及时**生效 | 对一段较长素材生成代理（或跑粗剪），在编码进行中点「取消」，同时用任务管理器观察 `ffmpeg.exe` | `ffmpeg.exe` 在数秒内退出（不再跑完整个片段）；任务为 `cancelled` 而非 `failed`；项目锁被释放，可立即提交新任务 |
 | T21 | 并发取消不误伤 | 分别在两个项目各起一个长任务，只取消其中一个 | 只有被取消的那个进程退出；另一个任务继续正常完成 |
+| T22 | 取消窗口与互斥 | 长任务编码中点「取消」，**立刻**再点同一重活 | 取消后到进程真正退出前，新任务返回 **409** 且带阻塞任务类型与 ID；旧任务终态为 `cancelled` 后才返回 202；不能只把新任务排队 |
+| T23 | 取消后暂存与历史产物 | 取消粗剪/代理/检测后检查工作区 | 本任务 `staging-*`（或 `staging/<asset>/<token>`、`proxies/staging/<token>`）已清空；**历史**已发布的 `roughcut.mp4` / 代理 / 收藏 / 裁剪 / 计划引用原样保留 |
+| T24 | 深路径暂存回收 | 在工作区路径 ≥270/320 字符处跑一次任务并取消 | 文件与子目录**实际**删除（不是仅 API 返回成功）；界面/日志可见残留字节时能定位 |
+| T25 | 链接逃逸防护 | 在工作区内放一个指向工作区**外**的目录链接（junction/symlink），置于待清理的暂存目录下，再触发清理 | 链接目标内容**绝不**被删除；结果给出可追踪的拒绝或残留记录 |
 
 > T06/T08 结束后请确认 `<项目工作区>/staging/` 下没有遗留目录。
+> T22–T25 是 v2.0.6 新增的手动项，对应 TSB-261/262/263；自动化已用合成命令覆盖等价场景，
+> 但真实素材上的**实际时延**与用户体感仍需实机确认。
 
 ---
 

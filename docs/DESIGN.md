@@ -245,20 +245,97 @@ Windows 在未启用 `LongPathsEnabled` 时限制路径为 260 字符。危险�
 
 - `runner.py` 维护进程内线程池（`ThreadPoolExecutor(max_workers=max_concurrency)`），
   线程池关闭后可重建，便于测试与多次 lifespan。
-- Job 状态机：`pending → running → succeeded / partial_failed / failed / cancelled`。
-  - `partial_failed`：任务本身跑完，但有逐项失败（`failures` 记录 kind/ref/message）。
-  - `cancelled`：通过 `POST /api/jobs/{id}/cancel` 触发，任务内的 `raise_if_cancelled()` 生效。
 - 同一项目内 `scan`/`detect`/`package`/`proxies`/`roughcut` 互斥，重复提交返回 409。
   - 创建逻辑统一在 `services/job_service.create_project_job()`，`/jobs/{job_type}` 与
     `/review-requests/proxies` 共用，不存在绕过互斥的第二条路径。
-  - 「检查是否已有活跃任务」与「INSERT」在同一个 `BEGIN IMMEDIATE` 事务内完成。
-    仅靠进程内 `RLock` 或前端禁用按钮都不够：两个请求可在检查与提交之间交错。
+  - 互斥是**两层**的（TSB-261）：先非阻塞获取 worker 持有的同一个 `project_lock`
+    （拿不到即 409，并带出阻塞任务的类型与 ID），再在 `BEGIN IMMEDIATE` 内检查并插入。
+    仅有数据库检查挡不住「worker 已提交终态但尚未释放锁」的窗口；仅有内存锁挡不住
+    另一个进程。**锁序固定为「先项目锁、后 DB 写事务」**，反向获取会与 runner 死锁。
   - 冲突返回 409，`detail` 含 `error_code=JOB_CONFLICT`、`active_job_type`、
     `active_job_id`；被拒绝的请求不留下 Job 行。
 - 每个文件/片段完成后更新 `stats` 与 `resume_token`；进程重启时 `resume_interrupted_jobs()`
   会把遗留的 `pending`/`running` 任务重新派发。
 - 抽帧先写独立 `staging/<asset>/<run_id>/`，验证后发布新版本、提交 DB，再回收旧版无引用 JPEG；检测按素材签名 +
   算法/配置指纹跳过未变化的素材。
+
+### 8.1 任务状态机（TSB-261 固化）
+
+取消请求与「已取消」不是同一件事：worker 可能仍在编码、仍持有项目锁、暂存尚未回收。
+把它们混为一谈会让项目在旧任务真正停止前就显得空闲，从而接受新的互斥任务。因此引入
+**非终态** `cancelling`。
+
+```
+pending ──worker 开始且无取消──► running ──► succeeded / partial_failed / failed
+   │                                 │
+   └────────用户取消请求──────────────┴──► cancelling ──worker 退出且清理完成──► cancelled
+```
+
+| 当前状态 | 事件 | 下一状态 | 要点 |
+|---|---|---|---|
+| `pending` | worker 开始且无取消 | `running` | CAS，仅允许从 `pending` 迁移 |
+| `pending` / `running` | 用户取消请求 | `cancelling` | 立即反馈，**不**写 `finished_at`，仍互斥 |
+| `cancelling` | worker 未启动 | `cancelled` | 无编码，由 `converge_pending_cancellations()` 安全收尾 |
+| `cancelling` | worker 退出且清理完成 | `cancelled` | **此时**才写 `finished_at` |
+| `pending` / `running` | 正常结束 | `succeeded` / `partial_failed` / `failed` | 仅合法迁移 |
+| `cancelling` | 重启恢复 | `cancelled` | 不再转 `running`，不重跑编码 |
+| 任一终态 | 再次取消 | 原终态 | 终态不可变，按既定接口返回 409 |
+
+状态集合的定义（三者**不可混用**）：
+
+| 集合 | 成员 | 用途 |
+|---|---|---|
+| `ACTIVE_STATUSES` | `pending`, `running` | 可迁移到 `running` 的状态；worker 启动前的取消检查 |
+| `CANCEL_REQUESTED_STATES` | `cancelling`, `cancelled` | `is_cancelled()` / `raise_if_cancelled()` / `cancel_check_for()`：取消一落地媒体层就应停 |
+| `EXCLUSIVE_STATUSES` | `pending`, `running`, `cancelling` | 互斥判定：正在停止的任务仍占用项目 |
+| `TERMINAL_STATUSES` | `succeeded`, `partial_failed`, `failed`, `cancelled` | 不可再迁移 |
+
+**终态唯一性**：`cancelling → cancelled` 用 CAS（`expected_statuses=(cancelling,)`）完成。
+成功与取消竞争时，先写入者胜出，后者不覆盖；`finished_at` 只由 worker 在真正停下后写入。
+
+**恢复策略**：启动时先 `converge_pending_cancellations()` 再 `resume_interrupted_jobs()`。
+此时旧进程已确证退出，遗留 `cancelling` 行没有任何 worker 会收尾，必须收敛为 `cancelled`，
+否则项目会被永久锁住。`resume_interrupted_jobs()` 只认 `ACTIVE_STATUSES`，因此**不会**
+把 `cancelling` 改回 `running`，也不会重跑已请求取消的编码。
+
+**清理先于释放**：任务的 `try/finally` 在返回前回收自己的暂存（见 §8.2），
+`_run()` 在其后才结算状态并释放项目锁。因此 UI 显示 `cancelled` 时，
+编码进程与暂存资源都已处理完毕。
+
+### 8.2 暂存资源的必达清理（TSB-262）
+
+每个任务用唯一 stage token 建立清理责任边界，整个「建 stage → 编码/抽帧 → 验证 →
+发布/提交」流程包在覆盖取消、超时、异常的 `try/finally` 中。
+
+`services/staging_cleanup.cleanup_owned_staging()` 采用**正向白名单**，不猜测：
+
+1. 解析后必须是真实目录，且**严格**位于本项目工作区内（工作区根本身拒绝）；
+2. 形状必须是 `staging/<asset>/<token>`、`proxies/staging/<token>` 或
+   `roughcut/staging-*` —— 而不是正式产物目录；
+3. 不进入任何 reparse point（symlink / junction）；链接本身单独 unlink，
+   目标绝不被删除 —— 否则一个误放的链接就能把删除操作引到项目之外。
+
+其余情况返回 `STAGING_NOT_OWNED`。返回值 `CleanupResult` 记录
+`removed_files` / `removed_bytes` / `residual_paths` / `retryable`，
+失败记 `CLEANUP_FAILED` 并可写入 `job.stats['cleanup']` 供排查。
+**不接受** `shutil.rmtree(ignore_errors=True)` 作为「清理已完成」的证据：它无法区分
+成功与失败。计数按清理后**实测残留**计算，而不是按哪次调用抛了异常。
+
+### 8.3 媒体进程树终止（TSB-263）
+
+`run(..., cancel_check=...)` 需要能停掉**整棵**进程树，而不只是直接子进程。
+
+- Windows：为每个媒体进程创建独立的 Job Object 并设置
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`。后代自动成为成员，关闭句柄即回收全树 ——
+  包括父进程已先退出的情况（这正是单点 `terminate()` 处理不了的那类）。
+  环境不允许嵌套 Job 时降级为进程组信号，不影响主流程。
+- POSIX：子进程 `setsid` 独立成组，对该组发 `SIGTERM`，宽限期后升级 `SIGKILL`。
+  组号在 spawn 时记录，避免子进程被回收后读到被复用的组号。
+- 两条路径最后都 `_reap()` 直接子进程，不留僵尸，并确保管道句柄回收。
+
+**范围限定**：作用域仅限本次启动的进程组 / Job。**禁止**按进程名或全局终止
+（`taskkill /IM`、`pkill`、`killall`），否则会杀掉其他项目的并发编码 ——
+该规则由 `test_no_global_name_based_kill_is_used` 静态守卫。
 
 ## 9. API 一览
 
