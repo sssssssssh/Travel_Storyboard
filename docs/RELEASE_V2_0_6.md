@@ -152,7 +152,7 @@ concat 与发布之后 —— 取消、超时、「没有产出任何片段」�
 
 ### 5.1 CI 结果（已验证）
 
-主线 `${HEAD}` 对应的 GitHub Actions **7/7 全部成功**：
+主线 HEAD 对应的 GitHub Actions **7/7 全部成功**：
 
 | 作业 | 结果 |
 | --- | --- |
@@ -162,7 +162,15 @@ concat 与发布之后 —— 取消、超时、「没有产出任何片段」�
 | Required FFmpeg (windows-latest) | ✅ |
 | Frontend | ✅ |
 
-> 提交 `7e2fb7d` 的运行：<https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38540406730>
+验证过的运行：
+
+- 代码 SHA `7e2fb7d`（TSB-261~264 + 媒体清单扩充 + skip 守卫修复）：
+  <https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38540406730>
+- 最终 HEAD `f95632b`（含文档收尾）：
+  <https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38541413321>
+
+> 两次均含 `Required FFmpeg (ubuntu-latest)`。该作业此前因平台 skip 被误判而失败，
+> 见 §5.2 —— 修复前后各有一个成功运行作为对照。
 
 ### 5.2 CI 发现并修复的缺陷：平台 skip 被误判为失败
 

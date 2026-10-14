@@ -29,9 +29,11 @@ tests=456  failures=0  errors=0  skipped=0  time=~165s
 
 ## CI 结果（跨平台）
 
-主线 `7e2fb7d` 的 GitHub Actions **7/7 成功**：
+主线 `7e2fb7d` 与最终 HEAD `f95632b` 的 GitHub Actions **均为 7/7 成功**：
 Backend（3.11/3.13 × Ubuntu/Windows）、Required FFmpeg（Ubuntu/Windows）、Frontend。
-运行链接：<https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38540406730>
+
+- `7e2fb7d`：<https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38540406730>
+- `f95632b`：<https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38541413321>
 
 **Ubuntu 媒体作业曾失败并被修复**：把深路径套件加入该作业后，其 Linux 合法 skip
 （原因 `"MAX_PATH only constrains Windows"`）未被 `_EXPECTED_SKIP_REASONS` 识别，
