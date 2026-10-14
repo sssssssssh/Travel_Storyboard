@@ -10,13 +10,22 @@ Strategy (doc §1.3 B1-B3):
 
 from __future__ import annotations
 
+import logging
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
 
-from ..ffmpeg import locate_ffmpeg, run
+from ..ffmpeg import (
+    ERR_MEDIA_UNREADABLE,
+    FFmpegError,
+    locate_ffmpeg,
+    long_path,
+    run,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -40,17 +49,27 @@ def _extract_sample_frames(
     width: int,
     tmpdir: str,
 ) -> list[tuple[float, Path]]:
-    pattern = str(Path(tmpdir) / "f_%06d.jpg")
+    """Sample frames into *tmpdir*; raises when the extraction produced nothing.
+
+    Both the -i input and the output pattern go through ``long_path`` so a deep
+    Windows workspace behaves like a shallow one. The previous version ignored
+    FFmpeg's exit code and returned an empty list, which downstream turned into
+    a confident "single shot" result — a silent success on a failed extraction.
+    """
+    directory = Path(tmpdir)
+    # The %06d pattern must stay in the *raw* path: FFmpeg expands it, and
+    # prefixing is applied by long_path() without touching the pattern itself.
+    pattern = str(directory / "f_%06d.jpg")
     cmd = [
         locate_ffmpeg(),
         "-y",
-        "-i", str(source),
+        "-i", long_path(source),
         "-vf", f"fps={sample_fps},scale={width}:-2",
         "-q:v", "5",
-        pattern,
+        long_path(pattern),
     ]
-    run(cmd)
-    files = sorted(Path(tmpdir).glob("f_*.jpg"))
+    run(cmd, expect_pattern=str(directory / "f_*.jpg"))
+    files = sorted(directory.glob("f_*.jpg"))
     return [(i / sample_fps, p) for i, p in enumerate(files)]
 
 
@@ -100,6 +119,33 @@ def _forced_splits(
     return forced
 
 
+def _read_image(path: Path):
+    """Read an image via bytes + ``cv2.imdecode``.
+
+    ``cv2.imread`` goes through the C file API and fails on Windows for long or
+    non-ASCII paths (and returns ``None`` without an exception). Reading the
+    bytes in Python and decoding in memory keeps behaviour identical on a deep
+    Chinese-named workspace.
+
+    Returns ``None`` only for a genuinely undecodable image.
+    """
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        try:
+            # Retry through the extended-length form for >MAX_PATH paths.
+            with open(long_path(path), "rb") as handle:
+                raw = handle.read()
+        except OSError:
+            return None
+    if not raw:
+        return None
+    import numpy as np
+
+    buffer = np.frombuffer(raw, dtype=np.uint8)
+    return cv2.imdecode(buffer, cv2.IMREAD_COLOR)
+
+
 def detect_segments(
     source: str | Path,
     duration_sec: float,
@@ -116,15 +162,34 @@ def detect_segments(
         samples = _extract_sample_frames(source, sample_fps, width, tmp)
         times: list[float] = []
         hists: list = []
+        unreadable = 0
         for t, p in samples:
-            img = cv2.imread(str(p))
+            img = _read_image(p)
             if img is None:
+                unreadable += 1
                 continue
             hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
             hist = cv2.calcHist([hsv], [0, 1], None, [32, 32], [0, 180, 0, 256])
             cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
             times.append(t)
             hists.append(hist.flatten())
+
+        # A frame we cannot decode is an error, not a reason to invent a single
+        # shot covering the whole clip. Report it so the caller fails visibly.
+        if samples and unreadable == len(samples):
+            raise FFmpegError(
+                f"抽取的 {len(samples)} 张抽样帧全部无法解码（路径或编码问题）：{source}",
+                code=ERR_MEDIA_UNREADABLE,
+            )
+        if unreadable:
+            # Some frames readable: detection still works, but say so — a partial
+            # read used to be completely invisible in the job record.
+            logger.warning(
+                "detector: %d/%d sampled frames could not be decoded for %s",
+                unreadable,
+                len(samples),
+                source,
+            )
 
         if len(times) < 2:
             return DetectionResult(

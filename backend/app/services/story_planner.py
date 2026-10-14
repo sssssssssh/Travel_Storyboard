@@ -33,7 +33,14 @@ from sqlalchemy import select
 
 from ..config import get_settings
 from ..database import begin_write, session_scope
-from ..ffmpeg import extract_preview, probe_media
+from ..ffmpeg import (
+    extract_preview,
+    probe_media,
+    safe_is_file,
+    safe_mkdir,
+    safe_replace,
+    safe_stat,
+)
 from ..models import Asset, Frame, Job, ReviewRequest, Segment
 from ..paths import project_cache_dir, rel_to_data, resolve_in_project
 from . import model_client
@@ -110,7 +117,7 @@ def proxies_task(job_id: str) -> None:
     # 36-char project id); a 69-char staging folder on top of that made ffmpeg
     # write a file the rest of the process could not see (WinError 3).
     staging = root / 'staging' / uuid.uuid4().hex[:12]
-    staging.mkdir(parents=True, exist_ok=True)
+    safe_mkdir(staging)
     done, failed, skipped_budget = prior_done, failures.total, 0
     total = prior_done + len(plan)
     total_bytes = sum(p['bytes'] for p in publications)
@@ -144,7 +151,7 @@ def proxies_task(job_id: str) -> None:
                 extract_preview(source_path, start, end - start, temp,
                                 width=get_settings().proxy_width, keep_audio=True)
                 raise_if_cancelled(job_id)
-                size = temp.stat().st_size
+                size = safe_stat(temp).st_size
                 media = probe_media(temp)
                 if size <= 0 or media.video.width <= 0 or not math.isfinite(media.duration_sec) or media.duration_sec <= 0:
                     raise ValueError('生成的预览不可读取')
@@ -173,7 +180,7 @@ def proxies_task(job_id: str) -> None:
                         raise ReviewValidationError('SOURCE_CHANGED', '编码期间源文件发生变化，旧预览已保留')
                     if review_revision(rr, asset, segment) != revision:
                         raise ReviewValidationError('REQUEST_CHANGED', '编码期间镜头或请求发生变化，请重新提交')
-                    temp.replace(final)
+                    safe_replace(temp, final)
                     rr.proxy_ref, rr.status = rel_to_data(final), 'proxied'
                     publication = {'request_id': req_id, 'path': rr.proxy_ref, 'bytes': size,
                                    'requested_duration_sec': end - start, 'output_duration_sec': media.duration_sec}
@@ -306,7 +313,7 @@ def _select_representative_frames(
                 path = resolve_in_project(project_id, frame.image_path)
             except ValueError:
                 continue
-            if not path.is_file():
+            if not safe_is_file(path):
                 continue
             picked.append({**meta, "frame_id": frame.id, "frame_time_sec": frame.time_sec, "path": path})
             break

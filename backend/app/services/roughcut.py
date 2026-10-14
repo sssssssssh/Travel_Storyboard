@@ -18,7 +18,17 @@ from sqlalchemy import select
 
 from ..config import get_settings
 from ..database import session_scope
-from ..ffmpeg import locate_ffmpeg, run
+from ..ffmpeg import (
+    locate_ffmpeg,
+    long_path,
+    run,
+    safe_is_file,
+    safe_mkdir,
+    safe_replace,
+    safe_stat,
+    safe_unlink,
+    safe_write_text,
+)
 from ..models import Asset, EditPlanShot, Job, Segment
 from ..paths import project_cache_dir, rel_to_data
 from .runner import JobFailures, raise_if_cancelled, register_task, update_job
@@ -27,6 +37,38 @@ logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 48000
 AUDIO_CHANNELS = 2
+
+
+def _write_concat_manifest(list_file: Path, clips: list[Path]) -> None:
+    """Write an ffconcat manifest that survives spaces, CJK and quotes.
+
+    Entry form is **single-quoted**, verified against this project's FFmpeg:
+    double quotes are NOT stripped by the concat demuxer — it looks for a file
+    literally named ``"C:/...`` and fails with "Impossible to open". An unquoted
+    entry breaks on the first space. So ``file '<path>'`` is the only form that
+    works for the paths this app produces.
+
+    Paths are written POSIX-style on purpose: ffconcat treats ``\\`` as an escape
+    character, so a native Windows path is silently mangled (``C:\\Users``
+    becomes ``C:Users``). FFmpeg accepts forward slashes on Windows.
+
+    Do NOT apply ``long_path()`` inside the manifest. The ``\\\\?\\`` prefix is
+    meaningful only on the ffmpeg *command line*; inside a manifest FFmpeg
+    resolves entries itself and rejects the prefixed form.
+
+    UTF-8 without a BOM: a BOM would corrupt the leading keyword.
+    """
+    lines = ["ffconcat version 1.0"]
+    for clip in clips:
+        raw = clip.as_posix()
+        escaped = raw.replace("'", "'\\''")
+        lines.append(f"file '{escaped}'")
+    safe_write_text(list_file, "\n".join(lines) + "\n")
+
+
+def _long_replace(src: Path, dst: Path) -> None:
+    """Backwards-compatible alias for the shared helper."""
+    safe_replace(src, dst)
 
 
 def _clamp_duration(shot: EditPlanShot, asset: Asset) -> float:
@@ -58,7 +100,7 @@ def _extract_normalized(source: str, start: float, dur: float, out: Path, has_au
         locate_ffmpeg(),
         "-y",
         "-ss", f"{start:.3f}",
-        "-i", source,
+        "-i", long_path(source),
     ]
     if not has_audio:
         # Give concat a uniform stream layout: silence of the same length.
@@ -85,9 +127,9 @@ def _extract_normalized(source: str, start: float, dur: float, out: Path, has_au
         "-crf", "23",
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
-        str(out),
+        long_path(out),
     ]
-    run(cmd)
+    run(cmd, expect_output=out)
 
 
 @register_task("roughcut")
@@ -112,10 +154,10 @@ def roughcut_task(job_id: str) -> None:
         pairs = [(sh, assets.get(sh.asset_id)) for sh in shots]
 
     work = project_cache_dir(project_id) / "roughcut"
-    work.mkdir(parents=True, exist_ok=True)
+    safe_mkdir(work)
 
     stage = work / ("staging-" + str(uuid.uuid4()))
-    stage.mkdir()
+    safe_mkdir(stage)
     clips: list[Path] = []
     total = len(pairs)
     done = 0
@@ -189,10 +231,7 @@ def roughcut_task(job_id: str) -> None:
         raise RuntimeError("No clips were produced for the rough cut")
 
     list_file = stage / "concat.txt"
-    with open(list_file, "w", encoding="utf-8") as f:
-        for c in clips:
-            escaped = c.as_posix().replace("'", "'\\''")
-            f.write(f"file '{escaped}'\n")
+    _write_concat_manifest(list_file, clips)
 
     # A rough cut missing shots must never look like the finished edit
     # (audit P1-08): the filename says so and the job ends partial_failed.
@@ -206,19 +245,20 @@ def roughcut_task(job_id: str) -> None:
             "-y",
             "-f", "concat",
             "-safe", "0",
-            "-i", str(list_file),
+            "-i", long_path(list_file),
             "-c", "copy",
-            str(temporary),
-        ]
+            long_path(temporary),
+        ],
+        expect_output=temporary,
     )
     raise_if_cancelled(job_id)
-    temporary.replace(out)
+    _long_replace(temporary, out)
     shutil.rmtree(stage, ignore_errors=True)
     # Drop any stale file from the other naming variant so /roughcut is unambiguous.
     stale = work / ("roughcut.mp4" if incomplete else "roughcut_INCOMPLETE.mp4")
-    if stale.exists():
+    if safe_is_file(stale):
         try:
-            stale.unlink()
+            safe_unlink(stale)
         except OSError:
             pass
 
@@ -226,7 +266,7 @@ def roughcut_task(job_id: str) -> None:
         job_id,
         resume_token={
             "path": rel_to_data(out),
-            "size": out.stat().st_size,
+            "size": safe_stat(out).st_size,
             "incomplete": incomplete,
             "shots_included": len(clips),
             "shots_total": total,

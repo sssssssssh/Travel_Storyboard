@@ -28,7 +28,14 @@ from sqlalchemy import delete, select
 
 from ..config import ANALYSIS_VERSION, get_settings
 from ..database import begin_write, session_scope
-from ..ffmpeg import extract_frame
+from ..ffmpeg import (
+    extract_frame,
+    safe_image_open,
+    safe_is_file,
+    safe_mkdir,
+    safe_replace,
+    safe_stat,
+)
 from ..models import Asset, EditPlanShot, Frame, Job, ReviewRequest, Segment, UserAnnotation, utcnow
 from ..paths import frames_dir, rel_to_data, resolve_in_project, staging_dir
 from .detector import detect_segments
@@ -171,7 +178,9 @@ def _apply_algorithm_result(row: Segment, result: Segment) -> bool:
 def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | None = None) -> dict:
     settings = settings or get_settings()
     source = asset.source_path
-    if not Path(source).exists():
+    # safe_is_file tolerates >MAX_PATH source paths (TSB-241): a deep file that
+    # FFmpeg can read must not be reported as "missing" here.
+    if not safe_is_file(source):
         raise RuntimeError(f"Source file missing: {source}")
 
     from .checkpoints import source_info, verify_source, verify_after_processing
@@ -215,8 +224,8 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
     # Create both directories here rather than relying on `extract_frame` to do
     # it: the frame extractor is replaceable (tests, future backends) and the
     # analysis step must not depend on that side effect.
-    stage.mkdir(parents=True, exist_ok=True)
-    work_dir.mkdir(parents=True, exist_ok=True)
+    safe_mkdir(stage)
+    safe_mkdir(work_dir)
 
     new_segments: list[Segment] = []
     new_frames: list[Frame] = []
@@ -267,9 +276,9 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
             # Re-assert the staging directory: the extractor is a replaceable
             # callable and a concurrent cleanup must never turn a missing
             # directory into a confusing mid-run failure.
-            stage_path.parent.mkdir(parents=True, exist_ok=True)
+            safe_mkdir(stage_path.parent)
             extract_frame(source, t, stage_path, width=settings.thumb_width)
-            with Image.open(stage_path) as im:
+            with safe_image_open(stage_path) as im:
                 im.load()
                 fw, fh = im.size
             metrics = analyze_frame(stage_path)
@@ -289,7 +298,7 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
                     is_representative=True,
                     width=fw,
                     height=fh,
-                    file_size_bytes=stage_path.stat().st_size,
+                    file_size_bytes=safe_stat(stage_path).st_size,
                 )
             )
             phash_pairs.append((segment.id, ph))
@@ -332,7 +341,7 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
         raise RuntimeError("Analysis produced no readable frames")
     if job_id:
         raise_if_cancelled(job_id)
-    work_dir.mkdir(parents=True, exist_ok=True)
+    safe_mkdir(work_dir)
     with session_scope() as s:
         previous_paths = [
             f.image_path
@@ -347,10 +356,10 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
     try:
         for name in sorted(produced):
             src = stage / name
-            if not src.is_file():
+            if not safe_is_file(src):
                 raise RuntimeError("Staged frame is missing")
-            src.replace(work_dir / name)
-            with Image.open(work_dir / name) as image:
+            safe_replace(src, work_dir / name)
+            with safe_image_open(work_dir / name) as image:
                 image.load()
         shutil.rmtree(stage, ignore_errors=True)
 
@@ -429,7 +438,7 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
         if candidate in kept:
             continue
         try:
-            if candidate.is_file() and candidate.parent == work_dir.resolve():
+            if safe_is_file(candidate) and candidate.parent == work_dir.resolve():
                 candidate.unlink()
                 freed += 1
         except OSError:
@@ -502,7 +511,7 @@ def detect_task(job_id: str) -> None:
             # Refresh duration/codec metadata too when an indexed source changed.
             # Legacy/mocked assets with no completed scan retain their old path.
             from .indexer import quick_fingerprint
-            stat = Path(asset.source_path).stat()
+            stat = safe_stat(asset.source_path)
             metadata_changed = (asset.file_size_bytes != stat.st_size
                                 or asset.mtime_ns != stat.st_mtime_ns
                                 or asset.quick_fingerprint != quick_fingerprint(Path(asset.source_path), stat.st_size))

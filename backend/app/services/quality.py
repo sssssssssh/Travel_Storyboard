@@ -6,7 +6,26 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image
+
+from ..ffmpeg import safe_image_open, safe_open
+
+
+def _imread_gray(path: str | Path):
+    """Read an image as grayscale without hitting cv2's path limits.
+
+    ``cv2.imread`` uses the C file API: it returns ``None`` (no exception) for
+    Windows paths that are long or non-ASCII. Reading bytes in Python and using
+    ``cv2.imdecode`` avoids that silent failure (TSB-241).
+    """
+    try:
+        with safe_open(path, "rb") as handle:
+            raw = handle.read()
+    except OSError:
+        return None
+    if not raw:
+        return None
+    buffer = np.frombuffer(raw, dtype=np.uint8)
+    return cv2.imdecode(buffer, cv2.IMREAD_GRAYSCALE)
 
 
 def analyze_frame(path: str | Path) -> dict:
@@ -16,7 +35,7 @@ def analyze_frame(path: str | Path) -> dict:
     - brightness: mean luma (0-255).
     - overexposed_ratio / underexposed_ratio: fraction of clipped pixels.
     """
-    img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+    img = _imread_gray(path)
     if img is None:
         return {
             "blur": 0.0,
@@ -38,7 +57,9 @@ def analyze_frame(path: str | Path) -> dict:
 
 def phash(path: str | Path, hash_size: int = 8) -> str:
     """Difference hash (dHash) as a binary string of length hash_size^2."""
-    img = Image.open(path).convert("L")
+    from PIL import Image
+
+    img = safe_image_open(path).convert("L")
     try:
         resample = Image.Resampling.LANCZOS
     except AttributeError:  # pragma: no cover - older Pillow

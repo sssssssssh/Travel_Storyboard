@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from ..database import session_scope
+from ..ffmpeg import safe_open, safe_stat
 from ..models import Job
 from .runner import raise_if_cancelled, update_job
 
@@ -46,11 +47,12 @@ def _signature(info: dict, full_sha256: str | None = None) -> str:
 def source_info(path: Path) -> dict:
     from .indexer import quick_fingerprint
     path = path.resolve()
-    before = path.stat()
+    # safe_stat tolerates >MAX_PATH source paths (TSB-241).
+    before = safe_stat(path)
     info = {'source': str(path), 'size': before.st_size, 'mtime_ns': before.st_mtime_ns,
             'identity': file_identity(before),
             'quick_fingerprint': quick_fingerprint(path, before.st_size)}
-    if file_identity(path.stat()) != info['identity']:
+    if file_identity(safe_stat(path)) != info['identity']:
         raise SourceChanged('源文件已变化：快速校验期间被修改，请再次扫描/检测')
     info['quick_signature'] = _signature(info)
     return info
@@ -65,7 +67,7 @@ def full_content_hash(path: Path, expected: dict, *, job_id=None, on_progress=No
     read = 0
     last_bytes, last_time = 0, time.monotonic()
     try:
-        with path.open('rb') as stream:
+        with safe_open(path, 'rb') as stream:
             if file_identity(os.fstat(stream.fileno())) != expected['identity']:
                 raise SourceChanged('源文件已变化：开始完整校验前被替换')
             while True:

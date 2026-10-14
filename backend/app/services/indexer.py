@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from ..config import ANALYSIS_VERSION, VIDEO_EXTENSIONS
 from ..database import session_scope
-from ..ffmpeg import probe_media
+from ..ffmpeg import probe_media, safe_is_file, safe_open, safe_stat
 from ..models import Asset, Job, Project, utcnow
 from .runner import JobFailures, raise_if_cancelled, register_task, update_job
 
@@ -31,7 +31,10 @@ def iter_video_files(roots: list[str], check_cancel=None):
             if check_cancel and number % 128 == 0:
                 check_cancel()
             try:
-                if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
+                if path.suffix.lower() not in VIDEO_EXTENSIONS:
+                    continue
+                # safe_is_file keeps deep (>MAX_PATH) files discoverable.
+                if not safe_is_file(path):
                     continue
             except OSError:
                 # An unreadable video still needs a manifest entry/failure. It
@@ -50,7 +53,9 @@ def quick_fingerprint(path: Path, size: int) -> str:
     h.update(str(size).encode("utf-8"))
     # Include sample offsets so the signature has an explicit sampling protocol.
     offsets = sorted({0, max(0, size // 2 - 32768), max(0, size - 65536)})
-    with open(path, "rb") as f:
+    # safe_open retries through the extended-length form so a >MAX_PATH source
+    # file is still fingerprinted (TSB-241).
+    with safe_open(path, "rb") as f:
         for offset in offsets:
             h.update(str(offset).encode("ascii"))
             f.seek(offset)
@@ -95,7 +100,9 @@ def index_one(project_id: str, path: Path, *, force: bool = False) -> tuple[str,
     leave a duplicate behind (audit P0-02).
     """
     path = path.resolve()
-    stat = path.stat()
+    # safe_stat tolerates >MAX_PATH source paths (TSB-241): a deep file FFmpeg can
+    # read must not look missing to the indexer.
+    stat = safe_stat(path)
     size = stat.st_size
     mtime = stat.st_mtime_ns
     fingerprint = quick_fingerprint(path, size)
@@ -136,7 +143,7 @@ def index_one(project_id: str, path: Path, *, force: bool = False) -> tuple[str,
             # while FFprobe runs. The stable Asset row and failure remain durable.
             with s.begin_nested():
                 _apply_probe_fields(asset, path, size, mtime)
-                if (file_identity(path.stat()) != file_identity(stat)
+                if (file_identity(safe_stat(path)) != file_identity(stat)
                         or quick_fingerprint(path, size) != fingerprint):
                     raise SourceChanged('源文件已变化：探测期间修改，请再次扫描/检测')
         except Exception as exc:  # noqa: BLE001 - per-file isolation

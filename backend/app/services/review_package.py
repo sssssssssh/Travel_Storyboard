@@ -39,7 +39,14 @@ from sqlalchemy import select, func
 
 from ..config import ANALYSIS_VERSION, APP_VERSION
 from ..database import begin_write, session_scope
-from ..ffmpeg import locate_ffmpeg
+from ..ffmpeg import (
+    locate_ffmpeg,
+    safe_image_open,
+    safe_is_file,
+    safe_mkdir,
+    safe_stat,
+    safe_unlink,
+)
 from ..models import Asset, Frame, Job, ReviewPackage, Segment
 from ..paths import project_cache_dir, rel_to_data, resolve_in_project
 from .review_validation import EPSILON_SEC, INVALID_SEGMENT_STATUSES, ReviewValidationError, validate_review, verified_source
@@ -65,6 +72,22 @@ def _tool_label() -> str:
     return Path(path).name if path else "unavailable"
 
 
+def _safe_save(image, path: Path, **kwargs) -> None:
+    """Save a Pillow image without hitting Windows' MAX_PATH limit."""
+    import io as _io
+
+    from ..ffmpeg import long_path
+
+    try:
+        image.save(path, **kwargs)
+        return
+    except (FileNotFoundError, OSError):
+        buffer = _io.BytesIO()
+        image.save(buffer, **kwargs)
+        with open(long_path(path), "wb") as handle:
+            handle.write(buffer.getvalue())
+
+
 def _sanitized_copy(src: Path, dst: Path, quality: int) -> None:
     """Decode *src* and write a clean JPEG to *dst*.
 
@@ -72,13 +95,13 @@ def _sanitized_copy(src: Path, dst: Path, quality: int) -> None:
     unless explicitly asked, and we never ask. ``Image.new`` guarantees the
     output has no ``info``/EXIF block even for an input that had one.
     """
-    with Image.open(src) as im:
+    with safe_image_open(src) as im:
         im = im.convert("RGB")
         if max(im.size) > MAX_FRAME_EDGE:
             im.thumbnail((MAX_FRAME_EDGE, MAX_FRAME_EDGE))
         clean = Image.new("RGB", im.size)
         clean.paste(im)
-    clean.save(dst, format="JPEG", quality=quality, optimize=True)
+    _safe_save(clean, dst, quality=quality)
 
 
 @dataclass
@@ -106,14 +129,14 @@ class _Budget:
     def add(self, path: Path) -> bool:
         """Record a written file. Returns False when the budget is exhausted."""
         try:
-            size = path.stat().st_size
+            size = safe_stat(path).st_size
         except OSError:
             size = 0
         if self.used_bytes + size > self.limit_bytes:
             self.truncated = True
             if self._is_owned(path):
                 try:
-                    path.unlink()
+                    safe_unlink(path)
                 except OSError:
                     pass
             return False
@@ -146,7 +169,7 @@ def _contact_sheet(
             break
         index, p = frame_files[i]
         try:
-            with Image.open(p) as raw:
+            with safe_image_open(p) as raw:
                 im = raw.convert("RGB")
             im.thumbnail((cell_w - 8, cell_h - 40))
         except OSError:
@@ -160,7 +183,7 @@ def _contact_sheet(
         draw.text((x + 8, y + cell_h - 34), first[:46], fill=(255, 224, 64))
         if second:
             draw.text((x + 8, y + cell_h - 18), second[:46], fill=(150, 200, 255))
-    sheet.save(out_path, format="JPEG", quality=88, optimize=True)
+    _safe_save(sheet, out_path, format="JPEG", quality=88, optimize=True)
 
 
 def _build_package(project_id: str, options: dict, job_id: str | None = None) -> dict:
@@ -225,8 +248,8 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
     pkg_dir = project_cache_dir(project_id) / "packages" / version
     frames_dir = pkg_dir / "frames"
     sheets_dir = pkg_dir / "contact_sheets"
-    frames_dir.mkdir(parents=True, exist_ok=True)
-    sheets_dir.mkdir(parents=True, exist_ok=True)
+    safe_mkdir(frames_dir)
+    safe_mkdir(sheets_dir)
     # From here on the budget may delete files it just wrote — but only inside
     # the package directory.
     budget.owned_dir = pkg_dir
@@ -257,7 +280,7 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
                 src = resolve_in_project(project_id, f.image_path)
             except ValueError:
                 continue
-            if not src.is_file():
+            if not safe_is_file(src):
                 continue
 
             name = f"{frame_index:04d}_{seg.id[:8]}_{int(round(f.time_sec * 1000)):08d}.jpg"
@@ -436,10 +459,12 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
     zip_path = project_cache_dir(project_id) / "packages" / f"{version}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for p in sorted(pkg_dir.rglob("*")):
-            if p.is_file():
+            if safe_is_file(p):
                 zf.write(p, p.relative_to(pkg_dir.parent))
 
-    total_size = sum(p.stat().st_size for p in pkg_dir.rglob("*") if p.is_file())
+    total_size = sum(
+        safe_stat(p).st_size for p in pkg_dir.rglob("*") if safe_is_file(p)
+    )
     rel_dir = rel_to_data(pkg_dir)
 
     result = {
