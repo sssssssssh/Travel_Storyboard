@@ -33,8 +33,28 @@ os.environ.pop("TRAVELSB_MODEL_API_KEY", None)
 
 _SKIPPED_REPORTS = []
 
+#: Skip reasons that mean "this platform genuinely cannot run the test", as
+#: opposed to "a required tool was missing". The media CI job sets
+#: TSB_REQUIRE_FFMPEG=1 to turn *silent* skips into failures; a test that is
+#: Windows-only (or OTIO-only) is legitimately skipped on other platforms and
+#: must not fail the run. Keep this list narrow and explicit.
+_EXPECTED_SKIP_REASONS = (
+    "long-path behaviour is Windows-specific",
+    "requires Windows",
+)
+
+
+def _is_expected_skip(report) -> bool:
+    """True when the skip is a platform fact rather than a missing dependency."""
+    longrepr = getattr(report, "longrepr", None)
+    if longrepr is None:
+        return False
+    text = str(longrepr)
+    return any(reason in text for reason in _EXPECTED_SKIP_REASONS)
+
+
 def pytest_runtest_logreport(report):
-    if report.skipped:
+    if report.skipped and not _is_expected_skip(report):
         _SKIPPED_REPORTS.append(report.nodeid)
 
 
@@ -42,6 +62,12 @@ def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ARG001
     """Drop the throwaway data directory once the run is over."""
     shutil.rmtree(_TEST_DATA_DIR, ignore_errors=True)
     if os.environ.get("TSB_REQUIRE_FFMPEG") == "1" and _SKIPPED_REPORTS:
+        # A missing FFmpeg (or a silently skipped integration test) is a real
+        # problem in the mandatory-media job; a platform-limited test is not.
+        print(
+            "TSB_REQUIRE_FFMPEG=1 but these tests skipped unexpectedly: "
+            + ", ".join(_SKIPPED_REPORTS)
+        )
         session.exitstatus = 1
 
 

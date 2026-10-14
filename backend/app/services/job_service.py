@@ -78,9 +78,13 @@ def _begin_immediate(session: Session) -> None:
     """Open a write transaction, tolerating an already-open one.
 
     ``BEGIN IMMEDIATE`` errors if SQLAlchemy already started a transaction (which
-    happens as soon as a SELECT runs). In that case the connection is already
-    holding a read transaction, and issuing the write below will upgrade it —
-    so the check-and-insert is still serialized by SQLite's writer lock.
+    happens as soon as a SELECT runs). SQLite will not nest them, so the existing
+    transaction is rolled back and reopened as a write transaction.
+
+    Callers must therefore not hold uncommitted work in *session* when calling
+    :func:`create_project_job` — the rollback would discard it. Both current
+    entry points only read before calling; this note exists so a future caller
+    does not silently lose writes.
     """
     try:
         session.execute(text("BEGIN IMMEDIATE"))
@@ -102,6 +106,8 @@ def create_project_job(
     ``config_builder(project, request) -> dict`` supplies the type-specific
     config snapshot. Raises ``InvalidJobType``, ``ProjectNotFound`` or
     ``JobConflict``; the caller maps those to HTTP responses.
+
+    ``db`` must not carry uncommitted work (see :func:`_begin_immediate`).
     """
     if request.job_type not in VALID_JOB_TYPES:
         raise InvalidJobType(

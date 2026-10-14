@@ -98,6 +98,22 @@ def test_all_documented_types_are_valid():
     assert VALID_JOB_TYPES == set(HEAVY)
 
 
+def test_begin_immediate_reopens_an_already_open_transaction(client, project):
+    """A SELECT-opened transaction must still end up holding the write lock.
+
+    ``BEGIN IMMEDIATE`` cannot nest, so the helper rolls back and retries. This
+    asserts the retry succeeds rather than raising, and that the insert that
+    follows is visible — i.e. the check-and-insert really is serialized.
+    """
+    from app.services.job_service import _begin_immediate
+
+    with session_scope() as s:
+        s.execute(select(Job).limit(1))  # opens an implicit transaction
+        _begin_immediate(s)              # must not raise
+        s.add(Job(project_id=project["id"], job_type="detect"))
+    assert _count_jobs(project["id"]) == 1
+
+
 # --------------------------------------------------------------------------
 # Exclusivity on the generic endpoint
 # --------------------------------------------------------------------------
