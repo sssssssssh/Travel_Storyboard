@@ -244,6 +244,50 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class StateConvergenceError(RuntimeError):
+    """Bounded finalization failed; the DB still owns the exclusivity claim."""
+    code = "STATE_CONVERGENCE_FAILED"
+
+
+def finalize_job(job_id: str, outcome: str, *, error: str = "",
+                 allow_pending: bool = False) -> str:
+    """Publish one monotonic terminal state after the task's finally returned.
+
+    The committed row decides the winner, including a cancel between the read
+    and CAS. A lost CAS always re-reads; terminal rows never get new timestamps.
+    """
+    if outcome not in TERMINAL_STATUSES:
+        raise ValueError(f"Invalid terminal outcome: {outcome}")
+    try:
+        for _ in range(4):
+            current = job_status(job_id)
+            if current in TERMINAL_STATUSES:
+                return current
+            if current == STATUS_CANCELLING or (
+                outcome == STATUS_CANCELLED and current in ACTIVE_STATUSES
+            ):
+                target, message = STATUS_CANCELLED, error
+            elif current == STATUS_RUNNING or (allow_pending and current == STATUS_PENDING):
+                target, message = outcome, error
+            else:
+                continue
+            if update_job(job_id, expected_statuses=(current,), status=target,
+                          finished_at=_now(), error=message):
+                return target
+        # The last failed CAS might itself have lost to a legitimate terminal.
+        current = job_status(job_id)
+        if current in TERMINAL_STATUSES:
+            return current
+        raise StateConvergenceError(f"{job_id}: unresolved state {current}")
+    except Exception as exc:
+        logger.error("STATE_CONVERGENCE_FAILED job_id=%s; DB release unconfirmed",
+                     job_id, extra={"error_code": "STATE_CONVERGENCE_FAILED", "job_id": job_id},
+                     exc_info=True)
+        if isinstance(exc, StateConvergenceError):
+            raise
+        raise StateConvergenceError(f"{job_id}: database finalization unavailable") from exc
+
+
 class JobRunner:
     def __init__(self) -> None:
         self._executor: ThreadPoolExecutor | None = None
@@ -277,8 +321,8 @@ class JobRunner:
                 job_type = job.job_type
             task = TASK_REGISTRY.get(job_type)
             if task is None:
-                update_job(job_id, status=STATUS_FAILED, finished_at=_now(),
-                           error=f"Unknown job type: {job_type}")
+                finalize_job(job_id, STATUS_FAILED, allow_pending=True,
+                             error=f"Unknown job type: {job_type}")
                 return
             self._futures[job_id] = self._pool().submit(self._run, job_id, task)
 
@@ -319,76 +363,35 @@ class JobRunner:
                 return
             if not update_job(job_id, status=STATUS_RUNNING, started_at=_now(),
                               error="", finished_at=None):
+                if job_status(job_id) == STATUS_CANCELLING:
+                    self._settle_cancelled(job_id, started=False)
+                    clear_active_job_type(job_id)
                 return
-            cancelled = False
+            outcome, error = STATUS_SUCCEEDED, ""
             try:
                 task(job_id)
+                with session_scope() as s:
+                    row = s.get(Job, job_id)
+                    count = int((row.failures or {}).get("count", 0)) if row else 0
+                if count:
+                    outcome = STATUS_PARTIAL
+                    error = f"{count} item(s) failed; see job.failures"
             except JobCancelled:
-                cancelled = True
+                outcome = STATUS_CANCELLED
             except Exception as exc:
-                # A media process killed by its own cancel callback is a
-                # cancellation, not a failure (TSB-253).
                 if getattr(exc, "code", None) == "CANCELLED":
-                    cancelled = True
+                    outcome = STATUS_CANCELLED
                 else:
                     logger.exception("Job %s failed", job_id)
-                    # A genuine failure must not overwrite a cancel the user
-                    # asked for; only settle `failed` if no cancel is pending.
-                    if not is_cancelled(job_id):
-                        update_job(job_id, status=STATUS_FAILED, error=str(exc),
-                                   finished_at=_now())
-                    else:
-                        cancelled = True
+                    outcome, error = STATUS_FAILED, str(exc)
             finally:
-                # Any cancel requested *during* the run is settled here, after the
-                # task body has returned — i.e. after its staging cleanup ran.
-                if not cancelled and is_cancelled(job_id):
-                    cancelled = True
-                if cancelled:
-                    self._settle_cancelled(job_id, started=True)
-                else:
-                    with session_scope() as s:
-                        job = s.get(Job, job_id)
-                        count = int((job.failures or {}).get("count", 0)) if job else 0
-                    # A cancel that landed while we were computing the outcome
-                    # must still win: re-check before publishing success.
-                    if is_cancelled(job_id):
-                        self._settle_cancelled(job_id, started=True)
-                    else:
-                        update_job(
-                            job_id,
-                            status=STATUS_PARTIAL if count else STATUS_SUCCEEDED,
-                            finished_at=_now(),
-                            error=f"{count} item(s) failed; see job.failures" if count else "",
-                        )
+                # Task finally blocks (including owned staging cleanup) have
+                # completed. Converge every outcome before releasing this lock.
+                finalize_job(job_id, outcome, error=error)
                 clear_active_job_type(job_id)
 
     def _settle_cancelled(self, job_id: str, *, started: bool) -> None:
-        """Move ``cancelling`` -> ``cancelled`` and stamp ``finished_at``.
-
-        Called only once the worker has left the task body, so the timestamp
-        means "the process actually stopped and cleanup finished" rather than
-        "the user clicked cancel". CAS-guarded: never rewrites a terminal state
-        that was already settled (for example a success that won the race).
-        """
-        if update_job(job_id, status=STATUS_CANCELLED, finished_at=_now(),
-                      expected_statuses=(STATUS_CANCELLING,)):
-            return
-        # No `cancelling` row: either it is already cancelled, or the run ended
-        # as a legitimate terminal state before the request was recorded.
-        status = job_status(job_id)
-        if status == STATUS_CANCELLED:
-            return
-        if status in TERMINAL_STATUSES:
-            logger.info(
-                "Job %s cancel ignored: already settled as %s", job_id, status
-            )
-            return
-        # Still pending/running (e.g. cancel raced the status write). The user
-        # asked for this job to stop, so settle it as cancelled from running.
-        if not update_job(job_id, status=STATUS_CANCELLED, finished_at=_now(),
-                          expected_statuses=ACTIVE_STATUSES):
-            logger.warning("Job %s could not be settled as cancelled", job_id)
+        finalize_job(job_id, STATUS_CANCELLED, allow_pending=not started)
 
     def shutdown(self) -> None:
         if self._executor is not None:
@@ -424,8 +427,7 @@ def converge_pending_cancellations() -> list[str]:
     for job_id in candidates:
         # No worker is attached to a queued cancelling row, so settling it here
         # is the whole cleanup: nothing was encoded and no staging was created.
-        if update_job(job_id, status=STATUS_CANCELLED, finished_at=_now(),
-                      expected_statuses=(STATUS_CANCELLING,)):
+        if finalize_job(job_id, STATUS_CANCELLED) == STATUS_CANCELLED:
             settled.append(job_id)
             logger.info("Settled orphaned cancelling job %s as cancelled", job_id)
     return settled
@@ -453,8 +455,8 @@ def resume_interrupted_jobs() -> list[str]:
     queues: dict[str, list[str]] = {}
     for job_id, job_type, project_id in candidates:
         if job_type not in TASK_REGISTRY:
-            update_job(job_id, status=STATUS_FAILED, finished_at=_now(),
-                       error=f"Unknown job type: {job_type}")
+            finalize_job(job_id, STATUS_FAILED, allow_pending=True,
+                         error=f"Unknown job type: {job_type}")
             continue
         if not update_job(job_id, status=STATUS_PENDING, error="", started_at=None,
                           finished_at=None):
