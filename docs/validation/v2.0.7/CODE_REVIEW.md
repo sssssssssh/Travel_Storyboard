@@ -4,7 +4,7 @@
 本文件为本轮实施者的定向复核记录，不冒称另一个独立审查者或真实素材验收。
 
 - Runner：各 task 分支汇总 intended outcome；task finally 后才进入唯一 finalizer。
-  CAS 失败重读，合法终态不可改时间/错误，cancelling 不转回 running；4 次有界失败
+  CAS 失败重读，底层显式 expected_statuses 不可绕过单调性，合法终态不可改时间/错误，cancelling 不转回 running；4 次有界失败
   带 STATE_CONVERGENCE_FAILED/Job ID，DB 独占继续存在。自然完成后取消 409。
 - Cleanup：形状/原始段先于 resolve；创建登记拒绝已有目录，真实 Job/素材归属；
   祖先与目标身份、所有链接、二次检查和 fd/Windows 句柄边界。跨任务与跨项目不删。

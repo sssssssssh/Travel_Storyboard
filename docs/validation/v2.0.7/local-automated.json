@@ -5,13 +5,13 @@
   "ffprobe": "n4.4.1",
   "TSB_REQUIRE_FFMPEG": "1",
   "backend": {
-    "tests": "508",
+    "tests": "512",
     "failures": "0",
     "errors": "0",
     "skipped": "44",
-    "time": "30.425"
+    "time": "29.210"
   },
-  "passed": 464,
+  "passed": 468,
   "platform_skips": [
     {
       "test": "tests.test_cancel_cleanup::test_cleanup_handles_deep_staging_paths",

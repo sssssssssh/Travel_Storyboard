@@ -1,0 +1,32 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+_ test_explicit_expected_status_cannot_override_monotonic_state_machine[cancelled-succeeded] _
+backend/tests/test_terminal_races.py:135: in test_explicit_expected_status_cannot_override_monotonic_state_machine
+    assert not r.update_job(jid, expected_statuses=(before,), status=after, error='must not overwrite')
+E   AssertionError: assert not True
+E    +  where True = <function update_job at 0x1078e2de0>('a99e7d3e-0730-462b-9cf3-c7ce744574ce', expected_statuses=('cancelled',), status='succeeded', error='must not overwrite')
+E    +    where <function update_job at 0x1078e2de0> = r.update_job
+_ test_explicit_expected_status_cannot_override_monotonic_state_machine[succeeded-cancelled] _
+backend/tests/test_terminal_races.py:135: in test_explicit_expected_status_cannot_override_monotonic_state_machine
+    assert not r.update_job(jid, expected_statuses=(before,), status=after, error='must not overwrite')
+E   AssertionError: assert not True
+E    +  where True = <function update_job at 0x1078e2de0>('670f6907-ef4b-430c-b329-ec781ca04342', expected_statuses=('succeeded',), status='cancelled', error='must not overwrite')
+E    +    where <function update_job at 0x1078e2de0> = r.update_job
+_ test_explicit_expected_status_cannot_override_monotonic_state_machine[failed-running] _
+backend/tests/test_terminal_races.py:135: in test_explicit_expected_status_cannot_override_monotonic_state_machine
+    assert not r.update_job(jid, expected_statuses=(before,), status=after, error='must not overwrite')
+E   AssertionError: assert not True
+E    +  where True = <function update_job at 0x1078e2de0>('99aa9827-4be5-452d-b157-d243155d7e73', expected_statuses=('failed',), status='running', error='must not overwrite')
+E    +    where <function update_job at 0x1078e2de0> = r.update_job
+_ test_explicit_expected_status_cannot_override_monotonic_state_machine[cancelling-running] _
+backend/tests/test_terminal_races.py:135: in test_explicit_expected_status_cannot_override_monotonic_state_machine
+    assert not r.update_job(jid, expected_statuses=(before,), status=after, error='must not overwrite')
+E   AssertionError: assert not True
+E    +  where True = <function update_job at 0x1078e2de0>('64c369cd-d17e-47d7-8d1f-bbc2663069ab', expected_statuses=('cancelling',), status='running', error='must not overwrite')
+E    +    where <function update_job at 0x1078e2de0> = r.update_job
+=========================== short test summary info ============================
+FAILED backend/tests/test_terminal_races.py::test_explicit_expected_status_cannot_override_monotonic_state_machine[cancelled-succeeded]
+FAILED backend/tests/test_terminal_races.py::test_explicit_expected_status_cannot_override_monotonic_state_machine[succeeded-cancelled]
+FAILED backend/tests/test_terminal_races.py::test_explicit_expected_status_cannot_override_monotonic_state_machine[failed-running]
+FAILED backend/tests/test_terminal_races.py::test_explicit_expected_status_cannot_override_monotonic_state_machine[cancelling-running]
+4 failed, 10 deselected in 0.88s

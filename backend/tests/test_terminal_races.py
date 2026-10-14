@@ -127,3 +127,12 @@ def test_two_thousand_controlled_terminal_cas_losses(client, monkeypatch):
     with session_scope() as s:
         rows = s.scalars(select(Job).where(Job.project_id == pid)).all()
         assert all(row.status == 'cancelled' and row.finished_at is not None for row in rows)
+
+
+@pytest.mark.parametrize('before,after', [('cancelled', 'succeeded'), ('succeeded', 'cancelled'), ('failed', 'running'), ('cancelling', 'running')])
+def test_explicit_expected_status_cannot_override_monotonic_state_machine(client, before, after):
+    _, jid = make_job(client, status=before)
+    assert not r.update_job(jid, expected_statuses=(before,), status=after, error='must not overwrite')
+    with session_scope() as s:
+        row = s.get(Job, jid)
+        assert row.status == before and row.error != 'must not overwrite'

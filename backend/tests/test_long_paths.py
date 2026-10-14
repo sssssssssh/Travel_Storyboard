@@ -577,10 +577,21 @@ def test_deep_workspace_roughcut_end_to_end(client, tmp_path: Path):
         assert row.status == "succeeded", (row.status, row.error)
 
     work = project_cache_dir(project_id) / "roughcut"
-    produced = work / "roughcut.mp4"
-    assert _exists(produced), f"rough cut missing under {work}"
+    # v2.0.7 publishes immutable per-run files. Assert the exact committed
+    # reference rather than the retired filename, preserving real deep decode.
+    from app.paths import resolve_in_project
+    produced = resolve_in_project(project_id, row.resume_token['path'])
+    assert produced.parent == work and len(str(produced)) >= 270
+    assert row.resume_token['incomplete'] is False
+    assert _exists(produced), f"committed rough cut missing under {work}"
     assert safe_stat(produced).st_size > 0
     # And it is decodable, not merely present.
     from app.ffmpeg import probe_media
 
-    assert probe_media(produced).has_video
+    media = probe_media(produced)
+    assert media.has_video
+    expected = sum(shot['source_out_sec'] - shot['source_in_sec'] for shot in shots)
+    assert abs(media.duration_sec - expected) <= 0.25
+    response = client.get(f'/api/projects/{project_id}/roughcut', headers={'Range': 'bytes=0-31'})
+    assert response.status_code == 206 and len(response.content) == 32
+    assert response.headers['X-Roughcut-Incomplete'] == 'false'

@@ -169,6 +169,9 @@ def update_job(job_id: str, *, expected_statuses=None, **fields) -> bool:
         status = fields.get("status")
         if status is not None:
             allowed = expected_statuses or ACTIVE_STATUSES
+            # Caller-supplied CAS expectations cannot override the state machine.
+            allowed = tuple(current for current in allowed if current not in TERMINAL_STATUSES
+                            and (current != STATUS_CANCELLING or status == STATUS_CANCELLED))
             stmt = stmt.where(Job.status.in_(allowed))
         result = s.execute(stmt.values(**fields))
         changed = result.rowcount == 1
