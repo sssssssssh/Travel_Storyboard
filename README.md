@@ -176,7 +176,7 @@ pnpm run build
 ## 文档
 
 - 完整设计：[docs/DESIGN.md](docs/DESIGN.md)
-- 回归测试清单（T01–T14）：[docs/REGRESSION.md](docs/REGRESSION.md)
+- 回归测试清单（T01–T19 + v2.0.4 新增）：[docs/REGRESSION.md](docs/REGRESSION.md)
 - 需求来源：`Travel_Storyboard_v2.0_详细设计方案.md`
 
 ## 持续集成
@@ -230,3 +230,17 @@ AI 导演与分镜审阅现在可查看旧区间、最新检测候选、收藏�
 默认采用头/中/尾快速校验。完整 SHA-256 是**每个任务**的读盘成本：200GB 分别运行完整扫描和完整检测，可能额外读取约 400GB；严格二次复核继续增加读盘，文件中断重读与 FFmpeg 解码 I/O 另计。界面显示字节进度与重读次数，不承诺固定 ETA。
 
 技术方案与关闭表见 [v2.0.3 发布记录](docs/RELEASE_V2_0_3.md)，JSON 示例见 [docs/examples/v2.0.3](docs/examples/v2.0.3)。Windows 真实旅行素材验收和 200GB 全量性能仍未执行，不能视作已通过。
+
+## v2.0.4 工程收尾整改
+
+修复 Windows 长路径全链路、任务创建互斥、代理时长验收与包版本字段不一致，关闭 TSB-241 ~ TSB-245。
+
+**Windows 长路径**：FFmpeg/FFprobe 命令行、`Path` 操作、Pillow、OpenCV 各自是独立的兼容边界，已在每处统一处理（命令行走 `\\?\` 前缀，Python 侧走 `safe_*` 封装，图像改用 `imdecode`/字节读取）。ffconcat 清单单独处理：实测双引号条目会被当作文件名、无引号在空格处截断、反斜杠会被当转义符，因此固定使用单引号 + POSIX 分隔符。失败时给出 `PATH_TOO_LONG` / `OUTPUT_NOT_CREATED` / `MEDIA_UNREADABLE` 等稳定错误码，不再出现「FFmpeg 返回 0、Python 找不到文件」。
+
+**任务互斥**：`/jobs/{job_type}` 与 `/review-requests/proxies` 现在共用同一创建服务，互斥检查与插入在同一 `BEGIN IMMEDIATE` 事务内完成（前端禁用按钮和进程内锁都挡不住并发）。冲突返回 409 并带冲突任务类型与 ID。
+
+**代理时长**：发布前用 ffprobe 实测时长，容差取 `max(0.25s, 10%)`；不符则转 `needs_review` 并保留历史代理。产物不可读仍按系统故障记为 `failed`。
+
+实测：Windows（`LongPathsEnabled=0`）下 **323 passed / 0 skipped**，其中深路径、并发互斥、时长验收用例 65 个。详见 [v2.0.4 发布记录](docs/RELEASE_V2_0_4.md) 与 [测试记录](docs/validation/v2.0.4/backend-windows-py3.13.md)。
+
+**本轮未完成**：Windows 实机 8～10 段真实旅行素材验收（RT-18/19）仍未执行，CI 与合成素材通过不能替代。门禁清单见 [实机验收记录](docs/validation/v2.0.4/WINDOWS_REAL_FOOTAGE.md)。

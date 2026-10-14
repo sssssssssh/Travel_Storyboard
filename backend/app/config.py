@@ -9,8 +9,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Bump when the indexing / detection algorithm changes in a way that
 # invalidates previously stored analysis results.
+# v2.0.4 deliberately does NOT bump this: the round only fixed path handling,
+# job creation and proxy acceptance — the detection algorithm is unchanged, so
+# existing analysis stays valid and is not re-run.
 ANALYSIS_VERSION = "2.0.2"
-APP_VERSION = "2.0.3"
+APP_VERSION = "2.0.4"
 
 # File extensions treated as source video.
 VIDEO_EXTENSIONS = {

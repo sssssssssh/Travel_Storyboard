@@ -199,6 +199,43 @@ docs/                  # DESIGN.md / REGRESSION.md
   无法存活）、只收录被选中片段引用到的素材、manifest 不写 ffmpeg 绝对路径、受体积预算约束。
   这不等于人脸/车牌已脱敏 —— 仍需用户自行查看后再上传。
 
+## 7.1 Windows 长路径（`MAX_PATH`）适配
+
+Windows 在未启用 `LongPathsEnabled` 时限制路径为 260 字符。危险之处不是「报错」，
+而是**FFmpeg 能写、Python 看不见**：FFmpeg 是原生程序，会走扩展长度 API 写出文件，
+而 Python 的 `os.path` 随后 `FileNotFoundError`，表现为「FFmpeg 返回 0 却没产出」。
+
+关键认识：**没有单一修复点**。以下各自是独立的兼容边界，必须分别处理：
+
+| 边界 | 处理方式 | 原因 |
+| --- | --- | --- |
+| FFmpeg / FFprobe 命令行 | `long_path()` → `\\?\`（UNC 为 `\\?\UNC\`） | 原生程序认这个前缀 |
+| Python `Path` 操作 | `safe_stat` / `safe_is_file` / `safe_mkdir` / `safe_unlink` / `safe_replace` / `safe_write_text` | `Path.mkdir(parents=True)` 自己逐层走路径，超限即失败 |
+| 文件读写 | `safe_open` | `open` 受同一限制 |
+| Pillow | `safe_image_open` | 其内部 `builtins.open` 受限制，改为自行读字节后交给 Pillow |
+| OpenCV | `cv2.imdecode` + 自行读字节 | `cv2.imread` 走 C 文件 API，长路径/非 ASCII 下**返回 `None` 而不抛异常** |
+| ffconcat 清单 | 单引号条目 + POSIX 分隔符，**不用** `\\?\` | 见下 |
+
+`ffconcat` 是最容易踩坑的一处，均为本机 FFmpeg 实测结论：
+
+- `file "path"` —— 双引号**不被**解析为引号，FFmpeg 会去找名为 `"C:/...` 的文件；
+- `file path` —— 在第一个空格处截断；
+- `file 'path'` —— **唯一可用**形式；
+- 路径中的 `\` 被当作转义符，原生 Windows 路径会被静默破坏（`C:\Users` → `C:Users`），
+  因此统一输出 `/`；
+- 清单**内部**不能使用 `\\?\` 前缀（那是命令行专属），且不写 BOM。
+
+两条实现原则：
+
+1. **只在路径不存在时回退**。`safe_*` 系列捕获 `FileNotFoundError` 而非 `OSError`，
+   否则 `PermissionError`（文件被占用）会被误判为长路径问题，错误分类随之失真。
+2. **在边界校验产物**。`run()` 支持 `expect_output` / `expect_pattern`，
+   并区分「路径过长」与「根本没写」，抛出 `PATH_TOO_LONG` / `OUTPUT_NOT_CREATED`。
+   单图输出还需 `-update 1`，否则 `image2` muxer 对无 `%03d` 的文件名会拒绝写入却以 0 退出。
+
+`detector` 另有一处静默成功：抽样帧**全部**无法解码时，旧实现会返回单个 `single`
+镜头。现在抛 `MEDIA_UNREADABLE`，部分失败则记 warning。
+
 ## 8. 断点续跑与并发
 
 - `runner.py` 维护进程内线程池（`ThreadPoolExecutor(max_workers=max_concurrency)`），
@@ -207,6 +244,12 @@ docs/                  # DESIGN.md / REGRESSION.md
   - `partial_failed`：任务本身跑完，但有逐项失败（`failures` 记录 kind/ref/message）。
   - `cancelled`：通过 `POST /api/jobs/{id}/cancel` 触发，任务内的 `raise_if_cancelled()` 生效。
 - 同一项目内 `scan`/`detect`/`package`/`proxies`/`roughcut` 互斥，重复提交返回 409。
+  - 创建逻辑统一在 `services/job_service.create_project_job()`，`/jobs/{job_type}` 与
+    `/review-requests/proxies` 共用，不存在绕过互斥的第二条路径。
+  - 「检查是否已有活跃任务」与「INSERT」在同一个 `BEGIN IMMEDIATE` 事务内完成。
+    仅靠进程内 `RLock` 或前端禁用按钮都不够：两个请求可在检查与提交之间交错。
+  - 冲突返回 409，`detail` 含 `error_code=JOB_CONFLICT`、`active_job_type`、
+    `active_job_id`；被拒绝的请求不留下 Job 行。
 - 每个文件/片段完成后更新 `stats` 与 `resume_token`；进程重启时 `resume_interrupted_jobs()`
   会把遗留的 `pending`/`running` 任务重新派发。
 - 抽帧先写独立 `staging/<asset>/<run_id>/`，验证后发布新版本、提交 DB，再回收旧版无引用 JPEG；检测按素材签名 +
