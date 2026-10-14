@@ -8,7 +8,7 @@
 ## 汇总
 
 ```
-tests=453  failures=0  errors=0  skipped=0  time=162.7s
+tests=456  failures=0  errors=0  skipped=0  time=~165s
 ```
 
 **注意 `skipped=0`**：`TSB_REQUIRE_FFMPEG=1` 下媒体用例**实际执行**而非跳过；
@@ -24,7 +24,18 @@ tests=453  failures=0  errors=0  skipped=0  time=162.7s
 | `test_cancel_cleanup.py` | 21 | TSB-262 新增 |
 | `test_media_process_tree.py` | 10 | TSB-263 新增 |
 | `test_cancel_recovery.py` | 10 | TSB-264 新增 |
-| **合计** | **453** | |
+| `test_ci_skip_guard.py` | 3 | TSB-266 新增（CI skip 守卫自覆盖） |
+| **合计** | **456** | |
+
+## CI 结果（跨平台）
+
+主线 `7e2fb7d` 的 GitHub Actions **7/7 成功**：
+Backend（3.11/3.13 × Ubuntu/Windows）、Required FFmpeg（Ubuntu/Windows）、Frontend。
+运行链接：<https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38540406730>
+
+**Ubuntu 媒体作业曾失败并被修复**：把深路径套件加入该作业后，其 Linux 合法 skip
+（原因 `"MAX_PATH only constrains Windows"`）未被 `_EXPECTED_SKIP_REASONS` 识别，
+在 `TSB_REQUIRE_FFMPEG=1` 下被当成意外 skip 而失败。修复与守卫见发布文档 §5.2。
 
 ## 复现
 
@@ -33,7 +44,7 @@ cd backend
 $env:PATH = "F:\work\project\Travel_Storyboard\bin\ffmpeg\ffmpeg-9.0.2-essentials_build\bin;$env:PATH"
 $env:TSB_REQUIRE_FFMPEG = "1"
 .\.venv\Scripts\python.exe -m pytest -q --junitxml=tsb.xml
-# tests=453 failures=0 errors=0 skipped=0
+# tests=456 failures=0 errors=0 skipped=0
 ```
 
 按组运行：
@@ -42,7 +53,22 @@ $env:TSB_REQUIRE_FFMPEG = "1"
 .\.venv\Scripts\python.exe -m pytest tests/test_cancel_lifecycle.py -q     # 14
 .\.venv\Scripts\python.exe -m pytest tests/test_cancel_cleanup.py -q       # 21
 .\.venv\Scripts\python.exe -m pytest tests/test_media_process_tree.py -q   # 10
-.\.venv\Scripts\python.exe -m pytest tests/test_cancel_recovery.py -q      # 10
+.\.venv\Scripts\python.exe -m pytest tests/test_cancel_recovery.py -q       # 10
+.\.venv\Scripts\python.exe -m pytest tests/test_ci_skip_guard.py -q         # 3
+```
+
+按 `ci.yml` 的强制媒体作业清单实跑（本机 **386 passed / 0 skipped**）：
+
+```powershell
+$env:TSB_REQUIRE_FFMPEG = "1"
+.\.venv\Scripts\python.exe -m pytest -q tests/test_ffmpeg_integration.py tests/test_cache_recovery.py `
+  tests/test_stability_jobs.py tests/test_checkpoints.py tests/test_story_direct.py tests/test_output_dir.py `
+  tests/test_concurrent_annotations.py tests/test_hash_pipeline.py tests/test_review_validation.py `
+  tests/test_review_proxies.py tests/test_review_package_privacy.py tests/test_database_backup.py `
+  tests/test_long_paths.py tests/test_job_mutex.py tests/test_proxy_duration.py `
+  tests/test_job_cancel_kills_process.py tests/test_deep_media_http.py tests/test_deep_path_cleanup.py `
+  tests/test_deep_scan_api.py tests/test_cancel_lifecycle.py tests/test_cancel_cleanup.py `
+  tests/test_media_process_tree.py tests/test_cancel_recovery.py tests/test_ci_skip_guard.py
 ```
 
 独立观察手段（不依赖 pytest）：
@@ -50,6 +76,7 @@ $env:TSB_REQUIRE_FFMPEG = "1"
 ```powershell
 .\.venv\Scripts\python.exe tools\probe_cancel_tree.py       # 取消是否回收整棵树
 .\.venv\Scripts\python.exe tools\probe_process_tree.py      # 进程链实测（含 pid 归属观察）
+.\.venv\Scripts\python.exe tools\probe_skip_guard.py        # 平台 skip 是否会被 CI 误判
 .\.venv\Scripts\python.exe tools\check_free_names.py app\services\analyzer.py _analyze_asset_inner
 ```
 

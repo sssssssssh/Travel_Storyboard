@@ -270,6 +270,6 @@ AI 导演与分镜审阅现在可查看旧区间、最新检测候选、收藏�
 
 修复过程中由测试发现并修复三个真实缺陷：清理会**跟随 junction 删除项目外数据**；深路径下 `FileNotFoundError` 被当成「空目录」导致清理「成功」却什么都没删；清理计数在目录已删除时报告 `removed_files=0`。
 
-实测：Windows（`LongPathsEnabled=0`）下 **453 passed / 0 failed / 0 skipped**（基线 398 + 新增 55）。详见 [v2.0.6 发布记录](docs/RELEASE_V2_0_6.md) 与 [测试记录](docs/validation/v2.0.6/backend-windows-py3.13.md)。
+实测：Windows（`LongPathsEnabled=0`）下 **456 passed / 0 failed / 0 skipped**（基线 398 + 新增 58），主线 CI **7/7 成功**（含 Ubuntu 与 Windows 的强制媒体作业）。详见 [v2.0.6 发布记录](docs/RELEASE_V2_0_6.md) 与 [测试记录](docs/validation/v2.0.6/backend-windows-py3.13.md)。
 
 **本轮未完成**：真实素材实机验收（TC-29/30）未执行。按任务书标准，本轮结论为**「代码级整改通过，发布门禁未完成」**。

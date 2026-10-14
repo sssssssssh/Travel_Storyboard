@@ -138,6 +138,38 @@ pnpm run build
 .\scripts\start.ps1          # 检查依赖 → 建 venv → 构建前端 → 启动并打开带令牌地址
 ```
 
+### 4.5 CI 的两个作业与"强制媒体清单"
+
+CI 有两个后端作业，职责不同，**不要混为一谈**：
+
+| 作业 | 命令 | 特点 |
+| --- | --- | --- |
+| `backend` | 全量 `pytest`（忽略 2 个文件） | 跑得多，但**不设** `TSB_REQUIRE_FFMPEG` |
+| `media` | **硬编码文件清单** | 设 `TSB_REQUIRE_FFMPEG=1`：缺工具或静默 skip 即失败 |
+
+因此：**必须"不许静默 skip"的套件要写进媒体作业清单**，只放 `backend` 是不够的
+（那里的 skip 会安静地通过）。清单在 `.github/workflows/ci.yml`。
+
+两条容易踩的规则：
+
+1. **新增平台专属套件时，要同步登记它的 skip 原因。**
+   `conftest._EXPECTED_SKIP_REASONS` 只容忍"平台事实"类原因；未登记的原因在
+   `TSB_REQUIRE_FFMPEG=1` 下会被当成意外 skip 而**让整个作业失败**（曾在 Ubuntu
+   上真实发生：深路径套件的原因串与白名单不一致）。
+   `tests/test_ci_skip_guard.py` 会自覆盖地扫描全部 `skipif` 原因并提前拦住这类问题。
+2. **不要为了让 CI 变绿而放宽守卫。** 工具缺失（`ffmpeg not available`）必须继续
+   失败；`test_tool_missing_skips_still_fail_the_job` 就是为此存在的。
+
+本机模拟作业：
+
+```powershell
+# 媒体作业（把 ci.yml 的清单原样贴进来）
+$env:TSB_REQUIRE_FFMPEG = "1"
+.\.venv\Scripts\python.exe -m pytest -q tests/test_ffmpeg_integration.py ... 
+# 平台 skip 是否会被误判（不需要 Linux 机器）
+.\.venv\Scripts\python.exe tools\probe_skip_guard.py
+```
+
 ---
 
 ## 五、容易踩的坑

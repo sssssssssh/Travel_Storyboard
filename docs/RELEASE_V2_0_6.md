@@ -117,7 +117,7 @@ concat 与发布之后 —— 取消、超时、「没有产出任何片段」�
 
 ## 四、TSB-264 回归矩阵及故障注入（P1）
 
-新增 4 个测试文件、55 个用例；`test_job_cancel_kills_process.py`（TSB-253）等既有文件保留并复跑。
+新增 5 个测试文件、58 个用例；`test_job_cancel_kills_process.py`（TSB-253）等既有文件保留并复跑。
 
 | 文件 | 用例 | 覆盖 |
 |---|---|---|
@@ -125,6 +125,7 @@ concat 与发布之后 —— 取消、超时、「没有产出任何片段」�
 | `test_cancel_cleanup.py` | 21 | 清理白名单边界、TC-11~20 |
 | `test_media_process_tree.py` | 10 | 真实父→孙进程树、TC-21~23 |
 | `test_cancel_recovery.py` | 10 | HTTP 一致性、用户状态保全、多项目、TC-24~26/29 |
+| `test_ci_skip_guard.py` | 3 | CI skip 守卫自覆盖（见 §5.2） |
 
 **测试纪律（已遵守）**：
 - 先写复现失败的用例，再修复至通过；对关键保护做**反向验证**（撤去接线应失败）。
@@ -149,15 +150,62 @@ concat 与发布之后 —— 取消、超时、「没有产出任何片段」�
 - 状态图与恢复策略已更新至 [`DESIGN.md` §8.1–8.3](../DESIGN.md)。
 - 新用例映射已加入 [`REGRESSION.md`](REGRESSION.md)。
 
+### 5.1 CI 结果（已验证）
+
+主线 `${HEAD}` 对应的 GitHub Actions **7/7 全部成功**：
+
+| 作业 | 结果 |
+| --- | --- |
+| Backend (Python 3.11) ×2 | ✅ Ubuntu / Windows |
+| Backend (Python 3.13) ×2 | ✅ Ubuntu / Windows |
+| Required FFmpeg (ubuntu-latest) | ✅ |
+| Required FFmpeg (windows-latest) | ✅ |
+| Frontend | ✅ |
+
+> 提交 `7e2fb7d` 的运行：<https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38540406730>
+
+### 5.2 CI 发现并修复的缺陷：平台 skip 被误判为失败
+
+把 8 个套件加入强制媒体作业后，CI 在 **Ubuntu** 上失败（Windows 通过），失败作业
+正是 `Required FFmpeg (ubuntu-latest)`。
+
+**根因**：`conftest._EXPECTED_SKIP_REASONS` 只列了两条原因，而
+`test_deep_media_http.py` 与 `test_deep_scan_api.py` 在 Linux 上用的 skip 原因是
+`"MAX_PATH only constrains Windows"`，未被识别。`TSB_REQUIRE_FFMPEG=1` 下
+`pytest_sessionfinish` 把这类**合法平台 skip** 当成「意外 skip」并置非零退出码。
+这两个文件此前不在媒体作业里，所以问题直到扩表才暴露。
+
+**修复**：白名单补入该原因；同时收紧两处测试，使其不再依赖环境是否碰巧可用：
+
+- `test_cancel_cleanup` 的链接用例原先 `mklink` 失败即 skip —— 而它守护的是本轮
+  **最严重**的缺陷（跟随 junction 删除项目外数据）。现改为 junction 失败后回退
+  symlink，两者都不行才 skip，且原因写明为平台事实。
+- `test_media_process_tree` 的「父进程先退出」用例去掉竞态 skip：取消只在 pid 文件
+  可读后才请求，观测必然成功，改为断言。
+
+**新增自覆盖守卫** `tests/test_ci_skip_guard.py`（3 用例）：扫描全部测试源码的
+`skipif` 原因，每个原因要么被认定为平台事实，要么显式列为应失败。反向验证：移除
+白名单该条后立即失败并点名 `"MAX_PATH only constrains Windows" ... will fail the
+mandatory-media job on the platform where it skips` —— 精确复现本次 Ubuntu 故障。
+同时断言**工具缺失类 skip 必须仍然失败**，防止为了让 CI 变绿而放宽守卫到失效。
+
+### 5.3 强制媒体作业的清单维护
+
+媒体作业用**硬编码**文件清单（普通 backend 作业跑全量但不设 `TSB_REQUIRE_FFMPEG=1`，
+被静默 skip 的用例在那里会通过）。本轮把 TSB-251/252/253/254/261/262/263/264 的
+8 个套件补入，并在 workflow 内注明该清单用途，避免后续再漏。
+
+
 ---
 
 ## 六、验证结果
 
 | 项目 | 结果 |
 | --- | --- |
-| 后端测试 | **453 passed / 0 failed / 0 skipped**（基线 398 + 新增 55） |
+| 后端测试 | **456 passed / 0 failed / 0 skipped**（基线 398 + 新增 58） |
 | 本机环境 | Windows / Python 3.13.7 / FFmpeg 9.0.2 / `LongPathsEnabled=0` |
 | 前端 | `typecheck` · `lint` · `test`(14) · `build` 四项通过 |
+| 主线 CI | **7/7 成功**（含 Ubuntu 与 Windows 的强制媒体作业） |
 | 回归 | 无既有用例被破坏 |
 
 测试记录见 [`validation/v2.0.6/backend-windows-py3.13.md`](validation/v2.0.6/backend-windows-py3.13.md)。

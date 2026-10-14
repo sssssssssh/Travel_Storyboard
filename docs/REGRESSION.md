@@ -245,6 +245,18 @@ python -m pytest -q
 | `::test_artifacts_are_not_cross_deleted_between_projects` | TSB-264 | 跨项目产物不被误删（TC-26） |
 | `::test_repeat_request_stays_blocked_until_cleanup_finishes` | TSB-264 | 阻断持续到**清理完成**而非点击瞬间（TC-29） |
 
+`test_ci_skip_guard.py`（3）—— 强制媒体作业的 skip 守卫（TSB-266）
+
+| 用例 | 任务 | 守护的行为 |
+| --- | --- | --- |
+| `::test_platform_skips_are_tolerated` | TSB-266 | Windows 专属套件在 Linux 上 skip **不**得让媒体作业失败 |
+| `::test_tool_missing_skips_still_fail_the_job` | TSB-266 | 工具缺失类 skip **仍然必须**失败，守卫不得被放宽到失效 |
+| `::test_every_skip_reason_in_the_suite_is_recognised` | TSB-266 | 扫描全部测试源码：每个 `skipif` 原因要么是平台事实、要么显式列为应失败 |
+
+> `test_ci_skip_guard.py` 是**自覆盖**守卫：新增一个带未登记 skip 原因的套件会立即失败。
+> 它由一次真实的 Ubuntu CI 失败催生（深路径套件加入媒体作业后，其 Linux 合法 skip
+> 被当成意外 skip）。反向验证：移除白名单条目后用例立即点名该原因并失败。
+
 > **测试纪律**：并发用 `Event`/`Barrier` 等可观察条件同步，不用 `sleep` 当竞争验证。
 > 状态机、清理、进程树三项均做反向验证：撤去保护后对应用例立即失败（记录见发布文档）。
 
