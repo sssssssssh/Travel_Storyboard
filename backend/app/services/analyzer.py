@@ -50,7 +50,7 @@ from .runner import (
     register_task,
     update_job,
 )
-from .staging_cleanup import cleanup_staging_or_log
+from .staging_cleanup import cleanup_staging_or_log, create_owned_staging
 
 logger = logging.getLogger(__name__)
 
@@ -221,16 +221,14 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
     # over that limit (ffmpeg wrote the file, Python could not see it). The full
     # run_id is still stored and reported as `analysis_run_id`.
     run_token = run_id.replace("-", "")[:12]
-    stage = resolve_in_project(
-        project_id, rel_to_data(staging_dir(project_id, asset.id) / run_token)
-    )
+    stage = staging_dir(project_id, asset.id) / run_token
     # Each run owns a unique stage and unique published filenames. A crash
     # cannot overwrite the JPEGs referenced by the previous committed version.
     #
     # Create both directories here rather than relying on `extract_frame` to do
     # it: the frame extractor is replaceable (tests, future backends) and the
     # analysis step must not depend on that side effect.
-    safe_mkdir(stage)
+    create_owned_staging(project_id, stage, owner_job_id=job_id)
     safe_mkdir(work_dir)
 
     new_segments: list[Segment] = []

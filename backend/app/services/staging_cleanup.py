@@ -1,64 +1,28 @@
-"""Strictly-scoped staging cleanup (TSB-262).
+"""TSB-272: create-only ownership records and handle-confined stage deletion.
 
-A task's staging directory holds work-in-progress: sampled frames, encoded
-clips, a proxy in flight. When a run ends — successfully, cancelled, timed out
-or crashed — that directory must be collected. It must also be collected
-*before* the worker releases the project lock, so the next job never sees a
-half-written stage.
-
-The danger in a cleanup helper is not failing to delete: it is deleting the
-wrong thing. So the boundary here is positive rather than negative. A path is
-only accepted when all of these hold:
-
-1. it resolves to a real directory (not a file, not a missing path);
-2. it is strictly inside the **owning project's** cache directory;
-3. its first component under that root is one of the known staging shapes
-   (``roughcut/staging-*``, ``proxies/staging/<token>``,
-   ``staging/<asset>/<token>``) — never a published output directory;
-4. the *resolved* path is still inside the project root, so a symlink or
-   junction cannot redirect the delete somewhere else.
-
-Anything else is refused with ``STAGING_NOT_OWNED`` rather than guessed at.
-
-Failure handling: ``shutil.rmtree(ignore_errors=True)`` is explicitly not
-acceptable evidence that cleanup happened, because it reports success either
-way. This module returns a :class:`CleanupResult` that says what was removed,
-what is left, and whether a retry is worth attempting.
+The registry is deliberately process-local. An old crash orphan is never
+adopted by passing a job ID; aged frame reclamation has its own narrower path.
 """
-
 from __future__ import annotations
 
 import logging
 import os
-import shutil
 import stat
-from dataclasses import dataclass, field
+from contextlib import contextmanager, ExitStack
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
+from threading import RLock
 
-from ..ffmpeg import long_path, safe_is_file, safe_stat, safe_unlink
+from ..ffmpeg import long_path, safe_mkdir, safe_unlink
 from ..paths import project_cache_dir
 
 logger = logging.getLogger(__name__)
-
 ERR_NOT_OWNED = "STAGING_NOT_OWNED"
 ERR_CLEANUP_FAILED = "CLEANUP_FAILED"
-
-#: Directory names directly under the project root that this module may enter.
-#: Deliberately excludes ``frames``, ``proxies`` (the published root),
-#: ``packages``, ``contact_sheets`` and ``roughcut`` itself.
-_ALLOWED_PARENTS = ("staging", "roughcut", "proxies")
-
-#: Directories under the project root that are published artifacts, never
-#: staging. Refused even when named explicitly.
-_PUBLISHED = {
-    "frames", "packages", "contact_sheets", "proxies", "roughcut", "staging",
-}
 
 
 @dataclass
 class CleanupResult:
-    """Outcome of one staging cleanup, with enough detail to be traceable."""
-
     path: str
     ok: bool
     error_code: str = ""
@@ -67,392 +31,295 @@ class CleanupResult:
     removed_bytes: int = 0
     residual_paths: list[str] = field(default_factory=list)
     retryable: bool = False
+    residual_bytes: int = 0
+    residual_count: int = 0
 
     def as_dict(self) -> dict:
-        return {
-            "path": self.path,
-            "ok": self.ok,
-            "error_code": self.error_code,
-            "message": self.message,
-            "removed_files": self.removed_files,
-            "removed_bytes": self.removed_bytes,
-            "residual_paths": list(self.residual_paths),
-            "retryable": self.retryable,
-        }
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class StageOwner:
+    project_id: str
+    job_id: str | None
+    identity: tuple[int, int]
+    # Every ancestor inside the project is pinned to the creator's identity.
+    ancestors: tuple[tuple[int, int], ...]
+
+
+_OWNERS: dict[Path, StageOwner] = {}
+_GUARD = RLock()
+
+
+class StagingNotOwned(RuntimeError):
+    pass
+
+
+def _lstat(path: Path):
+    return os.lstat(long_path(path))
 
 
 def _is_link(path: Path) -> bool:
-    """Whether *path* is a symlink/junction rather than a real directory.
+    info = _lstat(path)  # Unreadability must not become "not a link".
+    return stat.S_ISLNK(info.st_mode) or bool(getattr(info, 'st_file_attributes', 0) & 0x400)
 
-    This is the check that keeps a delete inside the project. Following a link
-    out of the tree would let a stray junction in staging reach an arbitrary
-    directory and delete it — the single most dangerous failure mode this module
-    can have. ``is_symlink`` covers POSIX symlinks; Windows directory junctions
-    need the reparse-point attribute.
-    """
-    try:
-        if path.is_symlink():
-            return True
-    except OSError:
-        pass
-    if os.name != "nt":
-        return False
-    try:
-        stat_result = os.lstat(long_path(path))
-    except OSError:
-        return False
-    FILE_ATTRIBUTE_REPARSE_POINT = 0x400
-    return bool(getattr(stat_result, "st_file_attributes", 0)
-                & FILE_ATTRIBUTE_REPARSE_POINT)
+
+def _identity(info) -> tuple[int, int]:
+    return info.st_dev, info.st_ino
 
 
 def _listdir(path: Path) -> list[Path]:
-    """List *path*, falling back to the extended-length form for deep trees.
-
-    Order matters: on Windows a >MAX_PATH directory raises
-    ``FileNotFoundError`` (WinError 3) from the plain call — it does **not**
-    raise a distinct "path too long" error. Catching that as "empty" would make
-    a real staging directory look like it had nothing in it, so cleanup would
-    report success while deleting nothing. The extended-length attempt is
-    therefore made before concluding the directory is empty.
-    """
-    try:
-        return list(path.iterdir())
-    except OSError:
-        pass
-    try:
-        # `os.listdir` returns bare names: re-attach the directory so callers
-        # always receive usable paths, not children of the process CWD.
-        return [path / entry for entry in os.listdir(long_path(path))]
-    except OSError:
-        return []
+    return [path / name for name in os.listdir(long_path(path))]
 
 
 def _iter_tree(root: Path) -> list[Path]:
-    """Every file under *root*, using a walk that tolerates long paths.
-
-    ``Path.rglob`` relies on ``os.scandir`` with the plain path, which fails on
-    Windows for >MAX_PATH trees; the extended-length form is used instead.
-
-    Reparse points (symlinks/junctions) are **not descended into**: the link
-    itself is returned as an entry so it can be unlinked, but its target is left
-    untouched. Cleanup must never delete through a link that escapes the project.
-    """
-    files: list[Path] = []
-    stack = [root]
+    files, stack = [], [root]
     while stack:
         current = stack.pop()
-        entries = _listdir(current)
-        for entry in entries:
-            link = _is_link(entry)
-            try:
-                is_dir = entry.is_dir() and not link
-            except OSError:
-                is_dir = False
-            if is_dir:
-                stack.append(entry)
-            else:
-                files.append(entry)
+        if _is_link(current): raise StagingNotOwned('暂存目录含链接')
+        for entry in _listdir(current):
+            info = _lstat(entry)
+            if _is_link(entry): raise StagingNotOwned('暂存目录含链接')
+            if stat.S_ISDIR(info.st_mode): stack.append(entry)
+            elif stat.S_ISREG(info.st_mode): files.append(entry)
+            else: raise StagingNotOwned('暂存目录含非常规文件')
     return files
 
 
 def count_tree(root: Path) -> tuple[int, int]:
-    """Return ``(file_count, total_bytes)`` for *root* without deleting."""
-    if not _is_dir(root):
-        return 0, 0
-    files = _iter_tree(root)
-    total = 0
-    for f in files:
-        try:
-            total += safe_stat(f).st_size
-        except OSError:
-            pass
-    return len(files), total
-
-
-def _is_dir(path: Path) -> bool:
-    """Whether *path* is a directory, tolerating Windows' MAX_PATH limit.
-
-    ``Path.is_dir()`` routes through ``os.stat`` on the *plain* string, so it
-    returns False for a >260-character directory that genuinely exists. The
-    extended-length form is used as a fallback before giving up.
-    """
-    try:
-        if path.is_dir():
-            return True
-    except OSError:
-        pass
-    try:
-        return stat.S_ISDIR(os.stat(long_path(path)).st_mode)
-    except OSError:
-        return False
-
-
-def _exists(path: Path) -> bool:
-    """Whether *path* exists at all, tolerating Windows' MAX_PATH limit."""
-    try:
-        if path.exists():
-            return True
-    except OSError:
-        pass
-    try:
-        os.stat(long_path(path))
-        return True
-    except OSError:
-        return False
-
-
-def _resolve(path: Path) -> Path | None:
-    """Resolve *path* (following links), or ``None`` when unusable."""
-    try:
-        return path.resolve()
-    except (OSError, RuntimeError):
-        # A very long path may defeat resolve(); fall back to a long-path form.
-        try:
-            return Path(long_path(path)).resolve()
-        except (OSError, RuntimeError):
-            return None
-
-
-def _within(base: Path, candidate: Path) -> bool:
-    return candidate == base or base in candidate.parents
+    try: files = _iter_tree(root)
+    except FileNotFoundError: return 0, 0
+    return len(files), sum(_lstat(path).st_size for path in files)
 
 
 def _is_staging_shape(root: Path, stage: Path) -> bool:
-    """Whether *stage* matches one of the known per-task staging layouts."""
-    try:
-        rel = stage.relative_to(root)
-    except ValueError:
-        return False
-    parts = rel.parts
-    if not parts:
-        return False  # the project root itself
-    head = parts[0]
-    if head not in _ALLOWED_PARENTS:
-        return False
-    if head in _PUBLISHED and len(parts) == 1:
-        # e.g. `<root>/roughcut` or `<root>/proxies` — a published output dir.
-        return False
-    return True
-
-
-def _unlink_dir_link(path: Path) -> bool:
-    """Remove a directory symlink/junction without touching its target."""
-    try:
-        os.rmdir(long_path(path))
-        return True
-    except OSError:
-        pass
-    try:
-        os.unlink(long_path(path))
-        return True
-    except OSError:
-        pass
-    if os.name == "nt":
-        # A junction may need `rmdir` through the shell on some Windows builds.
-        try:
-            import subprocess
-
-            proc = subprocess.run(["cmd", "/c", "rmdir", str(path)],
-                                  capture_output=True)
-            return proc.returncode == 0
-        except OSError:
-            return False
-    return False
-
-
-def cleanup_owned_staging(
-    project_id: str,
-    stage: str | Path,
-    *,
-    owner_job_id: str | None = None,
-) -> CleanupResult:
-    """Delete this task's staging directory, refusing anything out of scope.
-
-    ``owner_job_id`` is recorded for traceability (which run created the
-    directory). Returns a :class:`CleanupResult`; never raises for a refusal or
-    a partial failure, because callers run this from ``finally`` blocks where an
-    exception would mask the original error.
-    """
-    stage_path = Path(stage)
-    result = CleanupResult(path=str(stage_path), ok=False)
-
-    root = _resolve(project_cache_dir(project_id))
-    resolved = _resolve(stage_path)
-    if root is None or resolved is None:
-        result.error_code = ERR_NOT_OWNED
-        result.message = "无法解析暂存目录或项目工作区路径"
-        return result
-
-    # 1. strictly inside this project's cache dir (the root itself is refused).
-    if resolved == root or not _within(root, resolved):
-        result.error_code = ERR_NOT_OWNED
-        result.message = f"暂存目录不在项目工作区内：{stage_path}"
-        logger.warning(
-            "Refusing to clean staging outside project %s: %s (job=%s)",
-            project_id, stage_path, owner_job_id,
-        )
-        return result
-
-    # 2. a known staging shape, never a published artifact directory.
-    if not _is_staging_shape(root, resolved):
-        result.error_code = ERR_NOT_OWNED
-        result.message = f"不是本任务可清理的暂存目录：{stage_path}"
-        logger.warning(
-            "Refusing to clean non-staging path in project %s: %s (job=%s)",
-            project_id, stage_path, owner_job_id,
-        )
-        return result
-
-    # 3. nothing to do (already collected, or never created). A link is not a
-    #    missing path: refuse it rather than deleting through it.
-    if _is_link(resolved) and not _is_link(stage_path):
-        result.error_code = ERR_NOT_OWNED
-        result.message = "暂存路径是指向项目外的链接"
-        logger.warning(
-            "Refusing to clean staging reached through a link: %s (job=%s)",
-            stage_path, owner_job_id,
-        )
-        return result
-    if not _is_dir(resolved):
-        if _exists(resolved):
-            result.error_code = ERR_NOT_OWNED
-            result.message = "暂存路径不是目录"
-            return result
-        result.ok = True
-        result.message = "暂存目录不存在，无需清理"
-        return result
-
-    files, total = count_tree(resolved)
-
-    # 4. delete bottom-up so parents are empty when removed. Files first (and
-    #    with safe_unlink, which understands long paths), then directories.
-    failures: list[str] = []
-    removed = 0
-    removed_bytes = 0
-    known_files = _iter_tree(resolved)
-    sizes: dict[Path, int] = {}
-    for f in known_files:
-        try:
-            sizes[f] = safe_stat(f).st_size
-        except OSError:
-            sizes[f] = 0
-
-    for f in known_files:
-        try:
-            safe_unlink(f)
-            removed += 1
-            removed_bytes += sizes[f]
-        except FileNotFoundError:
-            removed += 1
-            removed_bytes += sizes[f]
-        except OSError as exc:
-            failures.append(f"{f}: {exc}")
-            logger.warning("Could not remove staging file %s: %s", f, exc)
-
-    # Remove the (now hopefully empty) directories, deepest first. Links are
-    # unlinked, never descended into — a junction must not become a doorway out
-    # of the project.
-    dirs: list[Path] = []
-    stack = [resolved]
-    while stack:
-        current = stack.pop()
-        dirs.append(current)
-        for entry in _listdir(current):
-            try:
-                if entry.is_dir() and not _is_link(entry):
-                    stack.append(entry)
-            except OSError:
-                continue
-    for d in sorted(dirs, key=lambda p: len(p.parts), reverse=True):
-        try:
-            if _is_link(d):
-                # Remove the link itself; its target is not ours to delete.
-                if d.is_dir() and not _unlink_dir_link(d):
-                    failures.append(f"{d}: 无法删除目录链接")
-                    logger.warning("Could not remove staging directory link %s", d)
-                continue
-            shutil.rmtree(long_path(d), ignore_errors=False)
-        except FileNotFoundError:
-            continue
-        except OSError as exc:
-            if _exists(d):
-                failures.append(f"{d}: {exc}")
-                logger.warning("Could not remove staging dir %s: %s", d, exc)
-
-    # Honest accounting: a failed per-file unlink can still be swept away by the
-    # directory removal (Windows removes a closed file regardless of the earlier
-    # error), so "removed" must be measured against what is actually left rather
-    # than inferred from which calls raised. Otherwise a run where every unlink
-    # failed — because the files were locked — would report `ok=True, 0 removed`.
-    still_there = [f for f in known_files if _exists(f)]
-    if still_there and not _exists(resolved):
-        # The tree is gone; the individual probes lied (e.g. the path is now too
-        # long to stat). Trust the tree-level result.
-        still_there = []
-    removed = len(known_files) - len(still_there)
-    removed_bytes = sum(sizes[f] for f in known_files if f not in still_there)
-
-    result.removed_files = removed
-    result.removed_bytes = removed_bytes
-
-    if _exists(resolved):
-        residual = _iter_tree(resolved) if _is_dir(resolved) else [resolved]
-        result.residual_paths = [str(p) for p in residual[:50]]
-        result.ok = False
-        result.error_code = ERR_CLEANUP_FAILED
-        result.retryable = True
-        result.message = (
-            f"暂存目录未能完全删除（剩余 {len(result.residual_paths)} 项）"
-        )
-        logger.error(
-            "Staging cleanup incomplete for project %s: %s (job=%s) — %d residual item(s): %s",
-            project_id, stage_path, owner_job_id, len(result.residual_paths),
-            failures[:5],
-        )
-        return result
-
-    result.ok = True
-    result.message = f"已清理暂存目录（{removed} 个文件，{removed_bytes} 字节）"
-    logger.info(
-        "Cleaned staging for project %s: %s (%d files, %d bytes, job=%s)",
-        project_id, stage_path, removed, removed_bytes, owner_job_id,
+    try: p = stage.relative_to(root).parts
+    except ValueError: return False
+    return bool(
+        len(p) == 2 and p[0] == 'roughcut' and p[1].startswith('staging-') and p[1][8:]
+        or len(p) == 3 and p[:2] == ('proxies', 'staging') and p[2]
+        or len(p) == 3 and p[0] == 'staging' and p[1] and p[2]
     )
-    return result
 
 
-def cleanup_staging_or_log(
-    project_id: str,
-    stage: str | Path,
-    *,
-    owner_job_id: str | None = None,
-) -> CleanupResult:
-    """``cleanup_owned_staging`` that also records failures on the job.
+def _raw_target(project_id: str, value: str | Path) -> tuple[Path, Path]:
+    # Strings are checked BEFORE Path normalization can erase '.' / empty parts.
+    text = os.fspath(value)
+    normalized = text.replace('\\', '/') if os.name == 'nt' else text
+    components = normalized.split('/')
+    if normalized.startswith('/'): components = components[1:]
+    if os.name == 'nt' and normalized.startswith('//'): components = components[1:]
+    if any(part in ('', '.', '..') for part in components):
+        raise StagingNotOwned('暂存路径含非规范相对段')
+    root = project_cache_dir(project_id)
+    stage = Path(text)
+    if not stage.is_absolute(): stage = root / stage
+    if not _is_staging_shape(root, stage): raise StagingNotOwned('不是精确的任务暂存路径')
+    # No resolve() here: it could turn an alias into somebody else's stage.
+    if _is_link(root) or not stat.S_ISDIR(_lstat(root).st_mode):
+        raise StagingNotOwned('项目工作区不是有效真实目录')
+    return root, stage
 
-    Callers in ``finally`` blocks want the cleanup attempted and any residual
-    reported to the user, but must not raise over the original exception. The
-    result is mirrored into ``job.stats['cleanup']`` so a partially-cleaned run
-    is visible in the UI instead of silently leaving bytes behind.
-    """
-    result = cleanup_owned_staging(project_id, stage, owner_job_id=owner_job_id)
-    if not result.ok and owner_job_id:
+
+def _chain(root: Path, stage: Path) -> list[Path]:
+    rel = stage.relative_to(root)
+    return [root, *[root.joinpath(*rel.parts[:i]) for i in range(1, len(rel.parts) + 1)]]
+
+
+def _validate_chain(root: Path, stage: Path, owner: StageOwner | None = None,
+                    *, include_target: bool = True):
+    chain = _chain(root, stage)
+    if not include_target: chain = chain[:-1]
+    ids = []
+    for entry in chain:
+        if _is_link(entry) or not stat.S_ISDIR(_lstat(entry).st_mode):
+            raise StagingNotOwned('目录链含链接或无效目录')
+        ids.append(_identity(_lstat(entry)))
+    if owner:
+        expected = (*owner.ancestors, owner.identity) if include_target else owner.ancestors
+        if tuple(ids) != tuple(expected): raise StagingNotOwned('目录身份已改变')
+    return tuple(ids)
+
+
+def _check_creator(project_id: str, stage: Path, job_id: str | None):
+    from ..database import session_scope
+    from ..models import Job, Asset, Project
+    with session_scope() as s:
+        if s.get(Project, project_id) is None: raise StagingNotOwned('项目不存在')
+        if job_id:
+            job = s.get(Job, job_id)
+            if job is None or job.project_id != project_id:
+                raise StagingNotOwned('创建任务不属于此项目')
+        if stage.relative_to(project_cache_dir(project_id)).parts[0] == 'staging':
+            asset_id = stage.relative_to(project_cache_dir(project_id)).parts[1]
+            asset = s.get(Asset, asset_id)
+            if asset is None or asset.project_id != project_id:
+                raise StagingNotOwned('素材不属于此项目')
+
+
+@contextmanager
+def pinned_directory(path: Path):
+    """No-follow directory handle; Windows disallows ancestor rename/delete."""
+    if os.name != 'nt':
         try:
-            from .runner import merge_job_stats
+            fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except (NotADirectoryError, OSError):
+            if _is_link(path): raise StagingNotOwned('拒绝链接目录') from None
+            raise
+        try: yield fd
+        finally: os.close(fd)
+    else:
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                      wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        # OPEN_EXISTING | BACKUP_SEMANTICS | OPEN_REPARSE_POINT, share read/write
+        handle = kernel.CreateFileW(long_path(path), 0, 3, None, 3, 0x02200000, None)
+        if handle == wintypes.HANDLE(-1).value: raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            if _is_link(path): raise StagingNotOwned('拒绝打开链接目录')
+            yield None
+        finally: kernel.CloseHandle(handle)
 
-            merge_job_stats(owner_job_id, {"cleanup": result.as_dict()})
-        except Exception:  # noqa: BLE001 - cleanup reporting must never raise
-            logger.warning(
-                "Could not record cleanup failure for job %s", owner_job_id,
-                exc_info=True,
-            )
+
+def create_owned_staging(project_id: str, stage: str | Path, *, owner_job_id: str | None = None) -> Path:
+    """Only a newly-created directory can be registered, never an existing one."""
+    root = project_cache_dir(project_id)
+    try:
+        if _is_link(root): raise StagingNotOwned('工作区是链接')
+    except FileNotFoundError:
+        safe_mkdir(root)
+    root, target = _raw_target(project_id, stage)
+    _check_creator(project_id, target, owner_job_id)
+    with _GUARD:
+        # Build only the known parent chain, checking every existing component.
+        safe_mkdir(root)
+        for parent in _chain(root, target)[1:-1]:
+            try: os.mkdir(long_path(parent))
+            except FileExistsError: pass
+            _validate_chain(root, parent)
+        with ExitStack() as stack:
+            handles = [stack.enter_context(pinned_directory(parent)) for parent in _chain(root, target)[:-1]]
+            _validate_chain(root, target, include_target=False)
+            # exist_ok=False is the ownership proof; an old run cannot be adopted.
+            if handles[-1] is not None: os.mkdir(target.name, dir_fd=handles[-1])
+            else: os.mkdir(long_path(target))
+            ids = _validate_chain(root, target)
+            _OWNERS[target] = StageOwner(project_id, owner_job_id, ids[-1], ids[:-1])
+    return target
+
+
+def _remove_file(path: Path, fd=None):
+    if fd is not None: os.unlink(path.name, dir_fd=fd)
+    else: safe_unlink(path, missing_ok=False)
+
+
+def _remove_contents(path: Path, fd, result: CleanupResult):
+    names = os.listdir(fd) if fd is not None else os.listdir(long_path(path))
+    for name in names:
+        entry = path / name
+        info = os.stat(name, dir_fd=fd, follow_symlinks=False) if fd is not None else _lstat(entry)
+        if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
+            raise StagingNotOwned('删除前发现链接替换')
+        if stat.S_ISDIR(info.st_mode):
+            if fd is not None:
+                child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                try: _remove_contents(entry, child, result)
+                finally: os.close(child)
+                current = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                if _identity(current) != _identity(info): raise StagingNotOwned('目录被替换')
+                os.rmdir(name, dir_fd=fd)
+            else:
+                with pinned_directory(entry):
+                    if _identity(_lstat(entry)) != _identity(info): raise StagingNotOwned('目录被替换')
+                    _remove_contents(entry, None, result)
+                os.rmdir(long_path(entry))  # no recursive fallback / no link following
+        elif stat.S_ISREG(info.st_mode):
+            _remove_file(entry, fd)
+            result.removed_files += 1
+            result.removed_bytes += info.st_size
+        else: raise StagingNotOwned('拒绝非常规文件')
+
+
+def cleanup_owned_staging(project_id: str, stage: str | Path, *, owner_job_id: str | None = None) -> CleanupResult:
+    result = CleanupResult(path=str(stage), ok=False)
+    try:
+        root, target = _raw_target(project_id, stage)
+        with _GUARD:
+            owner = _OWNERS.get(target)
+            if not owner or (owner.project_id, owner.job_id) != (project_id, owner_job_id):
+                raise StagingNotOwned('未登记为本任务创建的暂存目录')
+            _check_creator(project_id, target, owner_job_id)
+            _validate_chain(root, target, owner, include_target=False)
+            with ExitStack() as stack:
+                handles = []
+                for parent in _chain(root, target)[:-1]:
+                    handles.append(stack.enter_context(pinned_directory(parent)))
+                _validate_chain(root, target, owner, include_target=False)
+                try: _lstat(target)
+                except FileNotFoundError:
+                    result.ok, result.message = True, '已登记暂存目录已清理'
+                    return result
+                _validate_chain(root, target, owner)
+                _iter_tree(target)  # preflight refuses links BEFORE deleting any file
+                # Revalidate after enumeration: a test/adversary can swap here.
+                _validate_chain(root, target, owner)
+                parent_fd = handles[-1]
+                if parent_fd is not None:
+                    fd = os.open(target.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+                    try:
+                        if _identity(os.fstat(fd)) != owner.identity: raise StagingNotOwned('目录被替换')
+                        _remove_contents(target, fd, result)
+                    finally: os.close(fd)
+                    current = os.stat(target.name, dir_fd=parent_fd, follow_symlinks=False)
+                    if _identity(current) != owner.identity: raise StagingNotOwned('目录被替换')
+                    os.rmdir(target.name, dir_fd=parent_fd)
+                else:
+                    with pinned_directory(target):
+                        _validate_chain(root, target, owner)
+                        _remove_contents(target, None, result)
+                    os.rmdir(long_path(target))
+                try: _lstat(target)
+                except FileNotFoundError:
+                    result.ok, result.message = True, '已清理本任务暂存目录'
+                    return result
+                raise OSError('删除后目录仍存在')
+    except (StagingNotOwned, ValueError) as exc:
+        result.error_code, result.message = ERR_NOT_OWNED, str(exc)
+        result.residual_paths = [str(stage)]
+        result.residual_count = 1
+    except Exception as exc:  # finally callers must never mask the task's error
+        result.error_code, result.message, result.retryable = ERR_CLEANUP_FAILED, '暂存回收失败，需安全重试', True
+        result.residual_paths = [str(stage)]
+        try:
+            paths = _iter_tree(Path(stage))
+            result.residual_paths = [str(p) for p in paths[:50]] or [str(stage)]
+            result.residual_count = len(paths)
+            result.residual_bytes = sum(_lstat(p).st_size for p in paths)
+        except Exception:
+            # Not observable is a failure, never an empty successful result.
+            result.residual_count = 1
+        logger.warning('CLEANUP_FAILED project=%s job=%s error=%s', project_id, owner_job_id, type(exc).__name__)
     return result
 
 
-__all__ = [
-    "CleanupResult",
-    "ERR_CLEANUP_FAILED",
-    "ERR_NOT_OWNED",
-    "cleanup_owned_staging",
-    "cleanup_staging_or_log",
-    "count_tree",
-]
+def cleanup_staging_or_log(project_id: str, stage: str | Path, *, owner_job_id: str | None = None) -> CleanupResult:
+    result = cleanup_owned_staging(project_id, stage, owner_job_id=owner_job_id)
+    if owner_job_id:
+        try:
+            from .runner import record_cleanup_result
+            root = project_cache_dir(project_id)
+            report = result.as_dict()
+            # Only project-relative summaries are persisted/exposed to the UI.
+            def redact(value):
+                try: return Path(value).relative_to(root).as_posix()
+                except ValueError: return '[unavailable]'
+            report['path'] = redact(report['path'])
+            report['residual_paths'] = [redact(p) for p in report['residual_paths']]
+            record_cleanup_result(owner_job_id, report)
+        except Exception:
+            logger.exception('Could not record cleanup outcome job=%s', owner_job_id)
+    return result

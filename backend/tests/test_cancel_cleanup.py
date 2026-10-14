@@ -43,6 +43,7 @@ from app.services.staging_cleanup import (
     CleanupResult,
     cleanup_owned_staging,
     count_tree,
+    create_owned_staging,
 )
 
 IS_WINDOWS = os.name == "nt"
@@ -92,6 +93,14 @@ def _add_shot(project_id: str, asset_id: str, segment_id: str, order: int = 0) -
         return shot.id
 
 
+def _own_stage(pid, stage):
+    with session_scope() as s:
+        job = Job(project_id=pid, job_type='roughcut', status='running')
+        s.add(job); s.flush(); jid = job.id
+    create_owned_staging(pid, stage, owner_job_id=jid)
+    return jid
+
+
 def _make_deep_dir(root: Path, target_len: int) -> Path:
     current = root
     chunk = "d" * 40
@@ -123,10 +132,11 @@ def _exists(p: Path) -> bool:
 def test_cleanup_removes_a_task_owned_stage(client):
     project = _make_project(client)
     stage = project_cache_dir(project["id"]) / "roughcut" / "staging-abc123"
+    jid = _own_stage(project["id"], stage)
     _write(stage / "clip_0000.mp4", b"y" * 64)
     _write(stage / "concat.txt", b"file 'x'")
 
-    result = cleanup_owned_staging(project["id"], stage, owner_job_id="job-1")
+    result = cleanup_owned_staging(project["id"], stage, owner_job_id=jid)
 
     assert isinstance(result, CleanupResult)
     assert result.ok is True, result
@@ -137,9 +147,10 @@ def test_cleanup_removes_a_task_owned_stage(client):
 def test_cleanup_is_idempotent_on_a_missing_stage(client):
     project = _make_project(client)
     stage = project_cache_dir(project["id"]) / "roughcut" / "staging-gone"
+    jid = _own_stage(project["id"], stage)
 
-    first = cleanup_owned_staging(project["id"], stage, owner_job_id="job-1")
-    second = cleanup_owned_staging(project["id"], stage, owner_job_id="job-1")
+    first = cleanup_owned_staging(project["id"], stage, owner_job_id=jid)
+    second = cleanup_owned_staging(project["id"], stage, owner_job_id=jid)
 
     assert first.ok is True
     assert second.ok is True, "a second cleanup must not report a spurious failure"
@@ -208,9 +219,10 @@ def test_cleanup_allows_analyzer_staging_pattern(client):
     project = _make_project(client)
     asset_id = _add_asset(project["id"])
     stage = project_cache_dir(project["id"]) / "staging" / asset_id / "run1234"
+    jid = _own_stage(project["id"], stage)
     _write(stage / "f_000001.jpg", b"j" * 32)
 
-    result = cleanup_owned_staging(project["id"], stage, owner_job_id="job-1")
+    result = cleanup_owned_staging(project["id"], stage, owner_job_id=jid)
 
     assert result.ok is True, result
     assert not _exists(stage)
@@ -219,9 +231,10 @@ def test_cleanup_allows_analyzer_staging_pattern(client):
 def test_cleanup_allows_proxies_staging_pattern(client):
     project = _make_project(client)
     stage = project_cache_dir(project["id"]) / "proxies" / "staging" / "tok123"
+    jid = _own_stage(project["id"], stage)
     _write(stage / "temp.mp4", b"v" * 32)
 
-    result = cleanup_owned_staging(project["id"], stage, owner_job_id="job-1")
+    result = cleanup_owned_staging(project["id"], stage, owner_job_id=jid)
 
     assert result.ok is True, result
     assert not _exists(stage)
@@ -238,6 +251,7 @@ def test_cleanup_reports_failure_instead_of_swallowing_it(client, monkeypatch):
     """
     project = _make_project(client)
     stage = project_cache_dir(project["id"]) / "roughcut" / "staging-busy"
+    jid = _own_stage(project["id"], stage)
     _write(stage / "clip.mp4", b"busy")
 
     import app.services.staging_cleanup as mod
@@ -251,10 +265,9 @@ def test_cleanup_reports_failure_instead_of_swallowing_it(client, monkeypatch):
     def _refuse_rmtree(path, ignore_errors=False):
         raise PermissionError("directory is in use")
 
-    monkeypatch.setattr(mod, "safe_unlink", _locked_unlink)
-    monkeypatch.setattr(mod.shutil, "rmtree", _refuse_rmtree)
+    monkeypatch.setattr(mod, "_remove_file", lambda *args: _locked_unlink(args[0]))
 
-    result = cleanup_owned_staging(project["id"], stage, owner_job_id="job-1")
+    result = cleanup_owned_staging(project["id"], stage, owner_job_id=jid)
 
     assert result.ok is False, "a staging tree still on disk must not report ok"
     assert result.error_code == "CLEANUP_FAILED"
@@ -271,10 +284,11 @@ def test_cleanup_accounting_matches_what_actually_disappeared(client):
     """
     project = _make_project(client)
     stage = project_cache_dir(project["id"]) / "roughcut" / "staging-account"
+    jid = _own_stage(project["id"], stage)
     _write(stage / "a.bin", b"1" * 40)
     _write(stage / "sub" / "b.bin", b"2" * 60)
 
-    result = cleanup_owned_staging(project["id"], stage, owner_job_id="job-1")
+    result = cleanup_owned_staging(project["id"], stage, owner_job_id=jid)
 
     assert result.ok is True, result
     assert not _exists(stage)
@@ -286,9 +300,10 @@ def test_cleanup_result_carries_traceable_details(client):
     """The book requires residual paths, bytes and a retry flag."""
     project = _make_project(client)
     stage = project_cache_dir(project["id"]) / "roughcut" / "staging-detail"
+    jid = _own_stage(project["id"], stage)
     _write(stage / "clip_0000.mp4", b"z" * 128)
 
-    result = cleanup_owned_staging(project["id"], stage, owner_job_id="job-1")
+    result = cleanup_owned_staging(project["id"], stage, owner_job_id=jid)
     assert result.ok is True
     assert result.removed_bytes >= 128
 
@@ -535,11 +550,12 @@ def test_cleanup_handles_deep_staging_paths(client, tmp_path):
     paths_mod.remember_project_root(project["id"], str(deep_root))
 
     stage = paths_mod.project_cache_dir(project["id"]) / "roughcut" / "staging-deep"
+    jid = _own_stage(project["id"], stage)
     _write(stage / "clip_0000.mp4", b"d" * 64)
     _write(stage / "nested" / "deeper" / "x.bin", b"e" * 32)
     assert len(str(stage)) >= 270, len(str(stage))
 
-    result = cleanup_owned_staging(project["id"], stage, owner_job_id="job-1")
+    result = cleanup_owned_staging(project["id"], stage, owner_job_id=jid)
 
     assert result.ok is True, result
     assert not _exists(stage), "deep staging must actually be removed"
@@ -555,9 +571,10 @@ def test_cleanup_counts_deep_staging_bytes(client, tmp_path):
     paths_mod.remember_project_root(project["id"], str(deep_root))
 
     stage = paths_mod.project_cache_dir(project["id"]) / "proxies" / "staging" / "tok"
+    jid = _own_stage(project["id"], stage)
     _write(stage / "temp.mp4", b"m" * 256)
 
-    result = cleanup_owned_staging(project["id"], stage, owner_job_id="job-1")
+    result = cleanup_owned_staging(project["id"], stage, owner_job_id=jid)
     assert result.ok is True, result
     assert result.removed_bytes == 256
 
@@ -574,6 +591,7 @@ def test_cleanup_refuses_a_symlink_pointing_outside(client, tmp_path):
     """
     project = _make_project(client)
     stage = project_cache_dir(project["id"]) / "roughcut" / "staging-link"
+    jid = _own_stage(project["id"], stage)
     os.makedirs(long_path(stage), exist_ok=True)
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -599,7 +617,7 @@ def test_cleanup_refuses_a_symlink_pointing_outside(client, tmp_path):
     if not created:
         pytest.skip("link creation is a platform fact: neither junction nor symlink permitted")
 
-    result = cleanup_owned_staging(project["id"], stage, owner_job_id="job-1")
+    result = cleanup_owned_staging(project["id"], stage, owner_job_id=jid)
 
     assert (outside / "precious.bin").exists(), (
         "cleanup followed a link out of the project and deleted outside data"

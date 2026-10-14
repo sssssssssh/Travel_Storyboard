@@ -40,7 +40,7 @@ from .runner import (
     register_task,
     update_job,
 )
-from .staging_cleanup import cleanup_staging_or_log
+from .staging_cleanup import cleanup_staging_or_log, create_owned_staging
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +157,7 @@ def roughcut_task(job_id: str) -> None:
         return
 
     stage = project_cache_dir(project_id) / "roughcut" / ("staging-" + str(uuid.uuid4()))
-    safe_mkdir(stage)
+    create_owned_staging(project_id, stage, owner_job_id=job_id)
     try:
         _roughcut_body(job_id, project_id, stage)
     finally:

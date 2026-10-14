@@ -24,7 +24,7 @@ from collections import deque
 from sqlalchemy import select, update
 
 from ..config import get_settings
-from ..database import session_scope
+from ..database import begin_write, session_scope
 from ..models import Job
 
 logger = logging.getLogger(__name__)
@@ -159,6 +159,12 @@ def update_job(job_id: str, *, expected_statuses=None, **fields) -> bool:
     Progress/checkpoints may still be persisted while an in-flight item stops.
     """
     with session_scope() as s:
+        if "stats" in fields:
+            begin_write(s)
+            row = s.get(Job, job_id)
+            cleanup = (row.stats or {}).get("cleanup") if row else None
+            if cleanup is not None:
+                fields["stats"] = {**fields["stats"], "cleanup": cleanup}
         stmt = update(Job).where(Job.id == job_id)
         status = fields.get("status")
         if status is not None:
@@ -195,11 +201,38 @@ def merge_job_stats(job_id: str, extra: dict) -> bool:
     rows are left alone.
     """
     with session_scope() as s:
+        begin_write(s)
         job = s.get(Job, job_id)
         if job is None:
             return False
         job.stats = {**(job.stats or {}), **extra}
         return True
+
+
+def record_cleanup_result(job_id: str, report: dict) -> None:
+    """Keep every run's result; a later successful asset cannot hide a failure."""
+    with session_scope() as s:
+        begin_write(s)
+        job = s.get(Job, job_id)
+        if job is None:
+            return
+        stats = dict(job.stats or {})
+        prior = stats.get("cleanup", {})
+        items = dict(prior.get("items", {}))
+        items[report['path']] = report
+        reports = list(items.values())
+        failures = [r for r in reports if not r['ok']]
+        stats['cleanup'] = {
+            'ok': not failures, 'items': items,
+            'error_code': failures[0]['error_code'] if failures else '',
+            'retryable': any(r['retryable'] for r in failures),
+            'removed_files': sum(r['removed_files'] for r in reports),
+            'removed_bytes': sum(r['removed_bytes'] for r in reports),
+            'residual_count': sum(r.get('residual_count', len(r['residual_paths'])) for r in failures),
+            'residual_bytes': sum(r.get('residual_bytes', 0) for r in failures),
+            'residual_paths': [p for r in failures for p in r['residual_paths']][:5],
+        }
+        job.stats = stats
 
 
 def job_status(job_id: str) -> str | None:

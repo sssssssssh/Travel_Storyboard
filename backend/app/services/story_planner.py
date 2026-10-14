@@ -55,7 +55,7 @@ from .runner import (
     register_task,
     update_job,
 )
-from .staging_cleanup import cleanup_staging_or_log
+from .staging_cleanup import cleanup_staging_or_log, create_owned_staging
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +163,7 @@ def proxies_task(job_id: str) -> None:
     # 36-char project id); a 69-char staging folder on top of that made ffmpeg
     # write a file the rest of the process could not see (WinError 3).
     staging = root / 'staging' / uuid.uuid4().hex[:12]
-    safe_mkdir(staging)
+    create_owned_staging(project_id, staging, owner_job_id=job_id)
     done, failed, skipped_budget = prior_done, failures.total, 0
     total = prior_done + len(plan)
     total_bytes = sum(p['bytes'] for p in publications)
