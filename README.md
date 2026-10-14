@@ -176,7 +176,7 @@ pnpm run build
 ## 文档
 
 - 完整设计：[docs/DESIGN.md](docs/DESIGN.md)
-- 回归测试清单（T01–T19 + v2.0.4 新增）：[docs/REGRESSION.md](docs/REGRESSION.md)
+- 回归测试清单（T01–T21 + v2.0.4/v2.0.5 新增）：[docs/REGRESSION.md](docs/REGRESSION.md)
 - 需求来源：`Travel_Storyboard_v2.0_详细设计方案.md`
 
 ## 持续集成
@@ -244,3 +244,15 @@ AI 导演与分镜审阅现在可查看旧区间、最新检测候选、收藏�
 实测：Windows（`LongPathsEnabled=0`）下 **329 passed / 0 skipped**，其中深路径、并发互斥、时长验收用例 71 个。详见 [v2.0.4 发布记录](docs/RELEASE_V2_0_4.md) 与 [测试记录](docs/validation/v2.0.4/backend-windows-py3.13.md)。
 
 **本轮未完成**：Windows 实机 8～10 段真实旅行素材验收（RT-18/19）仍未执行，CI 与合成素材通过不能替代。门禁清单见 [实机验收记录](docs/validation/v2.0.4/WINDOWS_REAL_FOOTAGE.md)。
+
+## v2.0.5 深路径收尾与取消语义
+
+修复深路径 HTTP 读取、安全删除与深目录扫描 API（TSB-251/252/254），并让**取消真正终止在跑的媒体进程**（TSB-253）。
+
+**取消语义**：此前取消是纯协作式的 —— 只在**条目之间**检查。取消一个长编码时任务行立刻显示 `cancelled`，但 FFmpeg 会继续跑完：项目锁被占、CPU 持续占用。现在 `cancel_check` 回调从任务一路传进 `ffmpeg.run()`，回调为真即终止进程组并抛 `CANCELLED`。终止**只作用于自己启动的进程树**，不波及并发任务；不传回调时行为与原先完全一致。
+
+实测同一条 8 秒媒体命令、0.6 秒后请求取消：旧路径 **8.44s** 才返回，新路径 **0.73s** 即中止。真实长素材上这是分钟级的无效占用。被杀的媒体进程记为**取消**而非失败；代理与检测任务同样接线，取消不再被记成「一条失败请求」后继续编码下一个。
+
+实测：Windows（`LongPathsEnabled=0`）下 **398 passed / 0 failed / 0 skipped**（基线 376 + 新增 22），`skipped=0` 表示媒体用例实际执行。详见 [v2.0.5 发布记录](docs/RELEASE_V2_0_5.md) 与 [测试记录](docs/validation/v2.0.5/backend-windows-py3.13.md)。
+
+**本轮未完成**：Windows 实机 8～10 段真实旅行素材验收（RT-18/19）仍未执行。在其实机记录补齐前，v2.0.5 同样不应宣称已满足真实素材发布门禁。

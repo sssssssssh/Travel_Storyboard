@@ -19,6 +19,7 @@ from sqlalchemy import select
 from ..config import get_settings
 from ..database import session_scope
 from ..ffmpeg import (
+    FFmpegCancelled,
     locate_ffmpeg,
     long_path,
     run,
@@ -31,7 +32,14 @@ from ..ffmpeg import (
 )
 from ..models import Asset, EditPlanShot, Job, Segment
 from ..paths import project_cache_dir, rel_to_data
-from .runner import JobFailures, raise_if_cancelled, register_task, update_job
+from .runner import (
+    JobCancelled,
+    JobFailures,
+    cancel_check_for,
+    raise_if_cancelled,
+    register_task,
+    update_job,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +97,8 @@ def _clamp_duration(shot: EditPlanShot, asset: Asset) -> float:
     return max(0.0, duration)
 
 
-def _extract_normalized(source: str, start: float, dur: float, out: Path, has_audio: bool) -> None:
+def _extract_normalized(source: str, start: float, dur: float, out: Path,
+                        has_audio: bool, cancel_check=None) -> None:
     width, height = 1280, 720
     vf = (
         f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
@@ -129,7 +138,7 @@ def _extract_normalized(source: str, start: float, dur: float, out: Path, has_au
         "-movflags", "+faststart",
         long_path(out),
     ]
-    run(cmd, expect_output=out)
+    run(cmd, expect_output=out, cancel_check=cancel_check)
 
 
 @register_task("roughcut")
@@ -158,6 +167,8 @@ def roughcut_task(job_id: str) -> None:
 
     stage = work / ("staging-" + str(uuid.uuid4()))
     safe_mkdir(stage)
+    # Cancelling the job must stop the in-flight encode, not wait it out.
+    cancel_check = cancel_check_for(job_id)
     clips: list[Path] = []
     total = len(pairs)
     done = 0
@@ -204,7 +215,8 @@ def roughcut_task(job_id: str) -> None:
         clip = stage / f"clip_{i:04d}.mp4"
         try:
             _extract_normalized(
-                asset.source_path, sh.source_in_sec, duration, clip, bool(asset.has_audio)
+                asset.source_path, sh.source_in_sec, duration, clip,
+                bool(asset.has_audio), cancel_check=cancel_check,
             )
             clips.append(clip)
             actual_total += duration
@@ -216,6 +228,10 @@ def roughcut_task(job_id: str) -> None:
                         "used": round(duration, 3),
                     }
                 )
+        except FFmpegCancelled:
+            # Cancellation aborts the whole job; it must not be recorded as one
+            # more failed clip and then be followed by more encodes (TSB-253).
+            raise JobCancelled("Rough cut cancelled by user") from None
         except Exception as exc:  # noqa: BLE001 - keep going on other clips
             logger.exception("Rough-cut clip failed for shot %s", sh.id)
             failed += 1
@@ -250,7 +266,9 @@ def roughcut_task(job_id: str) -> None:
             long_path(temporary),
         ],
         expect_output=temporary,
+        cancel_check=cancel_check,
     )
+    # Re-check after the concat: a cancel during it must never publish (TSB-253).
     raise_if_cancelled(job_id)
     _long_replace(temporary, out)
     shutil.rmtree(stage, ignore_errors=True)

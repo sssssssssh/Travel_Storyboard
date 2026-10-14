@@ -7,14 +7,18 @@ Windows paths with spaces, CJK characters, emoji, etc. are handled safely.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .config import get_settings
+
+logger = logging.getLogger(__name__)
 
 _COMMON_WIN_DIRS = [
     r"C:\ffmpeg\bin",
@@ -45,6 +49,27 @@ ERR_OUTPUT_NOT_CREATED = "OUTPUT_NOT_CREATED"
 ERR_MEDIA_UNREADABLE = "MEDIA_UNREADABLE"
 ERR_EXECUTABLE_MISSING = "EXECUTABLE_MISSING"
 ERR_COMMAND_FAILED = "COMMAND_FAILED"
+ERR_CANCELLED = "CANCELLED"
+ERR_TIMEOUT = "TIMEOUT"
+
+#: How long a media process gets to exit after a polite terminate before it is
+#: killed outright. Kept short: a cancelled job should free its project lock
+#: quickly, and ffmpeg flushes nothing worth waiting for on cancel.
+CANCEL_GRACE_SEC = 5.0
+
+
+class FFmpegCancelled(FFmpegError):
+    """Raised when a media command was stopped because its job was cancelled."""
+
+    def __init__(self, message: str = "媒体进程已取消") -> None:
+        super().__init__(message, code=ERR_CANCELLED)
+
+
+class FFmpegTimeout(FFmpegError):
+    """Raised when a media command exceeded its timeout."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, code=ERR_TIMEOUT)
 
 
 def path_exceeds_limit(path: str | Path) -> bool:
@@ -403,12 +428,54 @@ def safe_write_text(path: str | Path, text: str, encoding: str = "utf-8") -> Non
             handle.write(text)
 
 
+def _popen_kwargs() -> dict:
+    """Process-group flags so a whole media tree can be reclaimed.
+
+    Detached from our console/process group, so terminating it cannot take the
+    server down with it, and a shell-spawned grandchild dies with the group.
+    """
+    if os.name == "nt":
+        # CREATE_NEW_PROCESS_GROUP: Ctrl-Break/terminate semantics stay local.
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    return {"start_new_session": True}  # setsid: own process group
+
+
+def _terminate_tree(proc: subprocess.Popen) -> None:
+    """Politely terminate *proc*, then kill it if it lingers.
+
+    Scoped to this one process/group on purpose: a project-wide or name-based
+    kill would reach other projects' concurrent jobs, which the task book
+    forbids.
+    """
+    if proc.poll() is not None:
+        return
+    try:
+        proc.terminate()
+    except OSError:
+        pass
+    try:
+        proc.wait(timeout=CANCEL_GRACE_SEC)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+    try:
+        proc.wait(timeout=CANCEL_GRACE_SEC)
+    except subprocess.TimeoutExpired:
+        logger.warning("Media process %s did not exit after kill()", proc.pid)
+
+
 def run(
     cmd: list[str],
     timeout: int = 3600,
     *,
     expect_output: str | Path | None = None,
     expect_pattern: str | None = None,
+    cancel_check=None,
+    poll_interval: float = 0.25,
 ) -> subprocess.CompletedProcess:
     """Run an external command, raising a classified ``FFmpegError`` on failure.
 
@@ -422,13 +489,79 @@ def run(
 
     Pass ``expect_output`` for a single file, or ``expect_pattern`` (a glob) for
     a frame sequence, and the result is verified before returning.
+
+    ``cancel_check`` (TSB-253) is an optional zero-argument callable. When it
+    returns truthy the child is terminated and ``FFmpegCancelled`` is raised, so
+    cancelling a job stops the *encoder* instead of waiting for it to finish.
+    Omit it and the call behaves exactly as before.
     """
+    if cancel_check is None:
+        # Fast path: unchanged behaviour, no extra threads or polling.
+        try:
+            proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
+        except FileNotFoundError as exc:
+            raise FFmpegError(
+                f"Executable not found: {cmd[0]}", code=ERR_EXECUTABLE_MISSING
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise FFmpegTimeout(
+                f"命令超时（{timeout}s）：{' '.join(cmd[:6])} ..."
+            ) from exc
+        return _verify_expected(proc, cmd, expect_output, expect_pattern)
+
     try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
+        child = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            **_popen_kwargs(),
+        )
     except FileNotFoundError as exc:
         raise FFmpegError(
             f"Executable not found: {cmd[0]}", code=ERR_EXECUTABLE_MISSING
         ) from exc
+
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            try:
+                # communicate(timeout=) drains both pipes on background threads,
+                # so a chatty ffmpeg cannot deadlock on a full pipe buffer.
+                stdout, stderr = child.communicate(timeout=poll_interval)
+                break
+            except subprocess.TimeoutExpired:
+                if cancel_check():
+                    _terminate_tree(child)
+                    raise FFmpegCancelled(
+                        f"媒体进程已取消：{' '.join(cmd[:6])} ..."
+                    ) from None
+                if time.monotonic() >= deadline:
+                    _terminate_tree(child)
+                    raise FFmpegTimeout(
+                        f"命令超时（{timeout}s）：{' '.join(cmd[:6])} ..."
+                    ) from None
+    finally:
+        # Never leave the child running or the pipes open, whatever happened.
+        if child.poll() is None:
+            _terminate_tree(child)
+        for stream in (child.stdout, child.stderr):
+            if stream is not None:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+
+    proc = subprocess.CompletedProcess(cmd, child.returncode, stdout, stderr)
+    return _verify_expected(proc, cmd, expect_output, expect_pattern)
+
+
+def _verify_expected(
+    proc: subprocess.CompletedProcess,
+    cmd: list[str],
+    expect_output: str | Path | None,
+    expect_pattern: str | None,
+) -> subprocess.CompletedProcess:
+    """Shared post-run validation (exit code + declared artefacts)."""
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", errors="replace")[-2000:]
         preview = " ".join(cmd[:6])
@@ -599,6 +732,7 @@ def extract_frame(
     time_sec: float,
     out_path: str | Path,
     width: int | None = None,
+    cancel_check=None,
 ) -> Path:
     """Extract a single frame at an exact-ish time to a JPEG file."""
     out = Path(out_path)
@@ -616,7 +750,7 @@ def extract_frame(
     # `-update 1` is required: without it the image2 muxer refuses a filename
     # that has no `%03d` pattern, prints a warning, and exits 0 without writing.
     cmd += ["-q:v", "3", "-update", "1", long_path(out)]
-    run(cmd, expect_output=out)
+    run(cmd, expect_output=out, cancel_check=cancel_check)
     return out
 
 
@@ -628,8 +762,13 @@ def extract_preview(
     width: int | None = None,
     crf: int = 28,
     keep_audio: bool = False,
+    cancel_check=None,
 ) -> Path:
-    """Generate a low-bitrate proxy clip (used for dynamic review in M3+)."""
+    """Generate a low-bitrate proxy clip (used for dynamic review in M3+).
+
+    ``cancel_check`` lets a cancelled proxy job stop this encode immediately
+    rather than after the clip finishes (TSB-253).
+    """
     out = Path(out_path)
     safe_mkdir(out.parent)
     cmd = [
@@ -651,5 +790,5 @@ def extract_preview(
         "-movflags", "+faststart",
         long_path(out),
     ]
-    run(cmd, expect_output=out)
+    run(cmd, expect_output=out, cancel_check=cancel_check)
     return out

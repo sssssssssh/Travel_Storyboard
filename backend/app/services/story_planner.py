@@ -34,6 +34,7 @@ from sqlalchemy import select
 from ..config import get_settings
 from ..database import begin_write, session_scope
 from ..ffmpeg import (
+    FFmpegCancelled,
     extract_preview,
     probe_media,
     safe_is_file,
@@ -46,7 +47,14 @@ from ..paths import project_cache_dir, rel_to_data, resolve_in_project
 from . import model_client
 from .review_validation import (ReviewValidationError, validate_review, validate_range,
                                 verified_source, review_revision, INVALID_SEGMENT_STATUSES)
-from .runner import JobCancelled, JobFailures, raise_if_cancelled, register_task, update_job
+from .runner import (
+    JobCancelled,
+    JobFailures,
+    cancel_check_for,
+    raise_if_cancelled,
+    register_task,
+    update_job,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -185,8 +193,13 @@ def proxies_task(job_id: str) -> None:
                                     message='[BUDGET_EXCEEDED] 预览预算已用尽，请增加预算或新建任务；请求仍待处理')
                     failed = failures.total
                     continue
+                # TSB-253: pass the job's cancel callback so cancelling stops
+                # this encode instead of waiting out the whole clip. Proxies are
+                # the longest single encodes in the app, so this is where an
+                # un-interruptible ffmpeg hurt most.
                 extract_preview(source_path, start, end - start, temp,
-                                width=get_settings().proxy_width, keep_audio=True)
+                                width=get_settings().proxy_width, keep_audio=True,
+                                cancel_check=cancel_check_for(job_id))
                 raise_if_cancelled(job_id)
                 size = safe_stat(temp).st_size
                 media = probe_media(temp)
@@ -252,6 +265,12 @@ def proxies_task(job_id: str) -> None:
                 failed = failures.total
             except JobCancelled:
                 raise
+            except FFmpegCancelled:
+                # TSB-253: a media process stopped by its own cancel callback is
+                # a cancellation, not one more failed request. Without this the
+                # generic handler below would mark the request `failed`, record
+                # a bogus failure and carry on encoding the next clip.
+                raise JobCancelled('Proxy generation cancelled by user') from None
             except Exception as exc:  # per-request isolation, including final DB failure
                 failed += 1
                 code = getattr(exc, 'code', 'PROXY_FAILED')

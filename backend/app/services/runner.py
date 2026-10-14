@@ -177,6 +177,21 @@ def raise_if_cancelled(job_id: str) -> None:
         raise JobCancelled("Job cancelled by user")
 
 
+def cancel_check_for(job_id: str | None):
+    """Build a pollable cancel callback for a job, or ``None`` without one.
+
+    Passed into the media layer (``ffmpeg.run(..., cancel_check=...)``) so a
+    cancel stops the *external process* instead of waiting for the current
+    encode to finish (TSB-253).
+
+    Returns ``None`` when there is no job, which keeps the append-only,
+    one-shot detectors used outside a job on their original code path.
+    """
+    if not job_id:
+        return None
+    return lambda: is_cancelled(job_id)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -257,8 +272,15 @@ class JobRunner:
             except JobCancelled:
                 update_job(job_id, status=STATUS_CANCELLED, finished_at=_now())
             except Exception as exc:
-                logger.exception("Job %s failed", job_id)
-                update_job(job_id, status=STATUS_FAILED, error=str(exc), finished_at=_now())
+                # A media process killed by its own cancel callback is a
+                # cancellation, not a failure: `cancelled` is the terminal state
+                # and must not be overwritten with `failed` (TSB-253).
+                if getattr(exc, "code", None) == "CANCELLED":
+                    update_job(job_id, status=STATUS_CANCELLED, finished_at=_now())
+                else:
+                    logger.exception("Job %s failed", job_id)
+                    update_job(job_id, status=STATUS_FAILED, error=str(exc),
+                               finished_at=_now())
             else:
                 with session_scope() as s:
                     job = s.get(Job, job_id)

@@ -136,6 +136,38 @@ python -m pytest -q
 > TSB-241 的深路径用例仅在 Windows 上运行（非 Windows 自动 skip）；
 > 其余用例在所有平台运行。本机 `LongPathsEnabled=0`，即验收要求的场景。
 
+### v2.0.5 新增（TSB-251 ~ TSB-254）
+
+| 用例 | 任务 | 守护的行为 |
+| --- | --- | --- |
+| `test_job_cancel_kills_process.py::test_cancelled_run_kills_child_and_raises` | TSB-253 | 取消回调为真 → 立刻终止子进程并抛 `CANCELLED`，**不等编码跑完** |
+| `test_job_cancel_kills_process.py::test_cancelled_run_actually_reaps_the_os_process` | TSB-253 | 子进程在**操作系统层面**确实消失，不是被遗弃 |
+| `test_job_cancel_kills_process.py::test_uncancelled_run_with_check_still_returns_normally` | TSB-253 | 回调恒为假不影响正常运行 |
+| `test_job_cancel_kills_process.py::test_cancel_check_result_is_read_as_truthy_per_poll` | TSB-253 | 回调被**反复轮询**，迟到的取消同样生效 |
+| `test_job_cancel_kills_process.py::test_run_without_cancel_check_is_unchanged` | TSB-253 | 不传回调时保持 `subprocess.run` 原行为 |
+| `test_job_cancel_kills_process.py::test_run_without_cancel_check_still_classifies_missing_executable` | TSB-253 | 快路径仍分类 `EXECUTABLE_MISSING` |
+| `test_job_cancel_kills_process.py::test_run_without_cancel_check_still_classifies_failure` | TSB-253 | 快路径仍分类 `COMMAND_FAILED` |
+| `test_job_cancel_kills_process.py::test_run_without_cancel_check_still_classifies_timeout` | TSB-253 | 快路径仍分类 `TIMEOUT` |
+| `test_job_cancel_kills_process.py::test_timeout_also_applies_when_cancel_check_is_present` | TSB-253 | 轮询循环**不吞掉**超时分类 |
+| `test_job_cancel_kills_process.py::test_cancel_wins_over_timeout_when_both_are_due` | TSB-253 | 同时到期时取消优先，不误报超时 |
+| `test_job_cancel_kills_process.py::test_cancel_check_for_is_none_without_a_job` | TSB-253 | 无任务时返回 `None`，一次性检测保持原路径 |
+| `test_job_cancel_kills_process.py::test_cancel_check_for_tracks_the_job_row` | TSB-253 | 回调读**实时**任务状态，不是过期快照 |
+| `test_job_cancel_kills_process.py::test_job_cancelled_media_process_is_not_marked_failed` | TSB-253 | **原缺陷**：被杀的媒体进程是取消，不得被写成 `failed` |
+| `test_job_cancel_kills_process.py::test_successful_job_with_a_cancel_check_still_succeeds` | TSB-253 | 透传回调不改变成功路径 |
+| `test_job_cancel_kills_process.py::test_genuine_media_failure_is_still_reported_as_failed` | TSB-253 | 只有 `CANCELLED` 特殊处理，真实媒体错误仍为 `failed` |
+| `test_job_cancel_kills_process.py::test_job_cancelled_from_inside_a_task_keeps_cancelled_state` | TSB-253 | 既有 `JobCancelled` 路径无回归 |
+| `test_job_cancel_kills_process.py::test_cancelling_one_run_does_not_kill_a_concurrent_run` | TSB-253 | 终止**只作用于自己启动的进程树**，不误伤并发任务 |
+| `test_job_cancel_kills_process.py::test_roughcut_passes_a_cancel_check_to_its_encodes` | TSB-253 | 粗剪确实**传入**回调，且取消不被记为单个失败片段 |
+| `test_job_cancel_kills_process.py::test_proxy_task_passes_a_cancel_check_to_its_encodes` | TSB-253 | 代理（最长编码）确实传入回调并中止整个任务 |
+| `test_job_cancel_kills_process.py::test_analyze_task_passes_a_cancel_check_to_sampling` | TSB-253 | 检测抽样确实传入回调，取消不被记成单个素材失败 |
+| `test_job_cancel_kills_process.py::test_detector_forwards_cancel_check_into_its_sampling_run` | TSB-253 | `detector` 把回调转发进抽样的 `run()` |
+| `test_job_cancel_kills_process.py::test_detect_segments_keeps_its_original_signature_contract` | TSB-253 | `cancel_check` 默认 `None`，无任务调用者行为不变 |
+
+> TSB-253 的关键断言是**时延**，不只是终态：旧实现同样会到达 `cancelled`，
+> 只是要等编码跑完。因此这些用例同时断言"停得够快"与"子进程真的死了"。
+> 本机实测（`tools/probe_cancel_latency.py`）：同一 8 秒媒体命令，
+> 旧路径 8.44s 才返回，新路径 0.73s 即中止，回收 7.71s。
+
 ---
 
 ## 二、手动回归（需要 FFmpeg + 真实素材）
@@ -151,7 +183,7 @@ python -m pytest -q
 | T05 | 帧缓存回收 | 连续强制检测 3 次 | `<项目工作区>/frames/` 文件数稳定，不随次数增长 |
 | T06 | 中途杀进程 | 检测进行中直接结束后端进程 → 重启 | 任务被重新派发（`resume_interrupted_jobs`），不产生重复镜头 |
 | T07 | 并发保护 | 检测运行中再点扫描/打包 | 第二次请求返回 409 并给出正在运行的任务编号 |
-| T08 | 取消 | 打包/代理运行中点取消 | 任务状态 `cancelled`，已产出的临时文件不污染正式目录 |
+| T08 | 取消 | 打包/代理运行中点取消 | 任务状态 `cancelled`，已产出的临时文件不污染正式目录；**进程应立即停止**（见 T20） |
 | T09 | 部分失败可见 | 让某个素材不可读后跑打包 | 任务 `partial_failed`，前端列出失败条目，成功部分仍可用 |
 | T10 | 授权边界 | 直接请求 `/api/system/token`、`/api/projects/<pid>/media?path=token.txt` | 404 / 400，绝不返回内容 |
 | T11 | 跨站防护 | 用非回环 `Host`/`Origin` 发请求 | 403 |
@@ -163,6 +195,8 @@ python -m pytest -q
 | T17 | 粗剪带声音 | 保存剪辑计划 → 生成粗剪 → 用播放器打开 | 粗剪含 AAC 立体声（48kHz）音轨；`resume_token` 中 planned 与 actual 时长一致 |
 | T18 | 剪辑计划校验 | 提交跨素材引用、倒置区间、目标时长超过源区间、NaN | 四种均返回 `created=0` 并给出逐条原因；已有计划不被破坏 |
 | T19 | OTIO 可导入 | 导出 OTIO → 在 DaVinci Resolve / Premiere（如支持）中导入 | 镜头数与时长与 CSV/JSON 一致；若 NLE 不支持请记录版本 |
+| T20 | 取消**及时**生效 | 对一段较长素材生成代理（或跑粗剪），在编码进行中点「取消」，同时用任务管理器观察 `ffmpeg.exe` | `ffmpeg.exe` 在数秒内退出（不再跑完整个片段）；任务为 `cancelled` 而非 `failed`；项目锁被释放，可立即提交新任务 |
+| T21 | 并发取消不误伤 | 分别在两个项目各起一个长任务，只取消其中一个 | 只有被取消的那个进程退出；另一个任务继续正常完成 |
 
 > T06/T08 结束后请确认 `<项目工作区>/staging/` 下没有遗留目录。
 

@@ -29,6 +29,7 @@ from sqlalchemy import delete, select
 from ..config import ANALYSIS_VERSION, get_settings
 from ..database import begin_write, session_scope
 from ..ffmpeg import (
+    FFmpegCancelled,
     extract_frame,
     safe_image_open,
     safe_is_file,
@@ -42,7 +43,9 @@ from .detector import detect_segments
 from .frames import select_rep_times
 from .quality import analyze_frame, hamming, phash
 from .runner import (
+    JobCancelled,
     JobFailures,
+    cancel_check_for,
     raise_if_cancelled,
     register_task,
     update_job,
@@ -195,6 +198,8 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
         sample_fps=settings.detect_sample_fps,
         threshold=settings.detect_threshold,
         max_segment_sec=settings.detect_max_segment_sec,
+        # Cancelling a detect job must stop the sampling ffmpeg, not wait for it.
+        cancel_check=cancel_check_for(job_id),
     )
 
     # Load existing segments to preserve IDs / manual marks across re-runs.
@@ -277,7 +282,8 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
             # callable and a concurrent cleanup must never turn a missing
             # directory into a confusing mid-run failure.
             safe_mkdir(stage_path.parent)
-            extract_frame(source, t, stage_path, width=settings.thumb_width)
+            extract_frame(source, t, stage_path, width=settings.thumb_width,
+                          cancel_check=cancel_check_for(job_id))
             with safe_image_open(stage_path) as im:
                 im.load()
                 fw, fh = im.size
@@ -548,6 +554,11 @@ def detect_task(job_id: str) -> None:
             failures.resolve(kind='asset', ref=aid)
         except JobCancelled:
             raise
+        except FFmpegCancelled:
+            # TSB-253: the sampling/extraction ffmpeg was stopped because the job
+            # was cancelled. Treat it as a cancellation and abort the detect run
+            # rather than recording a bogus per-asset failure and moving on.
+            raise JobCancelled('Detect cancelled by user') from None
         except Exception as exc:
             logger.exception('Analyze failed for asset %s', aid)
             fail_item(item, exc, token)

@@ -48,6 +48,7 @@ def _extract_sample_frames(
     sample_fps: float,
     width: int,
     tmpdir: str,
+    cancel_check=None,
 ) -> list[tuple[float, Path]]:
     """Sample frames into *tmpdir*; raises when the extraction produced nothing.
 
@@ -55,6 +56,8 @@ def _extract_sample_frames(
     Windows workspace behaves like a shallow one. The previous version ignored
     FFmpeg's exit code and returned an empty list, which downstream turned into
     a confident "single shot" result — a silent success on a failed extraction.
+
+    ``cancel_check`` lets a cancelled detect job stop ffmpeg mid-sampling.
     """
     directory = Path(tmpdir)
     # The %06d pattern must stay in the *raw* path: FFmpeg expands it, and
@@ -68,7 +71,7 @@ def _extract_sample_frames(
         "-q:v", "5",
         long_path(pattern),
     ]
-    run(cmd, expect_pattern=str(directory / "f_*.jpg"))
+    run(cmd, expect_pattern=str(directory / "f_*.jpg"), cancel_check=cancel_check)
     files = sorted(directory.glob("f_*.jpg"))
     return [(i / sample_fps, p) for i, p in enumerate(files)]
 
@@ -153,13 +156,19 @@ def detect_segments(
     threshold: float = 0.35,
     max_segment_sec: float = 30.0,
     width: int = 160,
+    cancel_check=None,
 ) -> DetectionResult:
-    """Detect segment boundaries for a single video."""
+    """Detect segment boundaries for a single video.
+
+    ``cancel_check`` is optional (TSB-253): the one-shot detection used by
+    callers without a job keeps the original signature and behaviour.
+    """
     if duration_sec <= 0:
         return DetectionResult()
 
     with tempfile.TemporaryDirectory() as tmp:
-        samples = _extract_sample_frames(source, sample_fps, width, tmp)
+        samples = _extract_sample_frames(source, sample_fps, width, tmp,
+                                         cancel_check=cancel_check)
         times: list[float] = []
         hists: list = []
         unreadable = 0
