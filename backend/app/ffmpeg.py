@@ -262,6 +262,62 @@ def safe_serving_path(path: str | Path) -> str:
     return long_path(target)
 
 
+def safe_scandir(path: str | Path):
+    """``os.scandir`` that also works past MAX_PATH on Windows.
+
+    At ~271 characters ``os.listdir``/``iterdir`` raise ``FileNotFoundError``
+    even though the directory exists. ``Path.rglob`` swallows that error and
+    simply stops descending, so a scan silently loses every file beneath a deep
+    directory — the "scan job quietly misses files" release veto (TSB-254).
+
+    Yields ``os.DirEntry`` objects like ``os.scandir`` does, so callers keep
+    ``is_dir()`` / ``is_file()`` / ``stat()`` without extra syscalls.
+    """
+    target = Path(path)
+    try:
+        return os.scandir(target)
+    except FileNotFoundError:
+        if os.name != "nt":
+            raise
+        return os.scandir(long_path(target))
+
+
+def walk_files(root: str | Path):
+    """Yield every regular file under *root*, tolerating >MAX_PATH directories.
+
+    Iterative (no recursion limit), does **not** follow directory symlinks, and
+    re-raises unexpected errors so a caller can report a per-item failure rather
+    than silently returning a short list. Directory entries that cannot be read
+    are reported through the returned generator's ``errors`` accessor only when
+    the caller asks; by default an unreadable sub-directory raises so the scan
+    can record it.
+    """
+    base = Path(root)
+    stack = [base]
+    while stack:
+        current = stack.pop()
+        try:
+            entries = list(safe_scandir(current))
+        except FileNotFoundError:
+            # Vanished between listing and reading: nothing to report.
+            continue
+        except NotADirectoryError:
+            continue
+        except PermissionError:
+            raise
+        for entry in entries:
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
+                # Cannot classify: treat as a file so the caller reports it.
+                yield Path(entry.path)
+                continue
+            if is_dir:
+                stack.append(Path(entry.path))
+            else:
+                yield Path(entry.path)
+
+
 def safe_unlink(path: str | Path, *, missing_ok: bool = True) -> None:
     """Remove a file, tolerating >MAX_PATH paths on Windows.
 

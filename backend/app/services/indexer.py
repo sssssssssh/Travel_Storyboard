@@ -8,26 +8,72 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from pathlib import Path
 
 from sqlalchemy import select
 
 from ..config import ANALYSIS_VERSION, VIDEO_EXTENSIONS
 from ..database import session_scope
-from ..ffmpeg import probe_media, safe_is_file, safe_open, safe_stat
+from ..ffmpeg import (
+    long_path,
+    probe_media,
+    safe_is_file,
+    safe_open,
+    safe_scandir,
+    safe_stat,
+    walk_files,
+)
 from ..models import Asset, Job, Project, utcnow
 from .runner import JobFailures, raise_if_cancelled, register_task, update_job
 
 logger = logging.getLogger(__name__)
 
 
+def _is_dir(path: Path) -> bool:
+    """``Path.is_dir`` that survives a >MAX_PATH path.
+
+    Permission problems propagate: an unreadable root must be reported as
+    ``source_unavailable``, not quietly treated as "not a directory".
+    """
+    try:
+        if path.is_dir():
+            return True
+    except PermissionError:
+        raise
+    except OSError:
+        pass
+    if os.name != "nt":
+        return False
+    try:
+        return os.path.isdir(long_path(path))
+    except (OSError, ValueError):
+        return False
+
+
 def iter_video_files(roots: list[str], check_cancel=None):
+    """Yield every video file under *roots*, de-duplicated.
+
+    Uses :func:`walk_files` rather than ``Path.rglob``. ``rglob`` raises
+    ``FileNotFoundError`` for a directory at ~271+ characters and **swallows it**,
+    silently skipping that whole subtree — a deep source root lost every file
+    under it while the scan still reported success (TSB-254).
+
+    Directory symlinks are not followed (``walk_files`` passes
+    ``follow_symlinks=False``), so a link cycle cannot hang a scan.
+    """
     seen: set[str] = set()
     for root in roots:
         base = Path(root)
-        if not base.exists() or not base.is_dir():
-            continue
-        for number, path in enumerate(base.rglob("*")):
+        # safe_is_file / a tolerant is_dir: a deep root must still be walked.
+        try:
+            if not base.is_dir():
+                continue
+        except OSError:
+            if not safe_is_file(base):
+                continue
+
+        for number, path in enumerate(walk_files(base)):
             if check_cancel and number % 128 == 0:
                 check_cancel()
             try:
@@ -170,10 +216,13 @@ def scan_manifest(roots: list[str], full_hash: bool = False, *, job_id=None) -> 
     for root in roots:
         path = Path(root)
         try:
-            if not path.is_dir():
+            # A deep source root is still a valid root: plain is_dir()/iterdir()
+            # answer "no such directory" past MAX_PATH, which used to make the
+            # whole root look unavailable (TSB-254).
+            if not _is_dir(path):
                 raise OSError('素材根目录不存在或无法读取，请检查路径后再次扫描')
             # Force one directory read so a denied root cannot look empty.
-            next(path.iterdir(), None)
+            next(iter(safe_scandir(path)), None)
             files.update(iter_video_files([root], check_cancel=check))
         except OSError as exc:
             result.append({'key': 'root:' + str(path.resolve()), 'source': str(path),
@@ -228,5 +277,12 @@ def scan_task(job_id: str) -> None:
             raise
         except Exception as exc:
             fail_item(item, exc, token)
-            failures.record(kind='file', ref=str(path), message=str(exc))
+            failures.record(
+                kind='file',
+                ref=str(path),
+                message=str(exc),
+                # Carry the classification through so the failure list is
+                # reconcilable by code (TSB-254), not just by prose.
+                error_code=item.get('error_code') or getattr(exc, 'code', None),
+            )
         persist(job_id, items, token)

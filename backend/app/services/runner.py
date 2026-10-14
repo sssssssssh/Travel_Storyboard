@@ -73,8 +73,19 @@ class JobFailures:
         self.items = list(saved.get("items", []))
         self.total = int(saved.get("count", len(self.items)))
 
-    def record(self, *, kind: str, ref: str, message: str) -> None:
+    def record(self, *, kind: str, ref: str, message: str,
+               error_code: str | None = None) -> None:
+        """Record (or replace) a per-item failure.
+
+        ``error_code`` is carried through so the job's failure list can be
+        reconciled by code — the UI and the TSB-254 acceptance criteria both need
+        to distinguish "source unavailable" from "probe failed" without parsing
+        prose. It is omitted when unknown so the shape stays backwards
+        compatible.
+        """
         item = {"kind": kind, "ref": ref, "message": message[:500]}
+        if error_code:
+            item["error_code"] = error_code
         prior = next((i for i, value in enumerate(self.items)
                       if value["kind"] == kind and value["ref"] == ref), None)
         if prior is not None:
