@@ -28,3 +28,8 @@
 
 最终实现补充旧版单条 cleanup 失败记录的兼容保留与未知残留大小表达，新增后端/前端
 各 1 项，最终本机 469 passed / 44 平台 skipped、前端 21 passed；最终对应 CI 据交付回复。
+
+Windows run 38586473593 另发现旧直接任务单测遗留 running Job：下一次 TestClient
+启动恢复旧任务，在新编码 mock 下多了一次调用。现按实际成功/部分失败/异常/取消
+收敛这些直接调用的 Job 并保留原始异常；不改变生产调度，也不放宽次数或清理断言。
+证据见 direct-task-recovery-test.txt，最终本机全量再次通过。

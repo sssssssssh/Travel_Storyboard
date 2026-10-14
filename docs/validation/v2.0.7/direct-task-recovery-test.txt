@@ -1,0 +1,7 @@
+SHA 4ff8dee27432590b99bef191ce82f212b8f33056
+run https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38586473593
+job 115929695099 (Windows mandatory media)
+Direct task unit fixtures left their Job running. A subsequent TestClient lifespan recovered old roughcuts under the next test's encoder mock, adding an unrelated call.
+E       assert 2 == 1
+FAILED tests/test_cancel_cleanup.py::test_roughcut_staging_is_cleaned_on_the_success_path_too - assert 2 == 1
+================== 1 failed, 441 passed in 125.68s (0:02:05) ==================

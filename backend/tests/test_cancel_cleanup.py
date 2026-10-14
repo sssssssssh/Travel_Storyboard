@@ -384,7 +384,7 @@ def test_cancelled_roughcut_removes_its_staging(client, monkeypatch):
     monkeypatch.setattr(mod, "_extract_normalized", _cancelling_encode)
 
     with pytest.raises(JobCancelled):
-        mod.roughcut_task(_fake_job_id(project["id"]))
+        _call_direct_task(mod.roughcut_task, _fake_job_id(project["id"]))
 
     assert _roughcut_stages(project["id"]) == [], (
         "a cancelled rough cut must collect its staging directory"
@@ -407,7 +407,7 @@ def test_failed_roughcut_removes_its_staging(client, monkeypatch):
     monkeypatch.setattr(mod, "_extract_normalized", _exploding_encode)
 
     with pytest.raises(RuntimeError):
-        mod.roughcut_task(_fake_job_id(project["id"]))
+        _call_direct_task(mod.roughcut_task, _fake_job_id(project["id"]))
 
     assert _roughcut_stages(project["id"]) == [], (
         "a failed rough cut must not leave its staging directory behind"
@@ -441,7 +441,7 @@ def test_roughcut_staging_is_cleaned_on_the_success_path_too(client, monkeypatch
     monkeypatch.setattr(mod, "_extract_normalized", _ok_encode)
     monkeypatch.setattr(mod, "run", _fake_run)
 
-    mod.roughcut_task(_fake_job_id(project["id"]))
+    _call_direct_task(mod.roughcut_task, _fake_job_id(project["id"]))
 
     assert calls["n"] == 1
     assert _roughcut_stages(project["id"]) == [], "staging must be collected"
@@ -468,7 +468,7 @@ def test_stale_roughcut_output_survives_a_cancelled_rerun(client, monkeypatch):
     monkeypatch.setattr(mod, "_extract_normalized", _cancelling_encode)
 
     with pytest.raises(JobCancelled):
-        mod.roughcut_task(_fake_job_id(project["id"]))
+        _call_direct_task(mod.roughcut_task, _fake_job_id(project["id"]))
 
     assert _exists(published), "the historical rough cut must survive"
     assert published.read_bytes() == b"PREVIOUS-RELEASE"
@@ -527,7 +527,7 @@ def test_cancelled_detection_does_not_leak_frame_staging(client, tmp_path, monke
         # `_analyze_asset` lets FFmpegCancelled propagate; `detect_task` is what
         # converts it into JobCancelled. Either way the staging must be gone.
         with pytest.raises((JobCancelled, FFmpegCancelled)):
-            mod._analyze_asset(project["id"], asset_row, job_id=job_id)
+            _call_direct_task(lambda jid: mod._analyze_asset(project["id"], asset_row, job_id=jid), job_id)
 
     leftovers = list(staging_root.glob("*")) if staging_root.exists() else []
     assert leftovers == [], f"cancelled detection left staging behind: {leftovers}"
@@ -670,6 +670,29 @@ def test_staging_is_cleaned_before_the_job_reports_cancelled(client, monkeypatch
     assert _roughcut_stages(project["id"]) == [], (
         "the job reported cancelled before its staging was collected"
     )
+
+
+def _call_direct_task(task, job_id):
+    """Preserve raw task exceptions but finish its row before the next lifespan.
+
+    These unit tests intentionally call bodies without scheduling a worker.
+    Leaving their rows running lets the next TestClient recovery re-execute
+    them under a different test's global encoder mock.
+    """
+    with session_scope() as s:
+        pid = s.get(Job, job_id).project_id
+    with runner_mod.project_lock(pid):
+        try:
+            result = task(job_id)
+        except Exception as exc:
+            cancelled = isinstance(exc, JobCancelled) or getattr(exc, 'code', None) == 'CANCELLED'
+            runner_mod.finalize_job(job_id, 'cancelled' if cancelled else 'failed', error=str(exc))
+            raise
+        else:
+            with session_scope() as s:
+                count = int((s.get(Job, job_id).failures or {}).get('count', 0))
+            runner_mod.finalize_job(job_id, 'partial_failed' if count else 'succeeded')
+            return result
 
 
 def _fake_job_id(project_id: str) -> str:
