@@ -236,20 +236,68 @@ def safe_mkdir(path: str | Path) -> None:
         os.makedirs(long_path(target), exist_ok=True)
 
 
-def safe_unlink(path: str | Path) -> None:
-    """Remove a file, tolerating >MAX_PATH paths. Missing files are ignored."""
+def safe_serving_path(path: str | Path) -> str:
+    """Return a form of *path* that Starlette's ``FileResponse`` can open.
+
+    ``FileResponse`` resolves and stats the file itself and raises
+    ``RuntimeError("File ... does not exist")`` on Windows when the path exceeds
+    MAX_PATH — even though the file is really there. Handing it the
+    extended-length form makes GET / Range / HEAD all work unchanged.
+
+    The extended-length prefix is only ever used *internally* to open the file:
+    authorization and containment are decided on the ordinary resolved path by
+    the caller, and the caller's URL/DB references are never rewritten.
+    Returns a ``str`` because that is what ``FileResponse`` stores and echoes in
+    error messages.
+    """
+    target = Path(path)
+    if os.name != "nt":
+        return str(target)
+    # Prefer the plain form; only reach for \\?\ when the plain form is unusable.
+    try:
+        if target.is_file():
+            return str(target)
+    except OSError:
+        pass
+    return long_path(target)
+
+
+def safe_unlink(path: str | Path, *, missing_ok: bool = True) -> None:
+    """Remove a file, tolerating >MAX_PATH paths on Windows.
+
+    Deliberately does **not** call ``Path.unlink(missing_ok=True)`` first. On
+    Windows an over-long path raises ``FileNotFoundError`` (WinError 3) even when
+    the file exists, and ``missing_ok=True`` swallows exactly that error — so the
+    call returned "successfully" while the file stayed on disk, and the
+    extended-length fallback below was unreachable dead code (TSB-252).
+
+    The delete is attempted without suppression so a genuine ``FileNotFoundError``
+    (or ``PermissionError``) is distinguishable, and the retry only runs for the
+    path-shape failures that ``\\\\?\\`` can actually fix.
+    """
     target = Path(path)
     try:
-        target.unlink(missing_ok=True)
+        target.unlink()
         return
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
         if os.name != "nt":
+            if missing_ok:
+                return
             raise
-        extended = long_path(target)
+        # Either the file is genuinely gone, or the path is too long for the
+        # non-prefixed form. Retry through \\?\ and let *that* decide.
         try:
-            os.unlink(extended)
+            os.unlink(long_path(target))
         except FileNotFoundError:
-            pass
+            if missing_ok:
+                return
+            raise exc from None
+        except IsADirectoryError:
+            raise
+    except IsADirectoryError:
+        # Never silently "succeed" on a directory: callers use this to reclaim
+        # files, and a directory here means the caller passed the wrong thing.
+        raise
 
 
 def safe_image_open(path: str | Path):
