@@ -19,7 +19,7 @@ from ..services.job_service import (
 )
 from ..services.runner import (
     ACTIVE_STATUSES,
-    STATUS_CANCELLED,
+    STATUS_CANCELLING,
     runner,
 )
 from .deps import get_db
@@ -101,20 +101,41 @@ def get_job(job_id: str, db: Session = Depends(get_db)):
 
 @router.post("/jobs/{job_id}/cancel", response_model=JobOut)
 def cancel_job(job_id: str, db: Session = Depends(get_db)):
-    """Cooperative cancel: the task stops between items and keeps its checkpoint."""
+    """Request cancellation; the worker settles the terminal state (TSB-261).
+
+    This writes the **non-terminal** ``cancelling`` state, never ``cancelled``:
+    the worker may still be inside an encode, holding the project lock, with
+    staging left to collect. Writing the terminal state here is what let a new
+    exclusive job be accepted while the old work had not actually stopped.
+
+    Idempotent: cancelling an already-``cancelling`` job returns 200 with the
+    current row, so a double click or a retry is harmless. ``finished_at`` is
+    only written once the process has really stopped.
+    """
     job = db.get(Job, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
+    if job.status == STATUS_CANCELLING:
+        # Already requested: report the in-progress cancellation as-is.
+        return job
     if job.status not in ACTIVE_STATUSES:
         raise HTTPException(
             status_code=409, detail=f"Job already finished with status {job.status}"
         )
+
+    # Atomic CAS: only a runnable job may move to `cancelling`. `finished_at` is
+    # deliberately left untouched.
     changed = db.execute(update(Job).where(
         Job.id == job_id, Job.status.in_(ACTIVE_STATUSES)
-    ).values(status=STATUS_CANCELLED, finished_at=utcnow())).rowcount
+    ).values(status=STATUS_CANCELLING)).rowcount
     if changed != 1:
         db.rollback()
-        raise HTTPException(status_code=409, detail="Job already finished")
+        # Lost the race to a concurrent cancel or a natural finish.
+        current = db.get(Job, job_id)
+        if current is not None and current.status == STATUS_CANCELLING:
+            return current
+        status = current.status if current is not None else "unknown"
+        raise HTTPException(status_code=409, detail=f"Job already finished with status {status}")
     db.commit()
     db.refresh(job)
     return job

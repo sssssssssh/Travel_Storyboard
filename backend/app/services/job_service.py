@@ -19,20 +19,49 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from ..models import Job, Project
-from .runner import ACTIVE_STATUSES, EXCLUSIVE_JOB_TYPES, runner
+from .runner import EXCLUSIVE_JOB_TYPES, EXCLUSIVE_STATUSES, project_lock, runner
 
 VALID_JOB_TYPES = {"scan", "detect", "package", "proxies", "roughcut"}
+
+
+def locking_job_for(project_id: str) -> Job | None:
+    """The job whose worker currently holds *project_id*'s in-process lock.
+
+    Used to name the blocker in a 409 when the lock itself is unavailable, so
+    the response still carries a job type and id (the book forbids a bare
+    conflict). Returns ``None`` if no row can be found — the caller then reports
+    a conflict without details rather than inventing one.
+    """
+    from ..database import session_scope
+
+    with session_scope() as s:
+        return s.scalars(
+            select(Job)
+            .where(
+                Job.project_id == project_id,
+                Job.status.in_(EXCLUSIVE_STATUSES),
+                Job.job_type.in_(tuple(EXCLUSIVE_JOB_TYPES)),
+            )
+            .order_by(Job.created_at.desc())
+        ).first()
 
 
 class JobConflict(Exception):
     """Another job already blocks this one. Carries the blocking job details."""
 
-    def __init__(self, blocking: Job) -> None:
-        self.job_type = blocking.job_type
-        self.job_id = blocking.id
-        super().__init__(
-            f"项目已有正在运行的互斥任务（{blocking.job_type} {blocking.id}），请等待其完成"
-        )
+    def __init__(self, blocking: Job | None, *, job_type: str = "",
+                 job_id: str = "") -> None:
+        # The in-process lock can be held while the row is between states, so the
+        # blocker is not always resolvable. Fall back to generic wording rather
+        # than dropping the conflict.
+        self.job_type = blocking.job_type if blocking is not None else job_type
+        self.job_id = blocking.id if blocking is not None else job_id
+        if blocking is not None:
+            message = (f"项目已有正在运行的互斥任务（{self.job_type} {self.job_id}），"
+                       f"请等待其完成")
+        else:
+            message = "项目已有正在运行的互斥任务（正在停止或清理中），请等待其完成"
+        super().__init__(message)
 
     def detail(self) -> dict:
         return {
@@ -108,12 +137,44 @@ def create_project_job(
     ``JobConflict``; the caller maps those to HTTP responses.
 
     ``db`` must not carry uncommitted work (see :func:`_begin_immediate`).
+
+    Exclusivity is enforced in **two layers** (TSB-261):
+
+    1. the same in-process ``project_lock`` the worker holds, taken
+       non-blocking — so a job whose worker is still stopping cannot be
+       overtaken even if its row already reads ``cancelled``;
+    2. the database check+insert inside ``BEGIN IMMEDIATE``, counting
+       ``cancelling`` as active — which is what protects against another
+       process.
+
+    Lock order is fixed as **project lock, then DB write transaction**. Every
+    caller must keep that order; taking them the other way round is what would
+    deadlock the runner.
     """
     if request.job_type not in VALID_JOB_TYPES:
         raise InvalidJobType(
             f"job_type must be one of {sorted(VALID_JOB_TYPES)}"
         )
 
+    lock = project_lock(project_id)
+    # Non-blocking: if a worker still holds this project, report a conflict
+    # rather than queueing behind it. Blocking here would let a request hang for
+    # the length of an encode, and the book requires a 409 instead.
+    if not lock.acquire(blocking=False):
+        raise JobConflict(locking_job_for(project_id))
+    try:
+        return _create_locked(db, project_id, request, config_builder)
+    finally:
+        lock.release()
+
+
+def _create_locked(
+    db: Session,
+    project_id: str,
+    request: JobRequest,
+    config_builder,
+) -> Job:
+    """The check-and-insert body; callers must already hold the project lock."""
     # Serialize the whole check-and-insert at the database level.
     _begin_immediate(db)
     try:
@@ -122,11 +183,12 @@ def create_project_job(
             raise ProjectNotFound(project_id)
 
         # Cache-mutating jobs are exclusive per project: two detect runs over the
-        # same footage would race on frames/ and the analysis rows.
+        # same footage would race on frames/ and the analysis rows. A job in
+        # `cancelling` still counts — its worker has not released the project.
         active = db.scalars(
             select(Job).where(
                 Job.project_id == project_id,
-                Job.status.in_(ACTIVE_STATUSES),
+                Job.status.in_(EXCLUSIVE_STATUSES),
             )
         ).all()
         blocking = [j for j in active if j.job_type in EXCLUSIVE_JOB_TYPES]
@@ -150,5 +212,8 @@ def create_project_job(
 
     # Submit after the row is durable so the worker cannot observe a half-written
     # job, and so a submit failure leaves a recoverable `pending` row.
+    # Deliberately done *after* the project lock is released (in
+    # `create_project_job`'s finally) is NOT possible here without losing
+    # atomicity; submitting is non-blocking, so it is safe under the lock.
     runner.submit(job.id)
     return job

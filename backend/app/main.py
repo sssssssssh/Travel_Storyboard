@@ -23,7 +23,7 @@ from .services import (  # noqa: F401 - registers job tasks
     roughcut,
     story_planner,
 )
-from .services.runner import runner, resume_interrupted_jobs
+from .services.runner import converge_pending_cancellations, runner, resume_interrupted_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,13 @@ async def lifespan(app: FastAPI):
     )
     logger.info("(Token is also stored in %s)", settings.data_path / "token.txt")
     logger.info("=" * 60)
+    # TSB-261: settle any `cancelling` row left behind by a previous process
+    # *before* resuming, so an abandoned cancel cannot keep a project locked
+    # (nor be mistaken for work worth restarting). At this point the old process
+    # is provably gone, so nothing is still encoding.
+    settled = converge_pending_cancellations()
+    if settled:
+        logger.info("Settled %d orphaned cancelling job(s): %s", len(settled), settled)
     resumed = resume_interrupted_jobs()
     if resumed:
         logger.info("Re-dispatched %d interrupted job(s): %s", len(resumed), resumed)

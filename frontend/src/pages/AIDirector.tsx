@@ -39,7 +39,7 @@ export default function AIDirector() {
   const requests = useQuery({
     queryKey: ['review-requests', id],
     queryFn: () => api<ReviewRequestOut[]>(endpoints.reviewRequests(id)),
-    refetchInterval: job.data?.status === 'running' || job.data?.status === 'pending' ? 1500 : false,
+    refetchInterval: ['running', 'pending', 'cancelling'].includes(job.data?.status ?? '') ? 1500 : false,
   })
 
   function startJob(type: string, body?: Record<string, unknown>) {

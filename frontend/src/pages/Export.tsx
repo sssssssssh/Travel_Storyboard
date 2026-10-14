@@ -138,7 +138,9 @@ function ExportEditor({ id }: { id: string }) {
           <Button disabled={plan.isLoading || save.isPending} onClick={() => save.mutate(draft)}>
             保存剪辑计划
           </Button>
-          <Button variant="ghost" disabled={roughcut.isPending || roughcutJob.data?.status === 'running'} onClick={() => roughcut.mutate()}>
+          {/* TSB-261: a `cancelling` job still occupies the project, so the
+              button stays disabled until the worker has really stopped. */}
+          <Button variant="ghost" disabled={roughcut.isPending || ['running', 'pending', 'cancelling'].includes(roughcutJob.data?.status ?? '')} onClick={() => roughcut.mutate()}>
             生成粗剪
           </Button>
         </div>

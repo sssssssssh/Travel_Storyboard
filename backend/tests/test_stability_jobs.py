@@ -148,6 +148,13 @@ def test_full_hash_creation_does_not_enumerate_or_read_sources(client, monkeypat
         assert 'items' not in saved
         assert row['stats']['signature_mode'] == 'full'
         assert client.post(f"/api/jobs/{row['id']}/cancel").status_code == 200
+        # TSB-261: cancel now writes the non-terminal `cancelling` state, and the
+        # worker settles it to `cancelled` after cleanup. `submit` is stubbed out
+        # here, so no worker exists to do that: settle it the way the startup
+        # convergence sweep would, otherwise the next iteration is (correctly)
+        # blocked by an exclusive `cancelling` job.
+        from app.services.runner import converge_pending_cancellations
+        converge_pending_cancellations()
 
 
 def test_real_background_hash_can_wait_while_http_returns_202(client, tmp_path, monkeypatch, record_property):

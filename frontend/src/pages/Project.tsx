@@ -11,8 +11,24 @@ const statusTone: Record<string, string> = {
   failed: 'red',
   pending: 'yellow',
   running: 'blue',
+  // TSB-261: a cancel has been requested but the worker is still stopping.
+  cancelling: 'yellow',
+  cancelled: 'slate',
   skipped: 'slate',
 }
+
+const statusLabel: Record<string, string> = {
+  pending: '等待中',
+  running: '运行中',
+  cancelling: '正在取消 / 资源清理中',
+  cancelled: '已取消',
+  succeeded: '已完成',
+  partial_failed: '部分失败',
+  failed: '失败',
+}
+
+/** Statuses that still occupy the project: a `cancelling` job has not stopped. */
+const OCCUPYING_STATUSES = ['pending', 'running', 'cancelling']
 
 export default function Project() {
   const { id = '' } = useParams()
@@ -47,7 +63,9 @@ export default function Project() {
     refetchInterval: 2000,
   })
 
-  const hasActive = jobs?.some((j) => j.status === 'pending' || j.status === 'running')
+  // TSB-261: `cancelling` still occupies the project, so the heavy buttons must
+  // stay disabled until the worker has actually stopped and cleaned up.
+  const hasActive = jobs?.some((j) => OCCUPYING_STATUSES.includes(j.status))
 
   useEffect(() => {
     if (hasActive) {
@@ -131,9 +149,10 @@ export default function Project() {
           <ul className="flex flex-col gap-2">
             {jobs.slice(0, 5).map((job) => (
               <li key={job.id} className="flex flex-wrap items-center gap-3 text-sm">
-                <Badge tone={statusTone[job.status] ?? 'slate'}>{job.status === 'cancelled' ? '正在停止 / 已取消' : job.status}</Badge>
+                <Badge tone={statusTone[job.status] ?? 'slate'}>{statusLabel[job.status] ?? job.status}</Badge>
                 {(job.status === 'pending' || job.status === 'running') && <Button variant="ghost" disabled={cancel.isPending} onClick={() => cancel.mutate(job.id)}>取消</Button>}
-                {job.status === 'cancelled' && <span className="text-xs text-slate-500">当前读取或编码返回后会停止，后续项目任务会等待它结束。</span>}
+                {job.status === 'cancelling' && <span className="text-xs text-amber-300">已收到取消请求，正在停止编码并清理暂存；完成后才会释放项目锁。</span>}
+                {job.status === 'cancelled' && <span className="text-xs text-slate-500">已取消，暂存资源已回收；可重新提交任务。</span>}
                 <span className="text-slate-300">{{ scan: '素材建库', detect: '片段检测', package: '分析包', proxies: '二轮代理', roughcut: '粗剪' }[job.job_type] ?? job.job_type}</span>
                 <span className="text-xs text-slate-500" title={job.id}>编号 {job.id.slice(0, 8)}</span>
                 <span className="text-slate-500">

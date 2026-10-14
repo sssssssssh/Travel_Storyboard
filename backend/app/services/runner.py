@@ -31,15 +31,36 @@ logger = logging.getLogger(__name__)
 
 TASK_REGISTRY: dict[str, Callable[[str], None]] = {}
 
-# Terminal + non-terminal statuses.
+# Statuses of a job row (TSB-261).
+#
+#   pending -> running -> {succeeded | partial_failed | failed}
+#   {pending, running} -> cancelling -> cancelled
+#
+# ``cancelling`` exists because a cancel request is not the same thing as a
+# cancelled job: the worker may still be inside an encode, still holding
+# ``project_lock``, with its staging directory uncollected. Writing the terminal
+# state at request time made the project look idle and let a new exclusive job
+# be accepted while the old work was still stopping.
 STATUS_PENDING = "pending"
 STATUS_RUNNING = "running"
+STATUS_CANCELLING = "cancelling"
 STATUS_SUCCEEDED = "succeeded"
 STATUS_PARTIAL = "partial_failed"
 STATUS_FAILED = "failed"
 STATUS_CANCELLED = "cancelled"
 
+#: Statuses that may still transition to ``running``. Notably *not* cancelling:
+#: a worker must never "resume" a job the user asked to stop.
 ACTIVE_STATUSES = (STATUS_PENDING, STATUS_RUNNING)
+
+#: A cancel has been requested but the worker may still be stopping.
+#: ``is_cancelled()`` treats both as "stop what you are doing".
+CANCEL_REQUESTED_STATES = (STATUS_CANCELLING, STATUS_CANCELLED)
+
+#: Statuses that keep a project's exclusivity claim: the runnable ones plus
+#: ``cancelling``, because the previous worker has not released the project yet.
+EXCLUSIVE_STATUSES = (STATUS_PENDING, STATUS_RUNNING, STATUS_CANCELLING)
+
 TERMINAL_STATUSES = (STATUS_SUCCEEDED, STATUS_PARTIAL, STATUS_FAILED, STATUS_CANCELLED)
 
 # Jobs that mutate a project's cache must not run concurrently within a project.
@@ -166,10 +187,22 @@ def clear_active_job_type(job_id: str) -> None:
         job.resume_token = token
 
 
-def is_cancelled(job_id: str) -> bool:
+def job_status(job_id: str) -> str | None:
+    """Current status of a job row, or ``None`` when it does not exist."""
     with session_scope() as s:
         job = s.get(Job, job_id)
-        return bool(job is not None and job.status == STATUS_CANCELLED)
+        return job.status if job is not None else None
+
+
+def is_cancelled(job_id: str) -> bool:
+    """Whether a cancel has been requested for *job_id* (TSB-261).
+
+    True for ``cancelling`` *and* ``cancelled``: the media layer must stop as
+    soon as the request lands, not only after the worker settles the row.
+    """
+    with session_scope() as s:
+        job = s.get(Job, job_id)
+        return bool(job is not None and job.status in CANCEL_REQUESTED_STATES)
 
 
 def raise_if_cancelled(job_id: str) -> None:
@@ -261,35 +294,86 @@ class JobRunner:
             if job is None:
                 return
             pid = job.project_id
-        # Includes the period after cancellation while FFmpeg is still stopping.
+        # Held across the whole run *and* the post-cancel settling: until this
+        # worker leaves, no other exclusive job may start for the project.
         with project_lock(pid):
+            # A job cancelled while queued must not start executing at all.
+            if is_cancelled(job_id):
+                self._settle_cancelled(job_id, started=False)
+                clear_active_job_type(job_id)
+                return
             if not update_job(job_id, status=STATUS_RUNNING, started_at=_now(),
                               error="", finished_at=None):
                 return
+            cancelled = False
             try:
-                raise_if_cancelled(job_id)
                 task(job_id)
             except JobCancelled:
-                update_job(job_id, status=STATUS_CANCELLED, finished_at=_now())
+                cancelled = True
             except Exception as exc:
                 # A media process killed by its own cancel callback is a
-                # cancellation, not a failure: `cancelled` is the terminal state
-                # and must not be overwritten with `failed` (TSB-253).
+                # cancellation, not a failure (TSB-253).
                 if getattr(exc, "code", None) == "CANCELLED":
-                    update_job(job_id, status=STATUS_CANCELLED, finished_at=_now())
+                    cancelled = True
                 else:
                     logger.exception("Job %s failed", job_id)
-                    update_job(job_id, status=STATUS_FAILED, error=str(exc),
-                               finished_at=_now())
-            else:
-                with session_scope() as s:
-                    job = s.get(Job, job_id)
-                    count = int((job.failures or {}).get("count", 0)) if job else 0
-                update_job(job_id, status=STATUS_PARTIAL if count else STATUS_SUCCEEDED,
-                           finished_at=_now(),
-                           error=f"{count} item(s) failed; see job.failures" if count else "")
+                    # A genuine failure must not overwrite a cancel the user
+                    # asked for; only settle `failed` if no cancel is pending.
+                    if not is_cancelled(job_id):
+                        update_job(job_id, status=STATUS_FAILED, error=str(exc),
+                                   finished_at=_now())
+                    else:
+                        cancelled = True
             finally:
+                # Any cancel requested *during* the run is settled here, after the
+                # task body has returned — i.e. after its staging cleanup ran.
+                if not cancelled and is_cancelled(job_id):
+                    cancelled = True
+                if cancelled:
+                    self._settle_cancelled(job_id, started=True)
+                else:
+                    with session_scope() as s:
+                        job = s.get(Job, job_id)
+                        count = int((job.failures or {}).get("count", 0)) if job else 0
+                    # A cancel that landed while we were computing the outcome
+                    # must still win: re-check before publishing success.
+                    if is_cancelled(job_id):
+                        self._settle_cancelled(job_id, started=True)
+                    else:
+                        update_job(
+                            job_id,
+                            status=STATUS_PARTIAL if count else STATUS_SUCCEEDED,
+                            finished_at=_now(),
+                            error=f"{count} item(s) failed; see job.failures" if count else "",
+                        )
                 clear_active_job_type(job_id)
+
+    def _settle_cancelled(self, job_id: str, *, started: bool) -> None:
+        """Move ``cancelling`` -> ``cancelled`` and stamp ``finished_at``.
+
+        Called only once the worker has left the task body, so the timestamp
+        means "the process actually stopped and cleanup finished" rather than
+        "the user clicked cancel". CAS-guarded: never rewrites a terminal state
+        that was already settled (for example a success that won the race).
+        """
+        if update_job(job_id, status=STATUS_CANCELLED, finished_at=_now(),
+                      expected_statuses=(STATUS_CANCELLING,)):
+            return
+        # No `cancelling` row: either it is already cancelled, or the run ended
+        # as a legitimate terminal state before the request was recorded.
+        status = job_status(job_id)
+        if status == STATUS_CANCELLED:
+            return
+        if status in TERMINAL_STATUSES:
+            logger.info(
+                "Job %s cancel ignored: already settled as %s", job_id, status
+            )
+            return
+        # Still pending/running (e.g. cancel raced the status write). The user
+        # asked for this job to stop, so settle it as cancelled from running.
+        if not update_job(job_id, status=STATUS_CANCELLED, finished_at=_now(),
+                          expected_statuses=ACTIVE_STATUSES):
+            logger.warning("Job %s could not be settled as cancelled", job_id)
 
     def shutdown(self) -> None:
         if self._executor is not None:
@@ -300,11 +384,47 @@ class JobRunner:
 runner = JobRunner()
 
 
+def converge_pending_cancellations() -> list[str]:
+    """Settle leftover ``cancelling`` rows that no worker will finish (TSB-261).
+
+    A job cancelled *before* it was ever dispatched has no worker to run its
+    cleanup, so nothing would ever move it to ``cancelled`` and the project
+    would stay locked forever. This is called on startup (where the previous
+    process is provably gone, so its staging is orphaned) and returns the ids
+    it settled.
+
+    Only rows still in ``cancelling`` are touched: a job that is legitimately
+    ``running`` is somebody else's responsibility, and a terminal row is
+    immutable.
+    """
+    with session_scope() as s:
+        rows = s.scalars(
+            select(Job)
+            .where(Job.status == STATUS_CANCELLING)
+            .order_by(Job.created_at, Job.id)
+        ).all()
+        candidates = [j.id for j in rows]
+
+    settled: list[str] = []
+    for job_id in candidates:
+        # No worker is attached to a queued cancelling row, so settling it here
+        # is the whole cleanup: nothing was encoded and no staging was created.
+        if update_job(job_id, status=STATUS_CANCELLED, finished_at=_now(),
+                      expected_statuses=(STATUS_CANCELLING,)):
+            settled.append(job_id)
+            logger.info("Settled orphaned cancelling job %s as cancelled", job_id)
+    return settled
+
+
 def resume_interrupted_jobs() -> list[str]:
     """Re-dispatch jobs left pending/running by a previous process.
 
     Each task resumes from its persisted ``resume_token`` and skips work it has
     already completed, so re-dispatch is idempotent (audit P0-04).
+
+    ``cancelling`` rows are deliberately **not** resumed (TSB-261): the user
+    asked them to stop, so re-running them would be exactly the wrong thing.
+    They are settled by :func:`converge_pending_cancellations` instead.
     """
     with session_scope() as s:
         rows = s.scalars(

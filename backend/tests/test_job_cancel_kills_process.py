@@ -56,6 +56,7 @@ from app.services.runner import (
     STATUS_FAILED,
     STATUS_SUCCEEDED,
     TASK_REGISTRY,
+    TERMINAL_STATUSES,
     cancel_check_for,
     is_cancelled,
 )
@@ -141,12 +142,13 @@ def _wait_running(job_id: str, timeout: float = 10.0) -> bool:
 
 
 def _wait_terminal(job_id: str, timeout: float = 20.0) -> str:
+    """Wait for a genuinely terminal state (TSB-261 added non-terminal cancelling)."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         with session_scope() as s:
             job = s.get(Job, job_id)
             status = job.status if job else None
-        if status not in ("pending", "running"):
+        if status in TERMINAL_STATUSES:
             return status
         time.sleep(0.02)
     raise AssertionError(f"job {job_id} did not finish within {timeout}s")
