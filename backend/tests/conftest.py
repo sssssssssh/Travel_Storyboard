@@ -37,10 +37,22 @@ _SKIPPED_REPORTS = []
 #: opposed to "a required tool was missing". The media CI job sets
 #: TSB_REQUIRE_FFMPEG=1 to turn *silent* skips into failures; a test that is
 #: Windows-only (or OTIO-only) is legitimately skipped on other platforms and
-#: must not fail the run. Keep this list narrow and explicit.
+#: must not fail the run.
+#:
+#: Matched as substrings against the skip's longrepr. Keep this list to reasons
+#: that describe a *platform fact*: anything else skipping under
+#: TSB_REQUIRE_FFMPEG=1 is a real problem and should fail the job.
+#:
+#: Note this list must cover every reason the platform-marked suites use.
+#: `test_deep_media_http.py` and `test_deep_scan_api.py` say "MAX_PATH only
+#: constrains Windows" while the others say "long-path behaviour is
+#: Windows-specific"; when those two files were added to the mandatory-media
+#: job their Linux skips were counted as unexpected and failed the run.
 _EXPECTED_SKIP_REASONS = (
     "long-path behaviour is Windows-specific",
+    "MAX_PATH only constrains Windows",
     "requires Windows",
+    "link creation is a platform fact",
 )
 
 

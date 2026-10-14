@@ -563,7 +563,15 @@ def test_cleanup_counts_deep_staging_bytes(client, tmp_path):
 
 
 def test_cleanup_refuses_a_symlink_pointing_outside(client, tmp_path):
-    """TC-20: a link escaping the project must never widen the delete."""
+    """TC-20: a link escaping the project must never widen the delete.
+
+    Guards the most severe defect found during TSB-262: an early implementation
+    followed a junction and deleted data *outside* the project. The link is
+    created here rather than assumed, and a host that forbids both a junction
+    and a symlink is a platform fact (whitelisted in ``conftest``), not a
+    silently dropped protection — on this project's CI both Windows and Linux
+    runners can create one.
+    """
     project = _make_project(client)
     stage = project_cache_dir(project["id"]) / "roughcut" / "staging-link"
     os.makedirs(long_path(stage), exist_ok=True)
@@ -572,21 +580,24 @@ def test_cleanup_refuses_a_symlink_pointing_outside(client, tmp_path):
     (outside / "precious.bin").write_bytes(b"do not delete")
 
     link = stage / "escape"
-    try:
-        if IS_WINDOWS:
-            # A directory junction needs no admin rights on Windows.
-            import subprocess
+    created = False
+    if IS_WINDOWS:
+        import subprocess
 
-            proc = subprocess.run(
-                ["cmd", "/c", "mklink", "/J", str(link), str(outside)],
-                capture_output=True,
-            )
-            if proc.returncode != 0:
-                pytest.skip("could not create a junction in this environment")
-        else:
+        # A directory junction needs no admin rights on Windows.
+        proc = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(outside)],
+            capture_output=True,
+        )
+        created = proc.returncode == 0
+    if not created:
+        try:
             link.symlink_to(outside, target_is_directory=True)
-    except (OSError, NotImplementedError):
-        pytest.skip("symlinks are not permitted in this environment")
+            created = True
+        except (OSError, NotImplementedError):
+            created = False
+    if not created:
+        pytest.skip("link creation is a platform fact: neither junction nor symlink permitted")
 
     result = cleanup_owned_staging(project["id"], stage, owner_job_id="job-1")
 

@@ -118,6 +118,7 @@ jobs:
           tests/test_cancel_cleanup.py
           tests/test_media_process_tree.py
           tests/test_cancel_recovery.py
+          tests/test_ci_skip_guard.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

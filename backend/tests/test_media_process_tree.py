@@ -286,6 +286,11 @@ def test_parent_exiting_first_still_reclaims_the_grandchild(tmp_path):
     A tree-kill that only walks from a *live* parent finds nothing here, so this
     distinguishes real process-group/job-object reclamation from a
     ``terminate()`` on the parent.
+
+    The cancel is not requested until the pid file is readable, so the tree is
+    always observed before the parent can exit. That removes the race entirely —
+    an earlier version skipped when the parent won the race, which would let the
+    mandatory-media CI job fail on a platform where it happened to lose.
     """
     pid_file = tmp_path / "pids.txt"
     marker = tmp_path / "grandchild.txt"
@@ -294,9 +299,11 @@ def test_parent_exiting_first_still_reclaims_the_grandchild(tmp_path):
     pids: list[int] = []
     try:
         with pytest.raises(FFmpegCancelled):
-            run(cmd, cancel_check=lambda: pid_file.exists(), poll_interval=0.05)
-        if not _wait_file(pid_file, 5):
-            pytest.skip("parent exited before the tree could be observed")
+            run(cmd, cancel_check=lambda: pid_file.exists(), poll_interval=0.02)
+
+        # By construction the file exists (that is what triggered the cancel),
+        # so this is an assertion, not a coin flip.
+        assert _wait_file(pid_file, 5), "the tree was never observable"
         pids = _read_pids(pid_file)
         parent_pid, grandchild_pid = pids
         assert _wait_gone(parent_pid, 15)
