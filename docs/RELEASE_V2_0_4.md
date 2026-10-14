@@ -104,8 +104,8 @@ Pillow / OpenCV / `Path` 操作仍用普通路径，深目录会「部分阶段�
 
 | 项目 | 结果 |
 | --- | --- |
-| 后端测试 | **323 passed**（基线 258 + 新增 65） |
-| 新增测试文件 | `test_long_paths.py`(23)、`test_job_mutex.py`(20)、`test_proxy_duration.py`(22) |
+| 后端测试 | **329 passed**（基线 258 + 新增 71） |
+| 新增测试文件 | `test_long_paths.py`(29)、`test_job_mutex.py`(20)、`test_proxy_duration.py`(22) |
 | 本机环境 | Windows / Python 3.13 / `LongPathsEnabled=0` |
 | 回归 | 无既有用例被破坏 |
 

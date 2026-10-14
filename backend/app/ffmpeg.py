@@ -195,13 +195,22 @@ def safe_open(path: str | Path, mode: str = "rb"):
 
 
 def safe_is_file(path: str | Path) -> bool:
-    """``Path.is_file`` that is not defeated by a long path."""
+    """``Path.is_file`` that is not defeated by a long path.
+
+    A permission error is **re-raised**, never folded into ``False``. Reporting a
+    locked/unreadable file as "not a file" makes a scanner skip it silently and
+    end up with a green job — the exact failure mode the scan pipeline must
+    report as a per-item ``source_unavailable`` error. Only genuine
+    "path too long / missing" cases fall back to the extended-length form.
+    """
     target = Path(path)
     try:
         if target.is_file():
             return True
+    except PermissionError:
+        raise
     except OSError:
-        # Permission problems are "not a readable file" for our purposes.
+        # e.g. OSError for an over-long path: fall through to the retry below.
         pass
     if os.name != "nt":
         return False

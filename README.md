@@ -241,6 +241,6 @@ AI 导演与分镜审阅现在可查看旧区间、最新检测候选、收藏�
 
 **代理时长**：发布前用 ffprobe 实测时长，容差取 `max(0.25s, 10%)`；不符则转 `needs_review` 并保留历史代理。产物不可读仍按系统故障记为 `failed`。
 
-实测：Windows（`LongPathsEnabled=0`）下 **323 passed / 0 skipped**，其中深路径、并发互斥、时长验收用例 65 个。详见 [v2.0.4 发布记录](docs/RELEASE_V2_0_4.md) 与 [测试记录](docs/validation/v2.0.4/backend-windows-py3.13.md)。
+实测：Windows（`LongPathsEnabled=0`）下 **329 passed / 0 skipped**，其中深路径、并发互斥、时长验收用例 71 个。详见 [v2.0.4 发布记录](docs/RELEASE_V2_0_4.md) 与 [测试记录](docs/validation/v2.0.4/backend-windows-py3.13.md)。
 
 **本轮未完成**：Windows 实机 8～10 段真实旅行素材验收（RT-18/19）仍未执行，CI 与合成素材通过不能替代。门禁清单见 [实机验收记录](docs/validation/v2.0.4/WINDOWS_REAL_FOOTAGE.md)。

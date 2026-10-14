@@ -196,6 +196,98 @@ def test_ffmpeg_error_default_code():
 
 
 # --------------------------------------------------------------------------
+# The safe_* helpers must not swallow permission errors
+# --------------------------------------------------------------------------
+#
+# These wrappers exist to survive MAX_PATH. The dangerous failure mode is
+# over-catching: turning "file exists but is locked" into "not a file" makes the
+# scanner skip it and report a green job — the silent-skip bug the scan pipeline
+# is required to surface as a per-item `source_unavailable` error.
+#
+# Platform note: ``Path.is_file()`` re-raises PermissionError (EACCES/EPERM are
+# not in pathlib's ignored-errno list), but it DOES swallow ENOENT/ENOTDIR.
+# Returning False for a locked file only happens if we catch too broadly, which
+# is what these tests pin down.
+
+@pytest.fixture()
+def locked_stat(monkeypatch):
+    """Make ``Path.stat`` raise PermissionError for one specific path."""
+    target_holder: dict = {}
+
+    def install(path: Path) -> None:
+        target_holder["path"] = path
+        original = Path.stat
+
+        def locked(self, *args, **kwargs):
+            if self == target_holder["path"]:
+                raise PermissionError("source video is locked")
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "stat", locked)
+
+    return install
+
+
+def test_safe_is_file_propagates_permission_error(tmp_path: Path, locked_stat):
+    from app.ffmpeg import safe_is_file
+
+    path = tmp_path / "locked.mp4"
+    path.write_bytes(b"x")
+    locked_stat(path)
+    with pytest.raises(PermissionError):
+        safe_is_file(path)
+
+
+def test_safe_stat_propagates_permission_error(tmp_path: Path, locked_stat):
+    from app.ffmpeg import safe_stat
+
+    path = tmp_path / "locked.mp4"
+    path.write_bytes(b"x")
+    locked_stat(path)
+    with pytest.raises(PermissionError):
+        safe_stat(path)
+
+
+def test_safe_is_file_still_true_for_readable_file(tmp_path: Path):
+    from app.ffmpeg import safe_is_file
+
+    path = tmp_path / "ok.mp4"
+    path.write_bytes(b"x")
+    assert safe_is_file(path) is True
+
+
+def test_safe_is_file_false_for_missing_file(tmp_path: Path):
+    from app.ffmpeg import safe_is_file
+
+    assert safe_is_file(tmp_path / "nope.mp4") is False
+
+
+def test_safe_is_file_false_for_directory(tmp_path: Path):
+    from app.ffmpeg import safe_is_file
+
+    assert safe_is_file(tmp_path) is False
+
+
+def test_scanner_reports_locked_video_instead_of_skipping(tmp_path: Path, locked_stat):
+    """The end-to-end consequence: a locked video must be yielded, not dropped.
+
+    ``iter_video_files`` catches OSError and yields the path so the scan records
+    a per-item failure. If ``safe_is_file`` returned False instead, the file
+    would vanish and the job would look successful.
+    """
+    from app.services.indexer import iter_video_files
+
+    path = tmp_path / "locked.mp4"
+    path.write_bytes(b"x")
+    locked_stat(path)
+
+    found = list(iter_video_files([str(tmp_path)]))
+    assert [Path(p).name for p in found] == ["locked.mp4"], (
+        "a locked video must still be discovered so it can be reported as failed"
+    )
+
+
+# --------------------------------------------------------------------------
 # detector: no silent "single shot" when frames cannot be read
 # --------------------------------------------------------------------------
 

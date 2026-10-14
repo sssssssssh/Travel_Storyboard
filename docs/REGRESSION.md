@@ -89,6 +89,12 @@ python -m pytest -q
 | `test_long_paths.py::test_run_raises_when_pattern_matches_nothing` | TSB-241 | 抽帧 pattern 无匹配 → 报错而非静默 |
 | `test_long_paths.py::test_run_classifies_missing_executable` | TSB-241 | 可执行文件缺失 → `EXECUTABLE_MISSING` |
 | `test_long_paths.py::test_run_classifies_command_failure` | TSB-241 | 非零退出 → `COMMAND_FAILED` |
+| `test_long_paths.py::test_safe_is_file_propagates_permission_error` | TSB-241 | **被锁文件不得被当成「不是文件」**（仅 Linux 会暴露） |
+| `test_long_paths.py::test_safe_stat_propagates_permission_error` | TSB-241 | `safe_stat` 同样不得吞 `PermissionError` |
+| `test_long_paths.py::test_safe_is_file_still_true_for_readable_file` | TSB-241 | 正常文件仍为 True |
+| `test_long_paths.py::test_safe_is_file_false_for_missing_file` | TSB-241 | 缺失文件为 False |
+| `test_long_paths.py::test_safe_is_file_false_for_directory` | TSB-241 | 目录为 False |
+| `test_long_paths.py::test_scanner_reports_locked_video_instead_of_skipping` | TSB-241 | 被锁视频必须被扫描发现并报失败，而非静默跳过 |
 | `test_long_paths.py::test_detector_raises_when_all_frames_unreadable` | TSB-241 | 抽样帧全不可读 → `MEDIA_UNREADABLE`，**不再**退化成单镜头假成功 |
 | `test_long_paths.py::test_detector_warns_but_continues_on_partial_read` | TSB-241 | 部分帧不可读仍可检测且记 warning |
 | `test_long_paths.py::test_read_image_handles_cjk_and_spaces` | TSB-241 | 中文+空格路径下检测正常 |

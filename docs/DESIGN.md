@@ -229,6 +229,11 @@ Windows 在未启用 `LongPathsEnabled` 时限制路径为 260 字符。危险�
 
 1. **只在路径不存在时回退**。`safe_*` 系列捕获 `FileNotFoundError` 而非 `OSError`，
    否则 `PermissionError`（文件被占用）会被误判为长路径问题，错误分类随之失真。
+   这条规则在 `safe_is_file` 上尤其重要且**只在 Linux 暴露**：
+   把被锁文件返回 `False` 会让 `iter_video_files` 直接 `continue`，
+   任务显示成功而文件从未被扫描 —— 即「静默跳过」。
+   注意 `Path.is_file()` 自身会重新抛出 `PermissionError`
+   （EACCES/EPERM 不在 pathlib 的忽略列表里），但会吞掉 ENOENT/ENOTDIR。
 2. **在边界校验产物**。`run()` 支持 `expect_output` / `expect_pattern`，
    并区分「路径过长」与「根本没写」，抛出 `PATH_TOO_LONG` / `OUTPUT_NOT_CREATED`。
    单图输出还需 `-update 1`，否则 `image2` muxer 对无 `%03d` 的文件名会拒绝写入却以 0 退出。
