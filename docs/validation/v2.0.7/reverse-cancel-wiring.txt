@@ -1,0 +1,10 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_cancel_lands_after_last_poll_before_write_transaction __________
+backend/tests/test_analysis_cancel_commit.py:22: in test_cancel_lands_after_last_poll_before_write_transaction
+    with pytest.raises(JobCancelled):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE JobCancelled
+=========================== short test summary info ============================
+FAILED backend/tests/test_analysis_cancel_commit.py::test_cancel_lands_after_last_poll_before_write_transaction
+1 failed in 0.66s

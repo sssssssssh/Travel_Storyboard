@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore: ["docs/**", "README.md"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -47,7 +46,13 @@ jobs:
 
       - name: Run tests
         working-directory: backend
-        run: python -m pytest -q --ignore=tests/test_ffmpeg_integration.py --ignore=tests/test_cache_recovery.py
+        run: python -m pytest -q --junitxml=backend-results.xml --ignore=tests/test_ffmpeg_integration.py --ignore=tests/test_cache_recovery.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-results-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: backend/backend-results.xml
 
   media:
     name: Required FFmpeg (${{ matrix.os }})
@@ -74,6 +79,14 @@ jobs:
           else
             echo "Using preinstalled FFmpeg/FFprobe; version verification and real-media tests remain mandatory."
           fi
+      - name: Verify Windows default long-path policy
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -Value 0
+          $policy = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem').LongPathsEnabled
+          if ($policy -ne 0) { throw "LongPathsEnabled must be 0" }
+          Write-Output "LongPathsEnabled=$policy"
       - name: Install FFmpeg on Windows
         if: runner.os == 'Windows'
         run: choco install ffmpeg --yes --no-progress
@@ -119,11 +132,35 @@ jobs:
           tests/test_media_process_tree.py
           tests/test_cancel_recovery.py
           tests/test_ci_skip_guard.py
+          tests/test_terminal_races.py
+          tests/test_staging_ownership.py
+          tests/test_analysis_cancel_commit.py
+          tests/test_publish_cancel.py
+          tests/test_cleanup_reporting.py
+          tests/test_orphan_frame_safety.py
+      - name: Record exact commit and platform evidence
+        if: always()
+        working-directory: backend
+        shell: python
+        run: |
+          import json, os, platform, subprocess
+          evidence = {"head_sha": os.environ["GITHUB_SHA"], "run_id": os.environ["GITHUB_RUN_ID"], "platform": platform.platform(), "python": platform.python_version()}
+          for executable in ("ffmpeg", "ffprobe"):
+              proc = subprocess.run([executable, "-version"], capture_output=True, text=True)
+              evidence[executable] = proc.stdout.splitlines()[0] if proc.stdout else proc.stderr[:200]
+          if os.name == "nt":
+              import winreg
+              with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\FileSystem") as key:
+                  evidence["LongPathsEnabled"] = winreg.QueryValueEx(key, "LongPathsEnabled")[0]
+          with open("media-platform.json", "w", encoding="utf-8") as handle:
+              json.dump(evidence, handle, ensure_ascii=False, indent=2)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: media-results-${{ matrix.os }}
-          path: backend/media-results.xml
+          path: |
+            backend/media-results.xml
+            backend/media-platform.json
 
   frontend:
     name: Frontend

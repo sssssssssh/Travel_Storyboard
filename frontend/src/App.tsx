@@ -30,7 +30,7 @@ function Shell() {
             设置
           </NavLink>
         </nav>
-        <div className="mt-auto px-4 py-4 text-xs text-slate-600">v2.0.3 · 本地运行</div>
+        <div className="mt-auto px-4 py-4 text-xs text-slate-600">v2.0.7 · 本地运行</div>
       </aside>
       <main className="flex-1 overflow-auto">
         <Routes>

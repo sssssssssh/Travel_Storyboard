@@ -1,4 +1,4 @@
-# Travel Storyboard v2.0.3 — 实现设计文档
+# Travel Storyboard v2.0.7 — 实现设计文档
 
 > 本文档描述从需求方案到代码的实现设计，是 `backend/` 与 `frontend/` 的权威依据。
 > 需求来源：《Travel_Storyboard_v2.0_详细设计方案.md》。
@@ -300,7 +300,8 @@ pending ──worker 开始且无取消──► running ──► succeeded / p
 
 **清理先于释放**：任务的 `try/finally` 在返回前回收自己的暂存（见 §8.2），
 `_run()` 在其后才结算状态并释放项目锁。因此 UI 显示 `cancelled` 时，
-编码进程与暂存资源都已处理完毕。
+编码进程已停止，暂存清理已尝试。清理是否全部成功必须读取 cleanup 统计；
+终态 cancelled 不代表没有残留。
 
 ### 8.2 暂存资源的必达清理（TSB-262）
 
@@ -309,11 +310,13 @@ pending ──worker 开始且无取消──► running ──► succeeded / p
 
 `services/staging_cleanup.cleanup_owned_staging()` 采用**正向白名单**，不猜测：
 
-1. 解析后必须是真实目录，且**严格**位于本项目工作区内（工作区根本身拒绝）；
-2. 形状必须是 `staging/<asset>/<token>`、`proxies/staging/<token>` 或
-   `roughcut/staging-*` —— 而不是正式产物目录；
-3. 不进入任何 reparse point（symlink / junction）；链接本身单独 unlink，
-   目标绝不被删除 —— 否则一个误放的链接就能把删除操作引到项目之外。
+1. resolve 之前校验原始段与精确层级，工作区必须是真实目录，根本身拒绝；
+2. 形状恰好为 `staging/<asset>/<token>`、`proxies/staging/<token>`（3 级）或
+   `roughcut/staging-<非空token>`（2 级），素材须属于本项目；
+3. 通过 create_owned_staging 原子新建并登记真实任务、项目、目录/祖先身份；
+   字符串 owner 与已有目录不能授予所有权；
+4. 所有 symlink/junction/reparse point 拒绝，先枚举再验证；POSIX 使用 no-follow
+   dir_fd，Windows 固定目录句柄防改名，删除局限于持有目录，不递归 rmtree。
 
 其余情况返回 `STAGING_NOT_OWNED`。返回值 `CleanupResult` 记录
 `removed_files` / `removed_bytes` / `residual_paths` / `retryable`，
@@ -503,3 +506,30 @@ flowchart TD
 ```
 
 完整哈希是每个任务的成本：200GB 分别完整扫描和检测可能多读约 400GB；严格复核会再读，未完成文件重读另计，FFmpeg 解码 I/O 也另计。界面显示 hashing/processing/hash_recheck、取消、源变化、人工复核、字节进度和重读次数，不给固定 ETA。实际发布证据和未执行的 Windows 实机验收见 `RELEASE_V2_0_3.md`。
+
+
+## v2.0.7 终态与发布线性化（TSB-271～275）
+
+```mermaid
+stateDiagram-v2
+    pending --> running: 启动 CAS
+    pending --> cancelling: 取消 CAS
+    running --> cancelling: 取消先提交
+    running --> succeeded: 终态 CAS 先提交
+    running --> partial_failed: 终态 CAS 先提交
+    running --> failed: 终态 CAS 先提交
+    cancelling --> cancelled: task finally 返回且有界 CAS 收敛
+```
+
+唯一 finalize_job 在项目锁内重读 CAS 真实结果，4 次有界尝试；终态不可重写。
+DB I/O 或异常状态无法收敛时记录 STATE_CONVERGENCE_FAILED + Job ID，不声称 DB
+确认释放，不无限重试。已接受取消优先于尚未提交的终态，已提交的终态优先于后来取消。
+
+分镜、代理、分析包、粗剪在同一 BEGIN IMMEDIATE 事务读取共享
+CANCEL_REQUESTED_STATES；取得 writer 后才进行最终发布/引用提交。分镜 JPEG 预发布
+失败只回收本次唯一且无引用的文件；新粗剪独立文件名、旧地址读取最新提交并兼容旧文件。
+
+cleanup 逐 stage 聚合，进度写事务保留此统计；已停止任务的项目限定认证重试接口
+不接收任意路径，项目空闲且真实创建记录仍存在才重试。登记仅进程内有效，重启后
+拒绝接管未知 stage。旧 JPEG 回收只进入 frames，在项目锁/DB writer 下核对引用与
+宽限期；检测活跃时延后，不跟随目录/文件链接，不进入 stage。

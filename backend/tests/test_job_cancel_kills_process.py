@@ -291,16 +291,20 @@ def test_cancel_check_for_is_none_without_a_job():
     assert cancel_check_for("") is None
 
 
-def test_cancel_check_for_tracks_the_job_row(client, project):
+def test_cancel_check_for_tracks_the_job_row(client, project, monkeypatch):
     """The callback reflects the live DB status, not a stale snapshot."""
+    # This is a callback/DB test. Do not let an empty package finish before
+    # the cancellation request; an already committed failure correctly wins.
+    monkeypatch.setattr(runner_mod.runner, 'submit', lambda _: None)
     res = client.post(f"/api/projects/{project['id']}/jobs/package", json={})
+    assert res.status_code == 202
     job_id = res.json()["id"]
 
     check = cancel_check_for(job_id)
     assert check is not None
     assert check() is False
 
-    client.post(f"/api/jobs/{job_id}/cancel")
+    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 200
     assert check() is True
     assert is_cancelled(job_id) is True
 

@@ -432,3 +432,47 @@ Windows 实片待执行样本、记录表与最终结论见 [RELEASE_V2_0_2.md](
 后端完整本地运行使用已安装的 FFmpeg/FFprobe，并设置 `TSB_REQUIRE_FFMPEG=1`，不允许媒体 skip。CI 强制媒体清单新增 `test_review_validation.py`、`test_review_proxies.py`、`test_review_package_privacy.py`、`test_database_backup.py`；普通后端 Ubuntu/Windows × Python 3.11/3.13 继续运行，前端执行 typecheck/lint/Vitest/build。具体固定 SHA、数量和日志见发布记录。
 
 手工验收必须按 `validation/v2.0.3/WINDOWS_REAL_FOOTAGE.md` 执行：8～10 段真实素材，长短混合、横竖屏、有无音轨，逐个核对时间映射、可播放与失败重试。**未执行不能写成通过。** 不要把完整 SHA 当作一次性费用：完整扫描 + 完整检测是两个任务，200GB 可能额外读约 400GB；严格复核及文件重读另计，不等于 FFmpeg 解码总 I/O。
+
+## v2.0.7（TSB-271～277）确定性取消与删除安全
+
+以下 28 条均可定位到自动化用例。短名的文件在 `backend/tests/`；Windows 特定场景
+仅按平台事实跳过，强制媒体作业缺工具仍失败。六个新套件共 **52 个参数化用例**。
+
+| 场景 | 任务 | 证据用例（文件::函数，参数见源码） |
+|---|---|---|
+| RT271-01 | TSB-271 | test_terminal_races.py::test_cancel_wins_between_outcome_check_and_terminal_cas[succeeded] |
+| RT271-02 | TSB-271 | test_terminal_races.py::test_committed_terminal_is_not_overwritten_by_cancel[succeeded] |
+| RT271-03 | TSB-271 | 上述两项 [partial_failed] |
+| RT271-04 | TSB-271 | 上述两项 [failed]，保留真实失败；2,000 次受控 CAS 用例 |
+| RT271-05 | TSB-271 | test_cancel_wins_between_outcome_check_and_terminal_cas：409 不新增行，解锁后 202；test_task_finally_finishes_under_project_lock_before_terminal |
+| RT271-06 | TSB-271 | test_cancel_lifecycle.py::test_concurrent_cancels_produce_one_clean_terminal_state / test_pending_job_cancelled_before_it_runs_converges / test_recovery_does_not_rerun_a_cancelling_job；test_cancel_recovery.py::test_repeat_request_stays_blocked_until_cleanup_finishes |
+| RT272-01 | TSB-272 | test_staging_ownership.py::test_exact_owned_shapes_delete_only_their_files（三种形状） |
+| RT272-02 | TSB-272 | test_staging_ownership.py::test_non_leaf_shapes_are_rejected_without_changing_bytes（9 个反例） |
+| RT272-03 | TSB-272 | 上项 frames/staging-evil、packages/staging-evil；raw_path_segments 检查 . / .. / 空段 |
+| RT272-04 | TSB-272 | test_staging_ownership.py::test_internal_stage_alias_cannot_delete_another_stage |
+| RT272-05 | TSB-272 | test_staging_ownership.py::test_middle_parent_link_is_refused_without_following（内部/外部，Windows 真 junction） |
+| RT272-06 | TSB-272 | test_staging_ownership.py::test_different_jobs_cannot_adopt_or_delete_each_others_stage / test_cross_project_owner_and_asset_are_rejected |
+| RT272-07 | TSB-272 | test_staging_ownership.py::test_link_swap_after_preflight_is_blocked_by_identity_recheck |
+| RT272-08 | TSB-272 | test_staging_ownership.py::test_owned_chinese_stage_beyond_max_path_is_really_removed[270/320]；旧 test_cancel_cleanup 深路径回归 |
+| RT272-09 | TSB-272 | test_staging_ownership.py::test_windows_open_file_reports_real_residual_bytes（真实 Win32 占用句柄）；test_unreadable_scan_is_failure_not_empty_success |
+| RT273-01 | TSB-273 | test_analysis_cancel_commit.py::test_cancel_lands_after_last_poll_before_write_transaction |
+| RT273-02 | TSB-273 | test_analysis_cancel_commit.py::test_analysis_writer_commits_before_queued_cancel_is_accepted（Event + SQLite writer 排队） |
+| RT273-03 | TSB-273 | test_analysis_cancel_commit.py::test_transaction_cancellation_preserves_all_manual_history[cancelling/cancelled] |
+| RT273-04 | TSB-273 | test_analysis_cancel_commit.py::test_cancel_after_new_jpeg_publish_reclaims_only_uncommitted_files；test_publish_cancel.py 两项粗剪扩展 |
+| RT273-05 | TSB-273 | test_analysis_cancel_commit.py::test_cancel_and_source_change_keep_error_classification_visible；test_job_cancel_kills_process.py 媒体取消分类回归 |
+| RT274-01 | TSB-274 | CleanupNotice.test.tsx 三种清理表达；Project.test.tsx 真实页面接线/停止任务重试/取消中不重试 |
+| RT274-02 | TSB-274 | test_cleanup_reporting.py::test_cleanup_failure_survives_progress_and_other_stage_success |
+| RT274-03 | TSB-274 | test_cleanup_reporting.py::test_terminal_cleanup_retry_is_authenticated_scoped_and_idempotent（认证/跨项目/仍运行拒绝） |
+| RT274-04 | TSB-274 | 上项占用解除后成功、零残留、重复幂等；test_retry_cannot_adopt_old_or_invented_cleanup_paths |
+| RT275-01 | TSB-275 | test_orphan_frame_safety.py::test_deep_chinese_old_orphan_removed_but_referenced_young_and_stage_kept[270/320] |
+| RT275-02 | TSB-275 | 上项 Frame + Segment.frame_refs 引用保留 |
+| RT275-03 | TSB-275 | 上项近期 JPEG/旧 stage 不删除；test_active_detection_defers_old_orphan_deletion |
+| RT275-04 | TSB-275 | test_orphan_frame_safety.py::test_frame_root_and_nested_directory_links_are_never_followed[root/nested] / test_orphan_listing_error_is_observable_and_retryable |
+
+额外：test_terminal_races.py 的 DB I/O、4 次重试耗尽用例断言结构化错误和未写
+finished_at。两次反向接线验证记录于 `docs/validation/v2.0.7/reverse-*-wiring.txt`。
+全量首次发现的两个旧测试调度缺口改为显式调度/锁同步，不删除、skip 或放宽断言。
+
+手工门禁 **TSB-277 未执行**：Windows 真机 8～10 段旅行视频，端到端与取消时间线、
+原片哈希/大小/mtime 一致、历史人工字段/复核/计划保持。另行执行 60+ 段/200GB
+性能验证。清单见 `docs/validation/v2.0.7/WINDOWS_REAL_FOOTAGE.md`。

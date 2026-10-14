@@ -13,7 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # job creation and proxy acceptance — the detection algorithm is unchanged, so
 # existing analysis stays valid and is not re-run.
 ANALYSIS_VERSION = "2.0.2"
-APP_VERSION = "2.0.4"
+APP_VERSION = "2.0.7"
 
 # File extensions treated as source video.
 VIDEO_EXTENSIONS = {

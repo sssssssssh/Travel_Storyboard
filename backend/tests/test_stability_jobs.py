@@ -117,7 +117,11 @@ def test_recovery_queues_active_jobs_and_never_resumes_cancelled(client, monkeyp
         assert entered.wait(5)
         assert seen == [jid]
         release.set(); assert finished.wait(5)
-        local._futures[jid2].result(5)
+        # Task entry can precede submit() publishing its Future. Synchronize
+        # on the same registry lock rather than guessing with a sleep.
+        with local._submit_lock:
+            second_future = local._futures[jid2]
+        second_future.result(5)
         assert seen == [jid, jid2]
         with session_scope() as s:
             assert s.get(Job, jid).failures['count'] == 1
