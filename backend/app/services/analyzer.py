@@ -201,10 +201,22 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
 
     work_dir = resolve_in_project(project_id, rel_to_data(frames_dir(project_id, asset.id)))
     run_id = str(uuid.uuid4())
-    stage = resolve_in_project(project_id, rel_to_data(staging_dir(project_id, asset.id) / run_id))
+    # Paths use a compact run token: Windows caps paths at 260 chars by default,
+    # and three full UUIDs plus a 36-char filename pushed real deep workspaces
+    # over that limit (ffmpeg wrote the file, Python could not see it). The full
+    # run_id is still stored and reported as `analysis_run_id`.
+    run_token = run_id.replace("-", "")[:12]
+    stage = resolve_in_project(
+        project_id, rel_to_data(staging_dir(project_id, asset.id) / run_token)
+    )
     # Each run owns a unique stage and unique published filenames. A crash
     # cannot overwrite the JPEGs referenced by the previous committed version.
+    #
+    # Create both directories here rather than relying on `extract_frame` to do
+    # it: the frame extractor is replaceable (tests, future backends) and the
+    # analysis step must not depend on that side effect.
     stage.mkdir(parents=True, exist_ok=True)
+    work_dir.mkdir(parents=True, exist_ok=True)
 
     new_segments: list[Segment] = []
     new_frames: list[Frame] = []
@@ -247,8 +259,15 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
                 if final_time >= boundary.start_sec:
                     t = min(t, final_time)
             frame_id = str(uuid.uuid4())
-            stage_path = stage / f"{run_id}_{frame_id}.jpg"
-            final_path = work_dir / f"{run_id}_{frame_id}.jpg"
+            # Compact but still collision-free: 12 hex chars of run + 12 of frame.
+            frame_token = frame_id.replace("-", "")[:12]
+            frame_name = f"{run_token}_{frame_token}.jpg"
+            stage_path = stage / frame_name
+            final_path = work_dir / frame_name
+            # Re-assert the staging directory: the extractor is a replaceable
+            # callable and a concurrent cleanup must never turn a missing
+            # directory into a confusing mid-run failure.
+            stage_path.parent.mkdir(parents=True, exist_ok=True)
             extract_frame(source, t, stage_path, width=settings.thumb_width)
             with Image.open(stage_path) as im:
                 im.load()
@@ -321,7 +340,10 @@ def _analyze_asset(project_id: str, asset: Asset, settings=None, job_id: str | N
             if f.image_path
         ]
 
-    produced = {f"{run_id}_{frame.id}.jpg" for frame in new_frames}
+    # Derive the published names from what was actually recorded on each frame
+    # rather than rebuilding them, so the naming scheme can change without this
+    # list silently going empty.
+    produced = {Path(frame.image_path).name for frame in new_frames if frame.image_path}
     try:
         for name in sorted(produced):
             src = stage / name

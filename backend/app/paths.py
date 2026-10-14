@@ -127,7 +127,13 @@ def contact_sheets_dir(project_id: str) -> Path:
 
 
 def staging_dir(project_id: str, asset_id: str) -> Path:
-    """Per-run staging area for frames; swapped in atomically on success."""
+    """Per-run staging area for frames; swapped in atomically on success.
+
+    The run directory is added by the caller. Paths here are deliberately short:
+    Windows still enforces a 260-character limit by default, and the full UUIDs
+    already live in the database, so repeating them in every filename only
+    pushed real projects over that limit.
+    """
     return project_cache_dir(project_id) / "staging" / asset_id
 
 

@@ -105,7 +105,11 @@ def proxies_task(job_id: str) -> None:
     if not math.isfinite(budget) or budget <= 0:
         raise ValueError('预览预算须为正数')
     root = project_cache_dir(project_id) / 'proxies'
-    staging = root / 'staging' / f'{job_id}-{uuid.uuid4().hex}'
+    # Keep these names short. Windows enforces a 260-char path limit by default
+    # and a project workspace can already be deep (a custom output_dir plus a
+    # 36-char project id); a 69-char staging folder on top of that made ffmpeg
+    # write a file the rest of the process could not see (WinError 3).
+    staging = root / 'staging' / uuid.uuid4().hex[:12]
     staging.mkdir(parents=True, exist_ok=True)
     done, failed, skipped_budget = prior_done, failures.total, 0
     total = prior_done + len(plan)
@@ -116,7 +120,7 @@ def proxies_task(job_id: str) -> None:
     try:
         for req_id in plan:
             raise_if_cancelled(job_id)
-            temp = staging / f'{req_id}.mp4'
+            temp = staging / 'out.mp4'
             final = None
             published = False
             try:
@@ -153,7 +157,9 @@ def proxies_task(job_id: str) -> None:
                     continue
                 # Unique final name: rollback can remove only this attempt;
                 # historical previews are never overwritten, including DB failure.
-                final = root / f'{req_id}-{uuid.uuid4().hex}.mp4'
+                # Short by design (see the staging note above): the request id is
+                # tracked in the database, so the filename does not need to repeat it.
+                final = root / f'{uuid.uuid4().hex[:16]}.mp4'
                 with session_scope() as s:
                     begin_write(s)
                     raise_if_cancelled(job_id)

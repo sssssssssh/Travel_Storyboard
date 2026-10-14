@@ -82,8 +82,51 @@ def ffprobe_available() -> str | None:
     return p if _exe_available(p) else None
 
 
+def long_path(path: str | Path) -> str:
+    r"""Return a form of *path* that survives Windows' MAX_PATH limit.
+
+    Windows still enforces a 260-character limit unless the ``LongPathsEnabled``
+    policy is on. FFmpeg is a native program and happily writes to a longer
+    path, but Python's own ``os.path`` calls then fail to see the file — which
+    used to look like "ffmpeg succeeded but produced nothing".
+
+    Prefixing with ``\\?\`` (or ``\\?\UNC\`` for network shares) opts into the
+    extended-length API for both sides, so a deep workspace keeps working.
+    """
+    text = str(path)
+    if os.name != "nt" or text.startswith("\\\\?\\"):
+        return text
+    try:
+        absolute = os.path.abspath(text)
+    except (OSError, ValueError):
+        return text
+    if absolute.startswith("\\\\"):  # UNC share: \\server\share -> \\?\UNC\server\share
+        return "\\\\?\\UNC\\" + absolute.lstrip("\\")
+    return "\\\\?\\" + absolute
+
+
+def path_length_warning(path: str | Path) -> str | None:
+    """A user-facing hint when a path is close to (or past) Windows' limit."""
+    if os.name != "nt":
+        return None
+    length = len(str(path))
+    if length < 240:
+        return None
+    return (
+        f"路径长度 {length} 接近或超过 Windows 的 260 字符上限，"
+        "建议把项目输出工作区放到更短的目录（例如 D:\\TSB）。"
+    )
+
+
 def run(cmd: list[str], timeout: int = 3600) -> subprocess.CompletedProcess:
-    """Run an external command, raising FFmpegError on non-zero exit."""
+    """Run an external command, raising FFmpegError on non-zero exit.
+
+    FFmpeg can exit **0** while writing nothing — the ``image2`` muxer refuses a
+    filename with no ``%03d`` pattern, and on Windows a path past ``MAX_PATH``
+    can be written by FFmpeg yet be invisible to Python. Both used to surface
+    much later as a confusing ``FileNotFoundError`` from Pillow, so a
+    single-image output is verified here.
+    """
     try:
         proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
     except FileNotFoundError as exc:
@@ -92,6 +135,17 @@ def run(cmd: list[str], timeout: int = 3600) -> subprocess.CompletedProcess:
         stderr = proc.stderr.decode("utf-8", errors="replace")[-2000:]
         preview = " ".join(cmd[:6])
         raise FFmpegError(f"Command failed ({proc.returncode}): {preview} ...\n{stderr}")
+
+    # Verify a single-image output actually landed. Retry through the
+    # extended-length path form: FFmpeg may have written a >MAX_PATH file that
+    # a plain Python stat cannot see.
+    raw_last = str(cmd[-1]) if cmd else ""
+    if raw_last.lower().endswith((".jpg", ".jpeg", ".png", ".webp")) and "%" not in raw_last:
+        if not Path(raw_last).is_file() and not Path(long_path(raw_last)).is_file():
+            stderr = proc.stderr.decode("utf-8", errors="replace")[-2000:]
+            raise FFmpegError(
+                f"Command reported success but wrote no image: {raw_last}\n{stderr}"
+            )
     return proc
 
 
@@ -159,7 +213,7 @@ def probe(source: str | Path) -> dict[str, Any]:
         "-print_format", "json",
         "-show_format",
         "-show_streams",
-        str(source),
+        long_path(source),
     ]
     proc = run(cmd)
     try:
@@ -226,12 +280,14 @@ def extract_frame(
         "-y",
         "-accurate_seek",
         "-ss", f"{time_sec:.3f}",
-        "-i", str(source),
+        "-i", long_path(source),
         "-frames:v", "1",
     ]
     if width:
         cmd += ["-vf", f"scale={width}:-2"]
-    cmd += ["-q:v", "3", str(out)]
+    # `-update 1` is required: without it the image2 muxer refuses a filename
+    # that has no `%03d` pattern, prints a warning, and exits 0 without writing.
+    cmd += ["-q:v", "3", "-update", "1", long_path(out)]
     run(cmd)
     return out
 
@@ -252,7 +308,7 @@ def extract_preview(
         locate_ffmpeg(),
         "-y",
         "-ss", f"{start_sec:.3f}",
-        "-i", str(source),
+        "-i", long_path(source),
         "-t", f"{duration_sec:.3f}",
     ]
     if width:
@@ -265,7 +321,7 @@ def extract_preview(
         "-crf", str(crf),
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
-        str(out),
+        long_path(out),
     ]
     run(cmd)
     return out

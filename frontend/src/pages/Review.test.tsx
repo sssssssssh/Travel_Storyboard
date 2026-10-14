@@ -5,14 +5,22 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import Review from './Review'
 import { api } from '../lib/api'
-vi.mock('../lib/api', async (original) => ({ ...await original<typeof import('../lib/api')>(), api: vi.fn() }))
+vi.mock('../lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/api')>()),
+  api: vi.fn(),
+}))
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 test('loads persisted note and warns about a retained stale shot without overwriting note edits', async () => {
   const segment = { id: 's', asset_id: 'a', asset_display_name: 'clip.mp4', note: 'stored note', status: 'needs_review',
     start_sec: 0, end_sec: 10, detected_start_sec: 0, detected_end_sec: 10, is_trimmed: false,
     duration_sec: 10, user_rating: 'favorite', story_role: '高潮', boundary_reason: 'hard_cut',
     thumbnail: null, quality_metrics: { analysis_warning: '旧镜头已保留' }, content_tags: {} }
-  vi.mocked(api).mockImplementation(async (path) => (path.endsWith('/review-requests') ? [] : path.endsWith('/edit-plan') ? { shots: [{ segment_id: 's' }] } : { items: [segment], total: 1, offset: 0, limit: 60 }) as never)
+  vi.mocked(api).mockImplementation((async (path: string) =>
+    path.endsWith('/review-requests')
+      ? []
+      : path.endsWith('/edit-plan')
+        ? { shots: [{ segment_id: 's' }] }
+        : { items: [segment], total: 1, offset: 0, limit: 60 }) as never)
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(<QueryClientProvider client={qc}><MemoryRouter initialEntries={['/p/p']}><Routes><Route path="/p/:id" element={<Review />} /></Routes></MemoryRouter></QueryClientProvider>)
   fireEvent.click(await screen.findByRole('button', { name: /clip.mp4/ }))

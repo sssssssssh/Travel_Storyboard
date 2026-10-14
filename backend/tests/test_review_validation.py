@@ -93,13 +93,13 @@ def test_package_excludes_favorite_stale_in_all_filters(library, rating):
         s.add(stale); s.flush(); stale_id = stale.id
     result = _build_package(pid, {'rating': rating})
     root = project_cache_dir(pid) / 'packages' / result['version']
-    manifest = json.loads((root / 'manifest.json').read_text())
-    segments = json.loads((root / 'segments.json').read_text())
+    manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    segments = json.loads((root / 'segments.json').read_text(encoding='utf-8'))
     assert [row['segment_id'] for row in segments] == [sid]
     assert manifest['selection']['total_candidates'] == 2
     assert manifest['selection']['included_segments'] == 1
     assert manifest['selection']['excluded_needs_review'] == 1
-    assert stale_id not in ''.join(p.read_text() for p in root.glob('*.json'))
+    assert stale_id not in ''.join(p.read_text(encoding='utf-8') for p in root.glob('*.json'))
     assert len(list((root / 'frames').glob('*.jpg'))) == manifest['counts']['frames'] == 1
     assert len(list((root / 'contact_sheets').glob('*.jpg'))) == 1
     import zipfile
@@ -107,7 +107,7 @@ def test_package_excludes_favorite_stale_in_all_filters(library, rating):
         payload = b''.join(archive.read(name) for name in archive.namelist() if name.endswith('.json'))
         assert sid.encode() in payload and stale_id.encode() not in payload
         assert len([n for n in archive.namelist() if '/frames/' in n]) == 1
-    assert {a['asset_id'] for a in json.loads((root / 'assets.json').read_text())} == {aid}
+    assert {a['asset_id'] for a in json.loads((root / 'assets.json').read_text(encoding='utf-8'))} == {aid}
 
 
 @pytest.mark.parametrize('invalid', ['needs_review', 'missing_frames', 'source_missing'])
@@ -133,10 +133,10 @@ def test_package_missing_frame_statistics_do_not_enumerate_excluded_asset(librar
         s.add_all([missing, excluded])
     result = _build_package(pid, {})
     root = project_cache_dir(pid) / 'packages' / result['version']
-    manifest = json.loads((root / 'manifest.json').read_text())
+    manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
     assert manifest['selection']['excluded_missing_frames'] == 1
     assert manifest['selection']['excluded_by_rating'] == 1
-    assert other_id not in (root / 'assets.json').read_text()
+    assert other_id not in (root / 'assets.json').read_text(encoding='utf-8')
 
 
 def test_human_replacement_preserves_history_annotations_plan(client, library):
@@ -261,7 +261,7 @@ def test_package_frames_are_limited_to_current_trim(library):
         s.add(Frame(asset_id=aid, segment_id=sid, image_path=str(jpg), time_sec=1))
     result = _build_package(pid, {})
     root = project_cache_dir(pid) / 'packages' / result['version']
-    frames = json.loads((root / 'segments.json').read_text())[0]['frames']
+    frames = json.loads((root / 'segments.json').read_text(encoding='utf-8'))[0]['frames']
     assert [f['time_sec'] for f in frames] == [4]
 
 
