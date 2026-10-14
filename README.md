@@ -175,6 +175,7 @@ pnpm run build
 
 ## 文档
 
+- **给 AI 协作者与新贡献者（先读这个）**：[AGENTS.md](AGENTS.md) —— 硬约束、工作流纪律、环境事实与常见坑
 - 完整设计：[docs/DESIGN.md](docs/DESIGN.md)
 - 回归测试清单（T01–T21 + v2.0.4/v2.0.5 新增）：[docs/REGRESSION.md](docs/REGRESSION.md)
 - 需求来源：`Travel_Storyboard_v2.0_详细设计方案.md`
