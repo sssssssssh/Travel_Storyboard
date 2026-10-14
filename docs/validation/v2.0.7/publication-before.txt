@@ -9,7 +9,7 @@ ___ test_each_committed_roughcut_preserves_previous_bytes_and_serves_latest ____
 backend/tests/test_publish_cancel.py:44: in test_each_committed_roughcut_preserves_previous_bytes_and_serves_latest
     assert old.read_bytes() == b'old-cut'
 E   AssertionError: assert b'newer-cut' == b'old-cut'
-E     
+E
 E     At index 0 diff: b'n' != b'o'
 E     Use -v to get more diff
 =========================== short test summary info ============================

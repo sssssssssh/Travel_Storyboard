@@ -5,7 +5,7 @@ backend/tests/test_terminal_races.py:51: in test_cancel_wins_between_outcome_che
     assert job.status == 'cancelled', 'lost terminal CAS must settle cancelling before unlock'
 E   AssertionError: lost terminal CAS must settle cancelling before unlock
 E   assert 'cancelling' == 'cancelled'
-E     
+E
 E     - cancelled
 E     + cancelling
 ___ test_cancel_wins_between_outcome_check_and_terminal_cas[partial_failed] ____
@@ -13,56 +13,56 @@ backend/tests/test_terminal_races.py:51: in test_cancel_wins_between_outcome_che
     assert job.status == 'cancelled', 'lost terminal CAS must settle cancelling before unlock'
 E   AssertionError: lost terminal CAS must settle cancelling before unlock
 E   assert 'cancelling' == 'cancelled'
-E     
+E
 E     - cancelled
 E     + cancelling
 __ test_non_leaf_shapes_are_rejected_without_changing_bytes[roughcut/history] __
 backend/tests/test_staging_ownership.py:20: in test_non_leaf_shapes_are_rejected_without_changing_bytes
     assert result.error_code == 'STAGING_NOT_OWNED'
 E   AssertionError: assert '' == 'STAGING_NOT_OWNED'
-E     
+E
 E     - STAGING_NOT_OWNED
 __ test_non_leaf_shapes_are_rejected_without_changing_bytes[roughcut/output] ___
 backend/tests/test_staging_ownership.py:20: in test_non_leaf_shapes_are_rejected_without_changing_bytes
     assert result.error_code == 'STAGING_NOT_OWNED'
 E   AssertionError: assert '' == 'STAGING_NOT_OWNED'
-E     
+E
 E     - STAGING_NOT_OWNED
 __ test_non_leaf_shapes_are_rejected_without_changing_bytes[proxies/staging] ___
 backend/tests/test_staging_ownership.py:20: in test_non_leaf_shapes_are_rejected_without_changing_bytes
     assert result.error_code == 'STAGING_NOT_OWNED'
 E   AssertionError: assert '' == 'STAGING_NOT_OWNED'
-E     
+E
 E     - STAGING_NOT_OWNED
 ___ test_non_leaf_shapes_are_rejected_without_changing_bytes[staging/asset] ____
 backend/tests/test_staging_ownership.py:20: in test_non_leaf_shapes_are_rejected_without_changing_bytes
     assert result.error_code == 'STAGING_NOT_OWNED'
 E   AssertionError: assert '' == 'STAGING_NOT_OWNED'
-E     
+E
 E     - STAGING_NOT_OWNED
 _ test_non_leaf_shapes_are_rejected_without_changing_bytes[roughcut/staging-] __
 backend/tests/test_staging_ownership.py:20: in test_non_leaf_shapes_are_rejected_without_changing_bytes
     assert result.error_code == 'STAGING_NOT_OWNED'
 E   AssertionError: assert '' == 'STAGING_NOT_OWNED'
-E     
+E
 E     - STAGING_NOT_OWNED
 _ test_non_leaf_shapes_are_rejected_without_changing_bytes[roughcut/staging-a/child] _
 backend/tests/test_staging_ownership.py:20: in test_non_leaf_shapes_are_rejected_without_changing_bytes
     assert result.error_code == 'STAGING_NOT_OWNED'
 E   AssertionError: assert '' == 'STAGING_NOT_OWNED'
-E     
+E
 E     - STAGING_NOT_OWNED
 _ test_non_leaf_shapes_are_rejected_without_changing_bytes[proxies/staging/a/child] _
 backend/tests/test_staging_ownership.py:20: in test_non_leaf_shapes_are_rejected_without_changing_bytes
     assert result.error_code == 'STAGING_NOT_OWNED'
 E   AssertionError: assert '' == 'STAGING_NOT_OWNED'
-E     
+E
 E     - STAGING_NOT_OWNED
 ____________ test_internal_stage_alias_cannot_delete_another_stage _____________
 backend/tests/test_staging_ownership.py:33: in test_internal_stage_alias_cannot_delete_another_stage
     assert result.error_code == 'STAGING_NOT_OWNED'
 E   AssertionError: assert '' == 'STAGING_NOT_OWNED'
-E     
+E
 E     - STAGING_NOT_OWNED
 __________ test_cancel_lands_after_last_poll_before_write_transaction __________
 backend/tests/test_analysis_cancel_commit.py:23: in test_cancel_lands_after_last_poll_before_write_transaction

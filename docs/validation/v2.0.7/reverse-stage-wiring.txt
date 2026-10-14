@@ -5,7 +5,7 @@ backend/tests/test_cancel_cleanup.py:389: in test_cancelled_roughcut_removes_its
     assert _roughcut_stages(project["id"]) == [], (
 E   AssertionError: a cancelled rough cut must collect its staging directory
 E   assert [PosixPath('/...d2bea5c72fe')] == []
-E     
+E
 E     Left contains one more item: PosixPath('<isolated-data>/projects/481fc4bb-f5f4-4f1b-b4e6-b68c27554435/roughcut/staging-03810fdd-fba1-4b2f-b9ea-3d2bea5c72fe')
 E     Use -v to get more diff
 =========================== short test summary info ============================
