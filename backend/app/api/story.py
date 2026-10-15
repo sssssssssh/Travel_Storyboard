@@ -26,7 +26,8 @@ from ..services.job_service import (
 )
 from ..services.runner import runner
 from ..services.story_planner import direct_analyze, import_review_requests
-from ..services.vision.authorization import authorization_denial_reason
+from ..services.vision.authorization import authorize_upload
+from ..services.vision.errors import ModelError
 from ..services.review_validation import (ReviewValidationError, validate_review, verified_source,
                                           INVALID_SEGMENT_STATUSES)
 from .deps import get_db
@@ -197,16 +198,18 @@ def analyze_story(
         raise HTTPException(status_code=404, detail="Project not found")
 
     acknowledged = bool(body.upload_acknowledged) if body else False
-    reason = authorization_denial_reason(
-        upload_acknowledged=acknowledged, project_id=project_id
-    )
-    if reason is not None:
-        code = reason.split(":", 1)[0]
+    try:
+        context = authorize_upload(
+            project_id=project_id,
+            upload_acknowledged=acknowledged,
+            purpose="story_analyze",
+        )
+    except ModelError as exc:
         raise HTTPException(
-            status_code=403 if code == "MODEL_UPLOAD_DENIED" else 422,
+            status_code=403 if exc.code == "MODEL_UPLOAD_DENIED" else 422,
             detail={
-                "error_code": code,
-                "message": reason,
+                "error_code": exc.code,
+                "message": str(exc),
                 "migration_hint": (
                     "旧接口 /story/analyze 需要请求体 "
                     '{"upload_acknowledged": true}。'
@@ -214,6 +217,6 @@ def analyze_story(
                     "它提供逐镜头进度、可取消任务与覆盖率统计。"
                 ),
             },
-        )
+        ) from exc
 
-    return direct_analyze(project_id)
+    return direct_analyze(project_id, authorization=context)

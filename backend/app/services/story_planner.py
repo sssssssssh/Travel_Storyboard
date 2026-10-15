@@ -519,12 +519,19 @@ def direct_analyze(
     project_id: str,
     max_images: int = DEFAULT_MAX_IMAGES,
     max_segments_sampled: int = DEFAULT_MAX_SEGMENTS_SAMPLED,
+    *,
+    authorization=None,
 ) -> dict:
     """Optional in-tool round-1 analysis via a configured vision model.
 
     Returns a report plus the review requests that survived validation, and a
     ``coverage`` block describing exactly how much of the library the model
     actually saw (audit P1-06).
+
+    TSB-312: ``authorization`` is the per-call consent token. The HTTP route
+    obtains it from the shared authorization boundary before calling here, so
+    this function cannot upload on its own — the provider refuses an unguarded
+    request as well.
     """
     if not model_client.is_configured():
         return {
@@ -598,7 +605,7 @@ def direct_analyze(
         model_client.image_message(prompt, [p["path"] for p in picked]),
     ]
 
-    raw = model_client.chat(messages)
+    raw = model_client.chat(messages, authorization=authorization)
     data = _extract_json(raw)
     problems: list[str] = []
     retried = False
@@ -613,7 +620,7 @@ def direct_analyze(
                 "content": "That was not valid JSON. Reply with ONLY the JSON object.",
             },
         ]
-        raw = model_client.chat(retry_messages)
+        raw = model_client.chat(retry_messages, authorization=authorization)
         data = _extract_json(raw)
 
     if data is None:

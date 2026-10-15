@@ -1,0 +1,9 @@
+TSB-313 BEFORE (revision 306b1fd, no fix applied)
+============================================================
+temp files created by _flatten: 1
+    C:\Users\changan\AppData\Local\Temp\tsb-vision-57b095bf610d4185aedb1658027a9db3.jpg  (203 bytes)
+ImagePart.path = 'C:\\Users\\changan\\AppData\\Local\\Temp\\tsb-vision-57b095bf610d4185aedb1658027a9db3.jpg'
+ImagePart has .data attribute: False
+helper present: True
+
+The file is never deleted: exists after _flatten returns = True

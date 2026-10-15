@@ -9,6 +9,7 @@ semantics (M5.1) and timestamped multi-frame motion review (M5.2).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Protocol
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a circular import
@@ -19,12 +20,34 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a circular import
 class ImagePart:
     """One image bound for the model.
 
-    ``path`` is used to read bytes; ``label`` is the human/model-visible
-    identifier (e.g. ``t=12.0s``) and must never be a local absolute path.
+    Exactly one of ``path`` / ``data`` must be set:
+
+    * ``path`` — a file this process wrote (the M5 renderers). Read at send time.
+    * ``data`` — raw JPEG/PNG **bytes** already validated in memory. This exists
+      so the legacy ``image_message()`` path can hand its decoded payload
+      straight to the provider (TSB-313); before this, the compat layer spilled
+      each data URI to a temp file and never deleted it, leaving a copy of the
+      frame on disk after every call — including failed and cancelled ones.
+
+    ``label`` is the human/model-visible identifier (e.g. ``t=12.0s``) and must
+    never be a local absolute path.
     """
 
-    path: str
-    label: str
+    path: str = ""
+    label: str = ""
+    data: bytes | None = None
+    mime: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.path and self.data is None:
+            raise ValueError("ImagePart needs either a path or in-memory data")
+        if self.path and self.data is not None:
+            raise ValueError("ImagePart takes a path or data, not both")
+
+    @property
+    def size_bytes(self) -> int:
+        """Byte size without reading the file twice."""
+        return len(self.data) if self.data is not None else Path(self.path).stat().st_size
 
 
 @dataclass

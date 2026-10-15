@@ -1,0 +1,29 @@
+﻿TSB-312/313 validation - local Windows, 2026-10-15
+==============================================================
+Python: Python 3.13.7
+
+[1] backend full suite
+cmd: pytest -q --junitxml=tsb313.xml
+--- tail ---
+tests=702 failures=0 errors=0 skipped=1
+
+[2] mandatory media mode, cmd:
+  TSB_REQUIRE_FFMPEG=1 pytest -q tests/test_vision_{provider,schema,semantics,candidates,motion,compat,authorization}.py tests/test_ci_skip_guard.py
+tests=190 failures=0 errors=0 skipped=0
+
+[3] skip guard probe output
+legitimate platform skips (must be tolerated):
+  OK   test_deep_media_http.py          MAX_PATH only constrains Windows
+  OK   test_deep_scan_api.py            MAX_PATH only constrains Windows
+  OK   test_deep_path_cleanup.py        long-path behaviour is Windows-specific
+  OK   test_long_paths.py               long-path behaviour is Windows-specific
+  OK   test_cancel_cleanup.py           long-path behaviour is Windows-specific
+  OK   test_cancel_cleanup.py           link creation is a platform fact
+tool-missing skips (must still fail the job):
+  OK   test_ffmpeg_integration.py       ffmpeg/ffprobe not available
+  OK   test_long_paths.py               ffmpeg/ffprobe not available
+  OK   test_deep_scan_api.py            ffmpeg not available
+  OK   test_job_cancel_kills_process.py ffmpeg not available
+
+whitelist = ('long-path behaviour is Windows-specific', 'MAX_PATH only constrains Windows', 'requires Windows', 'link creation is a platform fact')
+VERDICT: PASS - Linux platform skips cannot fail the job

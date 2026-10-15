@@ -68,10 +68,77 @@ def validate_endpoint(base_url: str, *, allow_insecure: bool) -> None:
         )
 
 
+#: Accepted image MIME types. Anything else is refused before encoding
+#: (TSB-313: a forged MIME must not be smuggled through as an image).
+ALLOWED_IMAGE_MIMES = frozenset({"image/jpeg", "image/png", "image/webp"})
+
+#: Magic-byte prefixes, so a mislabelled payload is caught by content rather than
+#: by the declared type alone.
+_MAGIC = (
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"RIFF", "image/webp"),  # WEBP is RIFF....WEBP; the container check suffices here
+)
+
+#: Hard per-image ceiling for in-memory payloads. The request-body limit is
+#: enforced separately; this catches an oversized single image earlier and with a
+#: clearer message.
+MAX_INLINE_IMAGE_BYTES = 12_000_000
+
+
+def sniff_mime(data: bytes) -> str | None:
+    """Return the MIME implied by the payload's magic bytes, or None."""
+    for prefix, mime in _MAGIC:
+        if data.startswith(prefix):
+            if mime == "image/webp" and data[8:12] != b"WEBP":
+                continue
+            return mime
+    return None
+
+
+def validate_inline_image(data: bytes, declared_mime: str = "") -> str:
+    """Validate an in-memory image and return the MIME to send.
+
+    Raises :class:`ModelError` with ``MODEL_BAD_REQUEST`` when the payload is
+    empty, oversized, not an image, or its declared type disagrees with its
+    content. A forged type must never reach the wire.
+    """
+    if not data:
+        raise ModelError(MODEL_BAD_REQUEST, "image payload is empty")
+    if len(data) > MAX_INLINE_IMAGE_BYTES:
+        raise ModelError(
+            MODEL_BAD_REQUEST,
+            f"image payload {len(data)}B exceeds the inline limit {MAX_INLINE_IMAGE_BYTES}B",
+        )
+
+    actual = sniff_mime(data)
+    if actual is None:
+        raise ModelError(
+            MODEL_BAD_REQUEST,
+            "image payload is not a recognised JPEG/PNG/WEBP (magic bytes do not match)",
+        )
+    if actual not in ALLOWED_IMAGE_MIMES:
+        raise ModelError(MODEL_BAD_REQUEST, f"unsupported image type: {actual}")
+
+    declared = (declared_mime or "").split(";")[0].strip().lower()
+    if declared and declared != actual:
+        raise ModelError(
+            MODEL_BAD_REQUEST,
+            f"declared image type {declared!r} does not match its content ({actual})",
+        )
+    return actual
+
+
 def _data_uri(path: str | Path) -> tuple[str, int]:
     data = Path(path).read_bytes()
     mime = mimetypes.guess_type(str(path))[0] or "image/jpeg"
     return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}", len(data)
+
+
+def _inline_data_uri(image) -> tuple[str, int]:
+    """Encode an in-memory :class:`ImagePart` without touching the filesystem."""
+    mime = validate_inline_image(image.data or b"", image.mime)
+    return f"data:{mime};base64,{base64.b64encode(image.data or b'').decode('ascii')}", len(image.data or b"")
 
 
 class OpenAICompatibleVisionProvider:
@@ -112,7 +179,12 @@ class OpenAICompatibleVisionProvider:
         content: list[dict] = [{"type": "text", "text": request.prompt}]
         for img in request.images:
             # The label travels as text, never as a filesystem path.
-            uri, size = _data_uri(img.path)
+            if img.data is not None:
+                # In-memory payload (legacy compat layer): nothing is written to
+                # disk, so there is no temp copy to leak on any exit path.
+                uri, size = _inline_data_uri(img)
+            else:
+                uri, size = _data_uri(img.path)
             if img.label:
                 content.append({"type": "text", "text": f"[{img.label}]"})
             content.append({"type": "image_url", "image_url": {"url": uri}})

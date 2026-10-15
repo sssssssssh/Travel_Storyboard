@@ -538,3 +538,47 @@ RT274-02 升级恢复补充：test_cleanup_reporting.py::test_legacy_single_clea
 M5 全链路（见 `docs/validation/v2.1-m5/`），但**未覆盖竖屏/无音轨/HDR**，
 段数也少于 8～10 段要求，因此真实素材发布门禁仍然未完成。
 原生视频理解、音频语义、60+ 段/200GB 性能均未测。
+
+---
+
+## v2.1 (M5.1) TSB-312 / TSB-313 用例映射
+
+结果、范围声明与未完成项见 [RELEASE_V2_1_M5_1.md](RELEASE_V2_1_M5_1.md)。
+用例 → 任务号 → 守护的行为：
+
+| 用例 | 任务 | 守护的行为 |
+| --- | --- | --- |
+| test_vision_authorization.py::test_mode_off_denies_even_with_consent | TSB-312/C5 | 全局开关默认 off，即使点了同意也不上传 |
+| test_vision_authorization.py::test_mode_on_without_consent_denies | TSB-312/C5 | 本次调用未同意即拒绝，不是进程级"已授权" |
+| test_vision_authorization.py::test_missing_project_scope_denies | TSB-312 | 无项目范围无法确认上传对象，拒绝 |
+| test_vision_authorization.py::test_contexts_are_per_call_not_process_global | TSB-312 | 授权是逐次令牌，不跨请求泄漏 |
+| test_vision_authorization.py::test_legacy_story_analyze_without_body_is_refused | TSB-312/C5 | **原缺陷**：旧 `/story/analyze` 仅凭"配了 Key"就上传，现无请求体即 403 |
+| test_vision_authorization.py::test_legacy_story_analyze_denied_when_mode_off | TSB-312/C5 | 旧入口同样受 mode=off 约束 |
+| test_vision_authorization.py::test_legacy_route_shares_the_boundary_with_the_new_one | TSB-312 | 两个入口共用同一判定，不各自推导权限 |
+| test_vision_authorization.py::test_new_job_makes_zero_calls_when_* | TSB-312 | 被拒时**零**外部调用（不是"调用后丢弃"） |
+| test_vision_compat.py::test_chat_leaves_no_frame_copy_in_the_temp_directory | TSB-313/C5 | **原缺陷**：data URI 落临时文件且从不删除；现计数断言临时目录不新增 |
+| test_vision_compat.py::test_the_image_survives_as_in_memory_bytes | TSB-313/C6 | 不落盘不等于丢图：字节仍以 `ImagePart.data` 送达 provider |
+| test_vision_compat.py::test_an_error_path_also_leaves_nothing_behind | TSB-313/C5 | 失败路径同样不留帧副本（旧实现失败也泄漏） |
+| test_vision_compat.py::test_a_malformed_data_uri_is_reported_not_silently_dropped | TSB-313/C6 | 坏 data URI 报 `MODEL_BAD_REQUEST`，不静默丢图 |
+| test_vision_compat.py::test_an_oversized_data_uri_is_refused_before_decoding | TSB-313 | 上限在解码前按字符串校验，避免内存放大 |
+| test_vision_compat.py::test_a_plain_path_is_still_accepted_as_a_path | TSB-313 | 只有 inline data URI 改了传输方式，路径透传不变 |
+| test_vision_compat.py::test_image_part_refuses_a_part_with_no_payload | TSB-313 | 无载荷的 ImagePart 构造即失败 |
+| test_vision_compat.py::test_image_part_refuses_both_carriers_at_once | TSB-313 | `path` 与 `data` 互斥，不产生歧义来源 |
+| test_vision_compat.py::test_image_part_keeps_the_old_positional_constructor_working | TSB-313 | `ImagePart(path, label)` 旧写法不被破坏（M5 渲染器在用） |
+| test_vision_compat.py::test_a_forged_mime_is_refused_by_content | TSB-313 | 声称 PNG 实为 JPEG 的内容不符被拒 |
+| test_vision_compat.py::test_a_non_image_payload_is_refused | TSB-313 | 非图片载荷按 magic bytes 拒绝 |
+| test_vision_compat.py::test_an_oversized_inline_payload_is_refused | TSB-313 | 单图超过内联上限被拒 |
+| test_vision_compat.py::test_the_compat_entry_point_cannot_be_used_without_a_context | TSB-312/C5 | 直接调 `chat()` 不能绕过业务入口 |
+| test_vision_compat.py::test_the_flattened_request_carries_the_authorization | TSB-312 | 授权令牌确实附在出站请求上 |
+| test_vision_compat.py::test_direct_analyze_passes_the_token_through_to_chat | TSB-312 | **接线**：首调与 JSON 重试都转发令牌（TSB-253 教训） |
+| test_vision_compat.py::test_the_legacy_route_builds_the_context_once_and_forwards_it | TSB-312 | 路由先授权再调用，且不在路由内自查配置 |
+| test_vision_compat.py::test_the_route_reports_a_stable_code_and_a_migration_hint | TSB-312/C6 | 拒绝给稳定错误码 + 迁移提示，不是含糊失败 |
+| test_vision_compat.py::test_no_production_call_site_reads_the_removed_temp_helper | TSB-313 | 旧 `_materialize_data_uri` 已删除而非留用 |
+
+**反向验证**：把实现回退到修复前修订（`306b1fd`）后，
+`test_vision_compat.py` 26 项中 **22 项失败**（另 4 项为 pre-fix 才需要的导入容错），
+失败原因包括 `chat() got an unexpected keyword argument 'authorization'`、
+`ImagePart` 无 `data`、`sniff_mime` 不存在等；恢复修复后全部转绿。
+修复前的实测泄漏证据见 `docs/validation/v2.1-m5-1/tsb313-before.txt`
+（每次 `_flatten` 产生 1 个 203 字节 `tsb-vision-*.jpg`，返回后仍存在）。
+

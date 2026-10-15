@@ -366,7 +366,7 @@ def test_legacy_route_shares_the_boundary_with_the_new_one(project, monkeypatch)
         body = body[1:]
     code = ast.unparse(ast.Module(body=body, type_ignores=[]))
 
-    assert "authorization_denial_reason" in code, (
+    assert "authorize_upload" in code or "authorization_denial_reason" in code, (
         "the legacy route must use the shared boundary rather than re-deriving permission"
     )
     assert "is_configured" not in code, (
