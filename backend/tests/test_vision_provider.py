@@ -132,6 +132,7 @@ def _configure(monkeypatch, url: str, *, insecure: bool = True, **extra):
     from app.config import get_settings
 
     s = get_settings()
+    monkeypatch.setattr(s, "model_mode", "on", raising=False)
     monkeypatch.setattr(s, "model_base_url", url, raising=False)
     monkeypatch.setattr(s, "model_api_key", "test-key-1234567890", raising=False)
     monkeypatch.setattr(s, "model_name", "GLM-test", raising=False)

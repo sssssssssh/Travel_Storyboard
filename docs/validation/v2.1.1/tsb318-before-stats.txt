@@ -1,0 +1,139 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+________ test_workers_finally_report_real_cleanup[stats_error-semantic] ________
+
+pipeline = 'semantic', outcome = 'stats_error'
+project = {'id': '196ad7c0-7a0a-45b2-81d6-9505b861d7c7', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x13e663a70>
+tmp_path = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x13e663aa0>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('outcome', ['success', 'model_error', 'cancel', 'locked', 'stats_error'])
+    def test_workers_finally_report_real_cleanup(pipeline, outcome, project, stubbed, tmp_path, monkeypatch):
+        pid = project['id']; data = seed(project, tmp_path, 1); sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            def sample(*args):
+                staging = args[3]; staging.mkdir(parents=True, exist_ok=True)
+                frames = []
+                for i in range(2):
+                    path = staging / f'{i}.jpg'; Image.new('RGB', (16, 16), 'green').save(path)
+                    frames.append(motion.MotionFrame(str(path), i + 1.))
+                return frames
+            monkeypatch.setattr(motion, '_sample_frames', sample)
+            def infer(*a, **kw):
+                if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                if outcome == 'cancel':
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise JobCancelled('cancelled during inference')
+                return {'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                        'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False}, {}
+            monkeypatch.setattr(motion, '_analyze_motion', infer)
+            task = motion.motion_review_task
+            stage = motion.stage_dir(pid, jid)
+        else:
+            task = semantic.vision_analyze_task
+            stage = semantic.stage_image_dir(pid, jid)
+            if outcome in ('model_error', 'cancel'):
+                def infer(*a, **kw):
+                    if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise ModelError('CANCELLED', 'cancelled during inference')
+                monkeypatch.setattr(stubbed, 'complete', infer)
+        if outcome == 'locked':
+            monkeypatch.setattr(cleanup, '_remove_file', lambda *a: (_ for _ in ()).throw(PermissionError('locked')))
+        if outcome == 'stats_error':
+            worker = semantic if pipeline == 'semantic' else motion
+            monkeypatch.setattr(worker, 'merge_job_stats', lambda *a: (_ for _ in ()).throw(RuntimeError('stats unavailable')))
+        JobRunner()._run(jid, task)
+        row = _job_row(jid)
+>       assert 'cleanup' in row.stats
+E       AssertionError: assert 'cleanup' in {'total': 1, 'done': 1, 'failed': 0, 'analyzed': 1, ...}
+E        +  where {'total': 1, 'done': 1, 'failed': 0, 'analyzed': 1, ...} = <app.models.Job object at 0x13ec18680>.stats
+
+backend/tests/test_vision_staging_ownership.py:85: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.services.runner:runner.py:455 Job 7c9c7623-c1e4-451d-be83-c422225652a8 failed
+Traceback (most recent call last):
+  File "<repo>/backend/app/services/runner.py", line 442, in _run
+    task(job_id)
+  File "<repo>/backend/app/services/vision/semantic.py", line 544, in vision_analyze_task
+    merge_job_stats(job_id, {"calls": sum(c.calls for c in considered),
+  File "<repo>/backend/tests/test_vision_staging_ownership.py", line 82, in <lambda>
+    monkeypatch.setattr(worker, 'merge_job_stats', lambda *a: (_ for _ in ()).throw(RuntimeError('stats unavailable')))
+                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/backend/tests/test_vision_staging_ownership.py", line 82, in <genexpr>
+    monkeypatch.setattr(worker, 'merge_job_stats', lambda *a: (_ for _ in ()).throw(RuntimeError('stats unavailable')))
+RuntimeError: stats unavailable
+_________ test_workers_finally_report_real_cleanup[stats_error-motion] _________
+
+pipeline = 'motion', outcome = 'stats_error'
+project = {'id': 'fd32b750-7e2b-4dbc-90a6-90c089bdc139', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x13ec1baa0>
+tmp_path = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x13ec1bbf0>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('outcome', ['success', 'model_error', 'cancel', 'locked', 'stats_error'])
+    def test_workers_finally_report_real_cleanup(pipeline, outcome, project, stubbed, tmp_path, monkeypatch):
+        pid = project['id']; data = seed(project, tmp_path, 1); sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            def sample(*args):
+                staging = args[3]; staging.mkdir(parents=True, exist_ok=True)
+                frames = []
+                for i in range(2):
+                    path = staging / f'{i}.jpg'; Image.new('RGB', (16, 16), 'green').save(path)
+                    frames.append(motion.MotionFrame(str(path), i + 1.))
+                return frames
+            monkeypatch.setattr(motion, '_sample_frames', sample)
+            def infer(*a, **kw):
+                if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                if outcome == 'cancel':
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise JobCancelled('cancelled during inference')
+                return {'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                        'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False}, {}
+            monkeypatch.setattr(motion, '_analyze_motion', infer)
+            task = motion.motion_review_task
+            stage = motion.stage_dir(pid, jid)
+        else:
+            task = semantic.vision_analyze_task
+            stage = semantic.stage_image_dir(pid, jid)
+            if outcome in ('model_error', 'cancel'):
+                def infer(*a, **kw):
+                    if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise ModelError('CANCELLED', 'cancelled during inference')
+                monkeypatch.setattr(stubbed, 'complete', infer)
+        if outcome == 'locked':
+            monkeypatch.setattr(cleanup, '_remove_file', lambda *a: (_ for _ in ()).throw(PermissionError('locked')))
+        if outcome == 'stats_error':
+            worker = semantic if pipeline == 'semantic' else motion
+            monkeypatch.setattr(worker, 'merge_job_stats', lambda *a: (_ for _ in ()).throw(RuntimeError('stats unavailable')))
+        JobRunner()._run(jid, task)
+        row = _job_row(jid)
+>       assert 'cleanup' in row.stats
+E       AssertionError: assert 'cleanup' in {'total': 1, 'done': 1, 'failed': 0, 'analyzed': 1, ...}
+E        +  where {'total': 1, 'done': 1, 'failed': 0, 'analyzed': 1, ...} = <app.models.Job object at 0x13ec68b00>.stats
+
+backend/tests/test_vision_staging_ownership.py:85: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.services.runner:runner.py:455 Job e65ec79b-7163-4caf-b246-f7d5d5710469 failed
+Traceback (most recent call last):
+  File "<repo>/backend/app/services/runner.py", line 442, in _run
+    task(job_id)
+  File "<repo>/backend/app/services/vision/motion.py", line 317, in motion_review_task
+    merge_job_stats(job_id, {"calls": sum(t.get("calls", 0) for t in targets),
+  File "<repo>/backend/tests/test_vision_staging_ownership.py", line 82, in <lambda>
+    monkeypatch.setattr(worker, 'merge_job_stats', lambda *a: (_ for _ in ()).throw(RuntimeError('stats unavailable')))
+                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/backend/tests/test_vision_staging_ownership.py", line 82, in <genexpr>
+    monkeypatch.setattr(worker, 'merge_job_stats', lambda *a: (_ for _ in ()).throw(RuntimeError('stats unavailable')))
+RuntimeError: stats unavailable
+=========================== short test summary info ============================
+FAILED backend/tests/test_vision_staging_ownership.py::test_workers_finally_report_real_cleanup[stats_error-semantic]
+FAILED backend/tests/test_vision_staging_ownership.py::test_workers_finally_report_real_cleanup[stats_error-motion]

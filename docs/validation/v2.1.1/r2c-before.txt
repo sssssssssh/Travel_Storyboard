@@ -1,0 +1,901 @@
+FF.FFFFFFFFFFFFFFFFFFFFFF.....                                           [100%]
+=================================== FAILURES ===================================
+________ test_loopback_looking_host_is_not_a_loopback[127.evil.invalid] ________
+
+host = '127.evil.invalid'
+
+    @pytest.mark.parametrize('host', ['127.evil.invalid', '127.0.0.1.evil.invalid', 'localhost.evil.invalid'])
+    def test_loopback_looking_host_is_not_a_loopback(host):
+>       with pytest.raises(ModelError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ModelError
+
+backend/tests/test_vision_transport_security.py:17: Failed
+_____ test_loopback_looking_host_is_not_a_loopback[127.0.0.1.evil.invalid] _____
+
+host = '127.0.0.1.evil.invalid'
+
+    @pytest.mark.parametrize('host', ['127.evil.invalid', '127.0.0.1.evil.invalid', 'localhost.evil.invalid'])
+    def test_loopback_looking_host_is_not_a_loopback(host):
+>       with pytest.raises(ModelError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ModelError
+
+backend/tests/test_vision_transport_security.py:17: Failed
+____ test_malformed_or_credential_bearing_endpoint_is_refused[https:///v1] _____
+
+url = 'https:///v1'
+
+    @pytest.mark.parametrize('url', ['https:///v1', 'https://user:password@model.invalid/v1',
+                                   'https://model.invalid/v1?key=secret', 'https://model.invalid:bad/v1'])
+    def test_malformed_or_credential_bearing_endpoint_is_refused(url):
+>       with pytest.raises(ModelError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ModelError
+
+backend/tests/test_vision_transport_security.py:24: Failed
+_ test_malformed_or_credential_bearing_endpoint_is_refused[https://user:password@model.invalid/v1] _
+
+url = 'https://user:password@model.invalid/v1'
+
+    @pytest.mark.parametrize('url', ['https:///v1', 'https://user:password@model.invalid/v1',
+                                   'https://model.invalid/v1?key=secret', 'https://model.invalid:bad/v1'])
+    def test_malformed_or_credential_bearing_endpoint_is_refused(url):
+>       with pytest.raises(ModelError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ModelError
+
+backend/tests/test_vision_transport_security.py:24: Failed
+_ test_malformed_or_credential_bearing_endpoint_is_refused[https://model.invalid/v1?key=secret] _
+
+url = 'https://model.invalid/v1?key=secret'
+
+    @pytest.mark.parametrize('url', ['https:///v1', 'https://user:password@model.invalid/v1',
+                                   'https://model.invalid/v1?key=secret', 'https://model.invalid:bad/v1'])
+    def test_malformed_or_credential_bearing_endpoint_is_refused(url):
+>       with pytest.raises(ModelError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ModelError
+
+backend/tests/test_vision_transport_security.py:24: Failed
+_ test_malformed_or_credential_bearing_endpoint_is_refused[https://model.invalid:bad/v1] _
+
+url = 'https://model.invalid:bad/v1'
+
+    @pytest.mark.parametrize('url', ['https:///v1', 'https://user:password@model.invalid/v1',
+                                   'https://model.invalid/v1?key=secret', 'https://model.invalid:bad/v1'])
+    def test_malformed_or_credential_bearing_endpoint_is_refused(url):
+>       with pytest.raises(ModelError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ModelError
+
+backend/tests/test_vision_transport_security.py:24: Failed
+______ test_tls_verification_failure_is_permanent_classified_and_private _______
+
+jpg = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x119572ff0>
+
+    def test_tls_verification_failure_is_permanent_classified_and_private(jpg, monkeypatch):
+        _configure(monkeypatch, 'https://private-gateway.invalid/v1', insecure=False, retries=3)
+        monkeypatch.setattr(get_settings(), 'model_mode', 'on')
+        calls = []
+        def broken(*a, **kw):
+            calls.append(kw)
+            assert kw.get('verify', True) is not False
+            try:
+                raise ssl.SSLCertVerificationError('certificate expired')
+            except ssl.SSLCertVerificationError as cause:
+                raise httpx.ConnectError('certificate failed at https://private-gateway.invalid/v1') from cause
+        monkeypatch.setattr(httpx, 'post', broken)
+        with pytest.raises(ModelError) as ei:
+            OpenAICompatibleVisionProvider().complete(_request(jpg))
+>       assert ei.value.code == 'MODEL_TLS_FAILED'
+E       AssertionError: assert 'MODEL_NETWORK_ERROR' == 'MODEL_TLS_FAILED'
+E
+E         - MODEL_TLS_FAILED
+E         + MODEL_NETWORK_ERROR
+
+backend/tests/test_vision_transport_security.py:42: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.vision.providers.openai_compatible:openai_compatible.py:261 vision attempt 1 failed [MODEL_NETWORK_ERROR]; retrying in 0.5s (request_id=df800ade685c44f3)
+WARNING  app.services.vision.providers.openai_compatible:openai_compatible.py:261 vision attempt 2 failed [MODEL_NETWORK_ERROR]; retrying in 1.0s (request_id=df800ade685c44f3)
+WARNING  app.services.vision.providers.openai_compatible:openai_compatible.py:261 vision attempt 3 failed [MODEL_NETWORK_ERROR]; retrying in 2.0s (request_id=df800ade685c44f3)
+____ test_untrusted_errors_cannot_echo_endpoint_image_path_or_key[timeout] _____
+
+failure = 'timeout'
+jpg = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x119751eb0>
+
+    @pytest.mark.parametrize('failure', ['timeout', 'network', 'body'])
+    def test_untrusted_errors_cannot_echo_endpoint_image_path_or_key(failure, jpg, monkeypatch):
+        _configure(monkeypatch, 'https://private-gateway.invalid/v1', insecure=False, retries=0)
+        monkeypatch.setattr(get_settings(), 'model_mode', 'on')
+        secret = 'Bearer test-key-1234567890 https://private-gateway.invalid/v1 data:image/jpeg;base64,AAABBB /Users/private/source.mp4'
+        def broken(*a, **kw):
+            if failure == 'timeout': raise httpx.ReadTimeout(secret)
+            if failure == 'network': raise httpx.ConnectError(secret)
+            return httpx.Response(401, json={'error': secret})
+        monkeypatch.setattr(httpx, 'post', broken)
+        with pytest.raises(ModelError) as ei:
+            OpenAICompatibleVisionProvider().complete(_request(jpg))
+        public = json.dumps(ei.value.to_dict())
+        for value in ['test-key-1234567890', 'private-gateway', 'AAABBB', '/Users/private', 'Bearer']:
+>           assert value not in public
+E           assert 'test-key-1234567890' not in '{"code": "M...2b7a0b47c7"}'
+E
+E             'test-key-1234567890' is contained here:
+E               t: Bearer test-key-1234567890 https://private-gateway.invalid/v1 data:image/jpeg;base64,AAABBB /Users/private/source.mp4", "status": null, "retryable": true, "request_id": "8ae8762b7a0b47c7"}
+E             ?           +++++++++++++++++++
+
+backend/tests/test_vision_transport_security.py:61: AssertionError
+____ test_untrusted_errors_cannot_echo_endpoint_image_path_or_key[network] _____
+
+failure = 'network'
+jpg = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x119752570>
+
+    @pytest.mark.parametrize('failure', ['timeout', 'network', 'body'])
+    def test_untrusted_errors_cannot_echo_endpoint_image_path_or_key(failure, jpg, monkeypatch):
+        _configure(monkeypatch, 'https://private-gateway.invalid/v1', insecure=False, retries=0)
+        monkeypatch.setattr(get_settings(), 'model_mode', 'on')
+        secret = 'Bearer test-key-1234567890 https://private-gateway.invalid/v1 data:image/jpeg;base64,AAABBB /Users/private/source.mp4'
+        def broken(*a, **kw):
+            if failure == 'timeout': raise httpx.ReadTimeout(secret)
+            if failure == 'network': raise httpx.ConnectError(secret)
+            return httpx.Response(401, json={'error': secret})
+        monkeypatch.setattr(httpx, 'post', broken)
+        with pytest.raises(ModelError) as ei:
+            OpenAICompatibleVisionProvider().complete(_request(jpg))
+        public = json.dumps(ei.value.to_dict())
+        for value in ['test-key-1234567890', 'private-gateway', 'AAABBB', '/Users/private', 'Bearer']:
+>           assert value not in public
+E           assert 'private-gateway' not in '{"code": "M...50a9a540db"}'
+E
+E             'private-gateway' is contained here:
+E               * https://private-gateway.invalid/v1 data:image/jpeg;base64,AAABBB /Users/private/source.mp4", "status": null, "retryable": true, "request_id": "a4051f50a9a540db"}
+E             ?           +++++++++++++++
+
+backend/tests/test_vision_transport_security.py:61: AssertionError
+______ test_untrusted_errors_cannot_echo_endpoint_image_path_or_key[body] ______
+
+failure = 'body'
+jpg = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x119753110>
+
+    @pytest.mark.parametrize('failure', ['timeout', 'network', 'body'])
+    def test_untrusted_errors_cannot_echo_endpoint_image_path_or_key(failure, jpg, monkeypatch):
+        _configure(monkeypatch, 'https://private-gateway.invalid/v1', insecure=False, retries=0)
+        monkeypatch.setattr(get_settings(), 'model_mode', 'on')
+        secret = 'Bearer test-key-1234567890 https://private-gateway.invalid/v1 data:image/jpeg;base64,AAABBB /Users/private/source.mp4'
+        def broken(*a, **kw):
+            if failure == 'timeout': raise httpx.ReadTimeout(secret)
+            if failure == 'network': raise httpx.ConnectError(secret)
+            return httpx.Response(401, json={'error': secret})
+        monkeypatch.setattr(httpx, 'post', broken)
+        with pytest.raises(ModelError) as ei:
+            OpenAICompatibleVisionProvider().complete(_request(jpg))
+        public = json.dumps(ei.value.to_dict())
+        for value in ['test-key-1234567890', 'private-gateway', 'AAABBB', '/Users/private', 'Bearer']:
+>           assert value not in public
+E           assert 'private-gateway' not in '{"code": "M...0dc443467b"}'
+E
+E             'private-gateway' is contained here:
+E               * https://private-gateway.invalid/v1 data:image/jpeg;base64,AAABBB /Users/private/source.mp4\"}", "status": 401, "retryable": false, "request_id": "eb81d70dc443467b"}
+E             ?           +++++++++++++++
+
+backend/tests/test_vision_transport_security.py:61: AssertionError
+______ test_mode_off_refuses_provider_even_with_an_old_authorized_context ______
+
+jpg = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x119794050>
+
+    def test_mode_off_refuses_provider_even_with_an_old_authorized_context(jpg, monkeypatch):
+        _configure(monkeypatch, 'https://private-gateway.invalid/v1', insecure=False)
+        monkeypatch.setattr(get_settings(), 'model_mode', 'off')
+        calls = []
+        monkeypatch.setattr(httpx, 'post', lambda *a, **kw: calls.append(a))
+        with pytest.raises(ModelError) as ei:
+>           OpenAICompatibleVisionProvider().complete(_request(jpg))
+
+backend/tests/test_vision_transport_security.py:70:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <app.services.vision.providers.openai_compatible.OpenAICompatibleVisionProvider object at 0x119794080>
+request = VisionRequest(prompt='Describe the image.', images=[ImagePart(path='<temporary-path> authorization=AuthorizedModelContext(project_id='p-test', purpose='unit-test', acknowledged_at='', detail={}))
+cancel_check = None
+
+    def complete(
+        self,
+        request: VisionRequest,
+        *,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> VisionResponse:
+        # TSB-312: refuse before any network work if this call was not authorised
+        # by the business entry point. This is the chokepoint that makes an
+        # unguarded outbound request impossible rather than merely discouraged.
+        from ..authorization import require_context
+
+        require_context(request.authorization)
+
+        if not (self.base_url and self.api_key):
+            raise ModelError(
+                MODEL_NOT_CONFIGURED,
+                "vision model not configured (base URL / API key missing)",
+            )
+        validate_endpoint(self.base_url, allow_insecure=self.allow_insecure)
+
+        caps = _capabilities.declared_capabilities()
+        assert_images_supported(caps, len(request.images))
+
+        content: list[dict] = [{"type": "text", "text": request.prompt}]
+        for img in request.images:
+            # The label travels as text, never as a filesystem path.
+            if img.data is not None:
+                # In-memory payload (legacy compat layer): nothing is written to
+                # disk, so there is no temp copy to leak on any exit path.
+                uri, size = _inline_data_uri(img)
+            else:
+                uri, size = _data_uri(img.path)
+            if img.label:
+                content.append({"type": "text", "text": f"[{img.label}]"})
+            content.append({"type": "image_url", "image_url": {"url": uri}})
+            logger.debug("vision image %s: %d bytes", img.label, size)
+
+        messages: list[dict] = []
+        if request.system:
+            messages.append({"role": "system", "content": request.system})
+        messages.append({"role": "user", "content": content})
+
+        payload: dict = {
+            "model": self.model_id,
+            "messages": messages,
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens,
+        }
+        if request.json_object:
+            payload["response_format"] = {"type": "json_object"}
+
+        body_bytes = json.dumps(payload).encode("utf-8")
+        if len(body_bytes) > caps.max_request_bytes:
+            raise ModelError(
+                MODEL_BAD_REQUEST,
+                f"request body {len(body_bytes)}B exceeds limit {caps.max_request_bytes}B",
+            )
+
+        url = f"{self.base_url}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        request_id = uuid.uuid4().hex[:16]
+        last: ModelError | None = None
+        started = time.monotonic()
+
+        for attempt in range(1, self.max_retries + 2):
+            self._raise_if_cancelled(cancel_check)
+            try:
+                resp = httpx.post(
+                    url,
+                    content=body_bytes,
+                    headers=headers,
+                    timeout=caps.timeout_sec,
+                )
+            except httpx.TimeoutException as exc:
+                last = ModelError(MODEL_TIMEOUT, f"request timed out: {exc}", request_id=request_id)
+            except httpx.HTTPError as exc:
+                last = ModelError(
+                    MODEL_NETWORK_ERROR,
+                    redact(str(exc), self.api_key),
+                    request_id=request_id,
+                )
+            else:
+>               if resp.status_code == 200:
+                   ^^^^^^^^^^^^^^^^
+E               AttributeError: 'NoneType' object has no attribute 'status_code'
+
+backend/app/services/vision/providers/openai_compatible.py:242: AttributeError
+___________ test_httpx_logging_does_not_disclose_configured_endpoint ___________
+
+mock_server = <test_vision_provider.mock_server.<locals>.Control object at 0x105e993a0>
+jpg = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x119752210>
+caplog = <_pytest.logging.LogCaptureFixture object at 0x119752270>
+
+    def test_httpx_logging_does_not_disclose_configured_endpoint(mock_server, jpg, monkeypatch, caplog):
+        _configure(monkeypatch, mock_server.url)
+        monkeypatch.setattr(get_settings(), 'model_mode', 'on')
+        mock_server.ok('{}')
+        caplog.set_level(logging.INFO, logger='httpx')
+        OpenAICompatibleVisionProvider().complete(_request(jpg))
+>       assert mock_server.url not in caplog.text
+E       assert 'http://127.0.0.1:50688/v1' not in 'INFO     ht....0 200 OK"\n'
+E
+E         'http://127.0.0.1:50688/v1' is contained here:
+E           est: POST http://127.0.0.1:50688/v1/chat/completions "HTTP/1.0 200 OK"
+E         ?           +++++++++++++++++++++++++
+
+backend/tests/test_vision_transport_security.py:81: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://127.0.0.1:50688/v1/chat/completions "HTTP/1.0 200 OK"
+___ test_exact_visual_stage_owns_bytes_and_releases_registry[vision_analyze] ___
+
+project = {'id': '8ff1fb53-750c-4aca-82a1-65948bb90008', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+kind = 'vision_analyze'
+
+    @pytest.mark.parametrize('kind', ['vision_analyze', 'motion_review'])
+    def test_exact_visual_stage_owns_bytes_and_releases_registry(project, kind):
+        pid = project['id']; jid, path = visual_stage(pid, kind)
+>       cleanup.create_owned_staging(pid, path, owner_job_id=jid)
+
+backend/tests/test_vision_staging_ownership.py:34:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+backend/app/services/staging_cleanup.py:195: in create_owned_staging
+    root, target = _raw_target(project_id, stage)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+project_id = '8ff1fb53-750c-4aca-82a1-65948bb90008'
+value = PosixPath('<temporary-path>')
+
+    def _raw_target(project_id: str, value: str | Path) -> tuple[Path, Path]:
+        # Strings are checked BEFORE Path normalization can erase '.' / empty parts.
+        text = os.fspath(value)
+        normalized = text.replace('\\', '/') if os.name == 'nt' else text
+        components = normalized.split('/')
+        if normalized.startswith('/'): components = components[1:]
+        if os.name == 'nt' and normalized.startswith('//'): components = components[1:]
+        if any(part in ('', '.', '..') for part in components):
+            raise StagingNotOwned('暂存路径含非规范相对段')
+        root = project_cache_dir(project_id)
+        stage = Path(text)
+        if not stage.is_absolute(): stage = root / stage
+>       if not _is_staging_shape(root, stage): raise StagingNotOwned('不是精确的任务暂存路径')
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       app.services.staging_cleanup.StagingNotOwned: 不是精确的任务暂存路径
+
+backend/app/services/staging_cleanup.py:117: StagingNotOwned
+___ test_exact_visual_stage_owns_bytes_and_releases_registry[motion_review] ____
+
+project = {'id': 'd27c273e-48e2-4803-8c76-a9f4a8f93cc2', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+kind = 'motion_review'
+
+    @pytest.mark.parametrize('kind', ['vision_analyze', 'motion_review'])
+    def test_exact_visual_stage_owns_bytes_and_releases_registry(project, kind):
+        pid = project['id']; jid, path = visual_stage(pid, kind)
+>       cleanup.create_owned_staging(pid, path, owner_job_id=jid)
+
+backend/tests/test_vision_staging_ownership.py:34:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+backend/app/services/staging_cleanup.py:195: in create_owned_staging
+    root, target = _raw_target(project_id, stage)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+project_id = 'd27c273e-48e2-4803-8c76-a9f4a8f93cc2'
+value = PosixPath('<temporary-path>')
+
+    def _raw_target(project_id: str, value: str | Path) -> tuple[Path, Path]:
+        # Strings are checked BEFORE Path normalization can erase '.' / empty parts.
+        text = os.fspath(value)
+        normalized = text.replace('\\', '/') if os.name == 'nt' else text
+        components = normalized.split('/')
+        if normalized.startswith('/'): components = components[1:]
+        if os.name == 'nt' and normalized.startswith('//'): components = components[1:]
+        if any(part in ('', '.', '..') for part in components):
+            raise StagingNotOwned('暂存路径含非规范相对段')
+        root = project_cache_dir(project_id)
+        stage = Path(text)
+        if not stage.is_absolute(): stage = root / stage
+>       if not _is_staging_shape(root, stage): raise StagingNotOwned('不是精确的任务暂存路径')
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       app.services.staging_cleanup.StagingNotOwned: 不是精确的任务暂存路径
+
+backend/app/services/staging_cleanup.py:117: StagingNotOwned
+__________ test_workers_finally_report_real_cleanup[success-semantic] __________
+
+pipeline = 'semantic', outcome = 'success'
+project = {'id': '7f2153b5-b5fc-40d0-a9e5-0e1d8e09d570', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x11a31afc0>
+tmp_path = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11a31bbc0>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('outcome', ['success', 'model_error', 'cancel', 'locked'])
+    def test_workers_finally_report_real_cleanup(pipeline, outcome, project, stubbed, tmp_path, monkeypatch):
+        pid = project['id']; data = seed(project, tmp_path, 1); sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            def sample(*args):
+                staging = args[3]; staging.mkdir(parents=True, exist_ok=True)
+                frames = []
+                for i in range(2):
+                    path = staging / f'{i}.jpg'; Image.new('RGB', (16, 16), 'green').save(path)
+                    frames.append(motion.MotionFrame(str(path), i + 1.))
+                return frames
+            monkeypatch.setattr(motion, '_sample_frames', sample)
+            def infer(*a, **kw):
+                if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                if outcome == 'cancel':
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise JobCancelled('cancelled during inference')
+                return {'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                        'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False}, {}
+            monkeypatch.setattr(motion, '_analyze_motion', infer)
+            task = motion.motion_review_task
+            stage = motion.stage_dir(pid, jid)
+        else:
+            task = semantic.vision_analyze_task
+            stage = semantic.stage_image_dir(pid, jid)
+            if outcome in ('model_error', 'cancel'):
+                def infer(*a, **kw):
+                    if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise ModelError('CANCELLED', 'cancelled during inference')
+                monkeypatch.setattr(stubbed, 'complete', infer)
+        if outcome == 'locked':
+            monkeypatch.setattr(cleanup, '_remove_file', lambda *a: (_ for _ in ()).throw(PermissionError('locked')))
+        JobRunner()._run(jid, task)
+        row = _job_row(jid)
+>       assert 'cleanup' in row.stats
+E       AssertionError: assert 'cleanup' in {'total': 1, 'done': 1, 'failed': 0, 'analyzed': 1, ...}
+E        +  where {'total': 1, 'done': 1, 'failed': 0, 'analyzed': 1, ...} = <app.models.Job object at 0x11c4c7410>.stats
+
+backend/tests/test_vision_staging_ownership.py:82: AssertionError
+___________ test_workers_finally_report_real_cleanup[success-motion] ___________
+
+pipeline = 'motion', outcome = 'success'
+project = {'id': '3098b3d9-027c-4fb8-8ccc-90bbe3d0da19', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x11c4ee8a0>
+tmp_path = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11c4ee990>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('outcome', ['success', 'model_error', 'cancel', 'locked'])
+    def test_workers_finally_report_real_cleanup(pipeline, outcome, project, stubbed, tmp_path, monkeypatch):
+        pid = project['id']; data = seed(project, tmp_path, 1); sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            def sample(*args):
+                staging = args[3]; staging.mkdir(parents=True, exist_ok=True)
+                frames = []
+                for i in range(2):
+                    path = staging / f'{i}.jpg'; Image.new('RGB', (16, 16), 'green').save(path)
+                    frames.append(motion.MotionFrame(str(path), i + 1.))
+                return frames
+            monkeypatch.setattr(motion, '_sample_frames', sample)
+            def infer(*a, **kw):
+                if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                if outcome == 'cancel':
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise JobCancelled('cancelled during inference')
+                return {'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                        'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False}, {}
+            monkeypatch.setattr(motion, '_analyze_motion', infer)
+            task = motion.motion_review_task
+            stage = motion.stage_dir(pid, jid)
+        else:
+            task = semantic.vision_analyze_task
+            stage = semantic.stage_image_dir(pid, jid)
+            if outcome in ('model_error', 'cancel'):
+                def infer(*a, **kw):
+                    if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise ModelError('CANCELLED', 'cancelled during inference')
+                monkeypatch.setattr(stubbed, 'complete', infer)
+        if outcome == 'locked':
+            monkeypatch.setattr(cleanup, '_remove_file', lambda *a: (_ for _ in ()).throw(PermissionError('locked')))
+        JobRunner()._run(jid, task)
+        row = _job_row(jid)
+>       assert 'cleanup' in row.stats
+E       AssertionError: assert 'cleanup' in {'total': 1, 'done': 1, 'failed': 0, 'analyzed': 1, ...}
+E        +  where {'total': 1, 'done': 1, 'failed': 0, 'analyzed': 1, ...} = <app.models.Job object at 0x11c4ef530>.stats
+
+backend/tests/test_vision_staging_ownership.py:82: AssertionError
+________ test_workers_finally_report_real_cleanup[model_error-semantic] ________
+
+pipeline = 'semantic', outcome = 'model_error'
+project = {'id': '2000b891-6bff-423b-9599-82f1da5befed', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x11c4ef800>
+tmp_path = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11c4eff50>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('outcome', ['success', 'model_error', 'cancel', 'locked'])
+    def test_workers_finally_report_real_cleanup(pipeline, outcome, project, stubbed, tmp_path, monkeypatch):
+        pid = project['id']; data = seed(project, tmp_path, 1); sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            def sample(*args):
+                staging = args[3]; staging.mkdir(parents=True, exist_ok=True)
+                frames = []
+                for i in range(2):
+                    path = staging / f'{i}.jpg'; Image.new('RGB', (16, 16), 'green').save(path)
+                    frames.append(motion.MotionFrame(str(path), i + 1.))
+                return frames
+            monkeypatch.setattr(motion, '_sample_frames', sample)
+            def infer(*a, **kw):
+                if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                if outcome == 'cancel':
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise JobCancelled('cancelled during inference')
+                return {'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                        'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False}, {}
+            monkeypatch.setattr(motion, '_analyze_motion', infer)
+            task = motion.motion_review_task
+            stage = motion.stage_dir(pid, jid)
+        else:
+            task = semantic.vision_analyze_task
+            stage = semantic.stage_image_dir(pid, jid)
+            if outcome in ('model_error', 'cancel'):
+                def infer(*a, **kw):
+                    if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise ModelError('CANCELLED', 'cancelled during inference')
+                monkeypatch.setattr(stubbed, 'complete', infer)
+        if outcome == 'locked':
+            monkeypatch.setattr(cleanup, '_remove_file', lambda *a: (_ for _ in ()).throw(PermissionError('locked')))
+        JobRunner()._run(jid, task)
+        row = _job_row(jid)
+>       assert 'cleanup' in row.stats
+E       AssertionError: assert 'cleanup' in {'total': 1, 'done': 0, 'failed': 1, 'analyzed': 0, ...}
+E        +  where {'total': 1, 'done': 0, 'failed': 1, 'analyzed': 0, ...} = <app.models.Job object at 0x11c4169c0>.stats
+
+backend/tests/test_vision_staging_ownership.py:82: AssertionError
+_________ test_workers_finally_report_real_cleanup[model_error-motion] _________
+
+pipeline = 'motion', outcome = 'model_error'
+project = {'id': '01105065-f703-4440-b4f4-d40fc455690c', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x11c4eff80>
+tmp_path = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11c4efbc0>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('outcome', ['success', 'model_error', 'cancel', 'locked'])
+    def test_workers_finally_report_real_cleanup(pipeline, outcome, project, stubbed, tmp_path, monkeypatch):
+        pid = project['id']; data = seed(project, tmp_path, 1); sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            def sample(*args):
+                staging = args[3]; staging.mkdir(parents=True, exist_ok=True)
+                frames = []
+                for i in range(2):
+                    path = staging / f'{i}.jpg'; Image.new('RGB', (16, 16), 'green').save(path)
+                    frames.append(motion.MotionFrame(str(path), i + 1.))
+                return frames
+            monkeypatch.setattr(motion, '_sample_frames', sample)
+            def infer(*a, **kw):
+                if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                if outcome == 'cancel':
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise JobCancelled('cancelled during inference')
+                return {'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                        'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False}, {}
+            monkeypatch.setattr(motion, '_analyze_motion', infer)
+            task = motion.motion_review_task
+            stage = motion.stage_dir(pid, jid)
+        else:
+            task = semantic.vision_analyze_task
+            stage = semantic.stage_image_dir(pid, jid)
+            if outcome in ('model_error', 'cancel'):
+                def infer(*a, **kw):
+                    if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise ModelError('CANCELLED', 'cancelled during inference')
+                monkeypatch.setattr(stubbed, 'complete', infer)
+        if outcome == 'locked':
+            monkeypatch.setattr(cleanup, '_remove_file', lambda *a: (_ for _ in ()).throw(PermissionError('locked')))
+        JobRunner()._run(jid, task)
+        row = _job_row(jid)
+>       assert 'cleanup' in row.stats
+E       AssertionError: assert 'cleanup' in {'total': 1, 'done': 0, 'failed': 1, 'analyzed': 0, ...}
+E        +  where {'total': 1, 'done': 0, 'failed': 1, 'analyzed': 0, ...} = <app.models.Job object at 0x11c416d80>.stats
+
+backend/tests/test_vision_staging_ownership.py:82: AssertionError
+__________ test_workers_finally_report_real_cleanup[cancel-semantic] ___________
+
+pipeline = 'semantic', outcome = 'cancel'
+project = {'id': 'ac68775e-7236-4c1c-b8ea-c69b6c6b9924', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x11c414650>
+tmp_path = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11c417e90>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('outcome', ['success', 'model_error', 'cancel', 'locked'])
+    def test_workers_finally_report_real_cleanup(pipeline, outcome, project, stubbed, tmp_path, monkeypatch):
+        pid = project['id']; data = seed(project, tmp_path, 1); sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            def sample(*args):
+                staging = args[3]; staging.mkdir(parents=True, exist_ok=True)
+                frames = []
+                for i in range(2):
+                    path = staging / f'{i}.jpg'; Image.new('RGB', (16, 16), 'green').save(path)
+                    frames.append(motion.MotionFrame(str(path), i + 1.))
+                return frames
+            monkeypatch.setattr(motion, '_sample_frames', sample)
+            def infer(*a, **kw):
+                if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                if outcome == 'cancel':
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise JobCancelled('cancelled during inference')
+                return {'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                        'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False}, {}
+            monkeypatch.setattr(motion, '_analyze_motion', infer)
+            task = motion.motion_review_task
+            stage = motion.stage_dir(pid, jid)
+        else:
+            task = semantic.vision_analyze_task
+            stage = semantic.stage_image_dir(pid, jid)
+            if outcome in ('model_error', 'cancel'):
+                def infer(*a, **kw):
+                    if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise ModelError('CANCELLED', 'cancelled during inference')
+                monkeypatch.setattr(stubbed, 'complete', infer)
+        if outcome == 'locked':
+            monkeypatch.setattr(cleanup, '_remove_file', lambda *a: (_ for _ in ()).throw(PermissionError('locked')))
+        JobRunner()._run(jid, task)
+        row = _job_row(jid)
+>       assert 'cleanup' in row.stats
+E       AssertionError: assert 'cleanup' in {'total': 1, 'done': 0, 'failed': 0, 'phase': 'analyzing', ...}
+E        +  where {'total': 1, 'done': 0, 'failed': 0, 'phase': 'analyzing', ...} = <app.models.Job object at 0x11c455c10>.stats
+
+backend/tests/test_vision_staging_ownership.py:82: AssertionError
+___________ test_workers_finally_report_real_cleanup[cancel-motion] ____________
+
+pipeline = 'motion', outcome = 'cancel'
+project = {'id': '9ebeb9b5-6c92-4862-8ba4-73f4acedc5b5', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x11c4570e0>
+tmp_path = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11c457590>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('outcome', ['success', 'model_error', 'cancel', 'locked'])
+    def test_workers_finally_report_real_cleanup(pipeline, outcome, project, stubbed, tmp_path, monkeypatch):
+        pid = project['id']; data = seed(project, tmp_path, 1); sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            def sample(*args):
+                staging = args[3]; staging.mkdir(parents=True, exist_ok=True)
+                frames = []
+                for i in range(2):
+                    path = staging / f'{i}.jpg'; Image.new('RGB', (16, 16), 'green').save(path)
+                    frames.append(motion.MotionFrame(str(path), i + 1.))
+                return frames
+            monkeypatch.setattr(motion, '_sample_frames', sample)
+            def infer(*a, **kw):
+                if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                if outcome == 'cancel':
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise JobCancelled('cancelled during inference')
+                return {'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                        'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False}, {}
+            monkeypatch.setattr(motion, '_analyze_motion', infer)
+            task = motion.motion_review_task
+            stage = motion.stage_dir(pid, jid)
+        else:
+            task = semantic.vision_analyze_task
+            stage = semantic.stage_image_dir(pid, jid)
+            if outcome in ('model_error', 'cancel'):
+                def infer(*a, **kw):
+                    if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise ModelError('CANCELLED', 'cancelled during inference')
+                monkeypatch.setattr(stubbed, 'complete', infer)
+        if outcome == 'locked':
+            monkeypatch.setattr(cleanup, '_remove_file', lambda *a: (_ for _ in ()).throw(PermissionError('locked')))
+        JobRunner()._run(jid, task)
+        row = _job_row(jid)
+>       assert 'cleanup' in row.stats
+E       AssertionError: assert 'cleanup' in {'total': 1, 'done': 0, 'failed': 0, 'phase': 'sampling', ...}
+E        +  where {'total': 1, 'done': 0, 'failed': 0, 'phase': 'sampling', ...} = <app.models.Job object at 0x11c454e90>.stats
+
+backend/tests/test_vision_staging_ownership.py:82: AssertionError
+__________ test_workers_finally_report_real_cleanup[locked-semantic] ___________
+
+pipeline = 'semantic', outcome = 'locked'
+project = {'id': '572e2c01-e482-438b-8587-18c9d3e19089', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x11c457c20>
+tmp_path = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11c456900>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('outcome', ['success', 'model_error', 'cancel', 'locked'])
+    def test_workers_finally_report_real_cleanup(pipeline, outcome, project, stubbed, tmp_path, monkeypatch):
+        pid = project['id']; data = seed(project, tmp_path, 1); sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            def sample(*args):
+                staging = args[3]; staging.mkdir(parents=True, exist_ok=True)
+                frames = []
+                for i in range(2):
+                    path = staging / f'{i}.jpg'; Image.new('RGB', (16, 16), 'green').save(path)
+                    frames.append(motion.MotionFrame(str(path), i + 1.))
+                return frames
+            monkeypatch.setattr(motion, '_sample_frames', sample)
+            def infer(*a, **kw):
+                if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                if outcome == 'cancel':
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise JobCancelled('cancelled during inference')
+                return {'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                        'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False}, {}
+            monkeypatch.setattr(motion, '_analyze_motion', infer)
+            task = motion.motion_review_task
+            stage = motion.stage_dir(pid, jid)
+        else:
+            task = semantic.vision_analyze_task
+            stage = semantic.stage_image_dir(pid, jid)
+            if outcome in ('model_error', 'cancel'):
+                def infer(*a, **kw):
+                    if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise ModelError('CANCELLED', 'cancelled during inference')
+                monkeypatch.setattr(stubbed, 'complete', infer)
+        if outcome == 'locked':
+            monkeypatch.setattr(cleanup, '_remove_file', lambda *a: (_ for _ in ()).throw(PermissionError('locked')))
+        JobRunner()._run(jid, task)
+        row = _job_row(jid)
+>       assert 'cleanup' in row.stats
+E       AssertionError: assert 'cleanup' in {'total': 1, 'done': 1, 'failed': 0, 'analyzed': 1, ...}
+E        +  where {'total': 1, 'done': 1, 'failed': 0, 'analyzed': 1, ...} = <app.models.Job object at 0x11c45d820>.stats
+
+backend/tests/test_vision_staging_ownership.py:82: AssertionError
+___________ test_workers_finally_report_real_cleanup[locked-motion] ____________
+
+pipeline = 'motion', outcome = 'locked'
+project = {'id': 'af3a705e-e895-4249-a6f2-97fe93c40515', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x11c4ef200>
+tmp_path = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11c417110>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('outcome', ['success', 'model_error', 'cancel', 'locked'])
+    def test_workers_finally_report_real_cleanup(pipeline, outcome, project, stubbed, tmp_path, monkeypatch):
+        pid = project['id']; data = seed(project, tmp_path, 1); sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            def sample(*args):
+                staging = args[3]; staging.mkdir(parents=True, exist_ok=True)
+                frames = []
+                for i in range(2):
+                    path = staging / f'{i}.jpg'; Image.new('RGB', (16, 16), 'green').save(path)
+                    frames.append(motion.MotionFrame(str(path), i + 1.))
+                return frames
+            monkeypatch.setattr(motion, '_sample_frames', sample)
+            def infer(*a, **kw):
+                if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                if outcome == 'cancel':
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise JobCancelled('cancelled during inference')
+                return {'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                        'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False}, {}
+            monkeypatch.setattr(motion, '_analyze_motion', infer)
+            task = motion.motion_review_task
+            stage = motion.stage_dir(pid, jid)
+        else:
+            task = semantic.vision_analyze_task
+            stage = semantic.stage_image_dir(pid, jid)
+            if outcome in ('model_error', 'cancel'):
+                def infer(*a, **kw):
+                    if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise ModelError('CANCELLED', 'cancelled during inference')
+                monkeypatch.setattr(stubbed, 'complete', infer)
+        if outcome == 'locked':
+            monkeypatch.setattr(cleanup, '_remove_file', lambda *a: (_ for _ in ()).throw(PermissionError('locked')))
+        JobRunner()._run(jid, task)
+        row = _job_row(jid)
+>       assert 'cleanup' in row.stats
+E       AssertionError: assert 'cleanup' in {'total': 1, 'done': 1, 'failed': 0, 'analyzed': 1, ...}
+E        +  where {'total': 1, 'done': 1, 'failed': 0, 'analyzed': 1, ...} = <app.models.Job object at 0x11c456d20>.stats
+
+backend/tests/test_vision_staging_ownership.py:82: AssertionError
+__ test_foreign_job_wrong_kind_existing_and_restart_stages_are_never_adopted ___
+
+project = {'id': '7e42a47e-7634-45a6-9293-3c959b5c80dc', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+
+    def test_foreign_job_wrong_kind_existing_and_restart_stages_are_never_adopted(project):
+        pid = project['id']; jid, stage = visual_stage(pid, 'vision_analyze')
+        stage.parent.mkdir(parents=True, exist_ok=True); stage.mkdir()
+        protected = stage / 'keep'; protected.write_bytes(b'unowned remains')
+>       with pytest.raises(FileExistsError): cleanup.create_owned_staging(pid, stage, owner_job_id=jid)
+                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+backend/tests/test_vision_staging_ownership.py:99:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+backend/app/services/staging_cleanup.py:195: in create_owned_staging
+    root, target = _raw_target(project_id, stage)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+project_id = '7e42a47e-7634-45a6-9293-3c959b5c80dc'
+value = PosixPath('<temporary-path>')
+
+    def _raw_target(project_id: str, value: str | Path) -> tuple[Path, Path]:
+        # Strings are checked BEFORE Path normalization can erase '.' / empty parts.
+        text = os.fspath(value)
+        normalized = text.replace('\\', '/') if os.name == 'nt' else text
+        components = normalized.split('/')
+        if normalized.startswith('/'): components = components[1:]
+        if os.name == 'nt' and normalized.startswith('//'): components = components[1:]
+        if any(part in ('', '.', '..') for part in components):
+            raise StagingNotOwned('暂存路径含非规范相对段')
+        root = project_cache_dir(project_id)
+        stage = Path(text)
+        if not stage.is_absolute(): stage = root / stage
+>       if not _is_staging_shape(root, stage): raise StagingNotOwned('不是精确的任务暂存路径')
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       app.services.staging_cleanup.StagingNotOwned: 不是精确的任务暂存路径
+
+backend/app/services/staging_cleanup.py:117: StagingNotOwned
+____________ test_swapped_visual_stage_link_does_not_touch_outside _____________
+
+project = {'id': '7976bf8e-792a-47a3-a8c4-6987405293f0', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+tmp_path = PosixPath('<temporary-path>')
+
+    def test_swapped_visual_stage_link_does_not_touch_outside(project, tmp_path):
+        pid = project['id']; jid, stage = visual_stage(pid, 'motion_review')
+>       cleanup.create_owned_staging(pid, stage, owner_job_id=jid)
+
+backend/tests/test_vision_staging_ownership.py:108:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+backend/app/services/staging_cleanup.py:195: in create_owned_staging
+    root, target = _raw_target(project_id, stage)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+project_id = '7976bf8e-792a-47a3-a8c4-6987405293f0'
+value = PosixPath('<temporary-path>')
+
+    def _raw_target(project_id: str, value: str | Path) -> tuple[Path, Path]:
+        # Strings are checked BEFORE Path normalization can erase '.' / empty parts.
+        text = os.fspath(value)
+        normalized = text.replace('\\', '/') if os.name == 'nt' else text
+        components = normalized.split('/')
+        if normalized.startswith('/'): components = components[1:]
+        if os.name == 'nt' and normalized.startswith('//'): components = components[1:]
+        if any(part in ('', '.', '..') for part in components):
+            raise StagingNotOwned('暂存路径含非规范相对段')
+        root = project_cache_dir(project_id)
+        stage = Path(text)
+        if not stage.is_absolute(): stage = root / stage
+>       if not _is_staging_shape(root, stage): raise StagingNotOwned('不是精确的任务暂存路径')
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       app.services.staging_cleanup.StagingNotOwned: 不是精确的任务暂存路径
+
+backend/app/services/staging_cleanup.py:117: StagingNotOwned
+=========================== short test summary info ============================
+FAILED backend/tests/test_vision_transport_security.py::test_loopback_looking_host_is_not_a_loopback[127.evil.invalid]
+FAILED backend/tests/test_vision_transport_security.py::test_loopback_looking_host_is_not_a_loopback[127.0.0.1.evil.invalid]
+FAILED backend/tests/test_vision_transport_security.py::test_malformed_or_credential_bearing_endpoint_is_refused[https:///v1]
+FAILED backend/tests/test_vision_transport_security.py::test_malformed_or_credential_bearing_endpoint_is_refused[https://user:password@model.invalid/v1]
+FAILED backend/tests/test_vision_transport_security.py::test_malformed_or_credential_bearing_endpoint_is_refused[https://model.invalid/v1?key=secret]
+FAILED backend/tests/test_vision_transport_security.py::test_malformed_or_credential_bearing_endpoint_is_refused[https://model.invalid:bad/v1]
+FAILED backend/tests/test_vision_transport_security.py::test_tls_verification_failure_is_permanent_classified_and_private
+FAILED backend/tests/test_vision_transport_security.py::test_untrusted_errors_cannot_echo_endpoint_image_path_or_key[timeout]
+FAILED backend/tests/test_vision_transport_security.py::test_untrusted_errors_cannot_echo_endpoint_image_path_or_key[network]
+FAILED backend/tests/test_vision_transport_security.py::test_untrusted_errors_cannot_echo_endpoint_image_path_or_key[body]
+FAILED backend/tests/test_vision_transport_security.py::test_mode_off_refuses_provider_even_with_an_old_authorized_context
+FAILED backend/tests/test_vision_transport_security.py::test_httpx_logging_does_not_disclose_configured_endpoint
+FAILED backend/tests/test_vision_staging_ownership.py::test_exact_visual_stage_owns_bytes_and_releases_registry[vision_analyze]
+FAILED backend/tests/test_vision_staging_ownership.py::test_exact_visual_stage_owns_bytes_and_releases_registry[motion_review]
+FAILED backend/tests/test_vision_staging_ownership.py::test_workers_finally_report_real_cleanup[success-semantic]
+FAILED backend/tests/test_vision_staging_ownership.py::test_workers_finally_report_real_cleanup[success-motion]
+FAILED backend/tests/test_vision_staging_ownership.py::test_workers_finally_report_real_cleanup[model_error-semantic]
+FAILED backend/tests/test_vision_staging_ownership.py::test_workers_finally_report_real_cleanup[model_error-motion]
+FAILED backend/tests/test_vision_staging_ownership.py::test_workers_finally_report_real_cleanup[cancel-semantic]
+FAILED backend/tests/test_vision_staging_ownership.py::test_workers_finally_report_real_cleanup[cancel-motion]
+FAILED backend/tests/test_vision_staging_ownership.py::test_workers_finally_report_real_cleanup[locked-semantic]
+FAILED backend/tests/test_vision_staging_ownership.py::test_workers_finally_report_real_cleanup[locked-motion]
+FAILED backend/tests/test_vision_staging_ownership.py::test_foreign_job_wrong_kind_existing_and_restart_stages_are_never_adopted
+FAILED backend/tests/test_vision_staging_ownership.py::test_swapped_visual_stage_link_does_not_touch_outside

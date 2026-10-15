@@ -18,7 +18,10 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import ipaddress
 import mimetypes
+import re
+import ssl
 import time
 import uuid
 from pathlib import Path
@@ -36,6 +39,8 @@ from ..errors import (
     MODEL_NETWORK_ERROR,
     MODEL_NOT_CONFIGURED,
     MODEL_TIMEOUT,
+    MODEL_TLS_FAILED,
+    MODEL_UPLOAD_DENIED,
     ModelError,
     classify_status,
     redact,
@@ -45,10 +50,26 @@ from .base import VisionRequest, VisionResponse
 logger = logging.getLogger(__name__)
 
 
+class _EndpointLogFilter(logging.Filter):
+    def filter(self, record):
+        # httpx logs full request URLs at INFO even when our own logger is quiet.
+        record.msg = re.sub(r'https?://[^\s"\']+', '[model-endpoint]', record.getMessage())
+        record.args = ()
+        return True
+
+
+logging.getLogger('httpx').addFilter(_EndpointLogFilter())
+
+
 def _is_loopback(host: str | None) -> bool:
     if not host:
         return False
-    return host in {"127.0.0.1", "::1", "localhost"} or host.startswith("127.")
+    if host.lower() == 'localhost':
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def validate_endpoint(base_url: str, *, allow_insecure: bool) -> None:
@@ -57,14 +78,22 @@ def validate_endpoint(base_url: str, *, allow_insecure: bool) -> None:
     ``http://`` is only tolerated for a loopback address (a local model server)
     or when the operator explicitly accepts it.
     """
-    parsed = urlparse(base_url)
+    try:
+        parsed = urlparse(base_url)
+        valid = (parsed.hostname and not parsed.username and not parsed.password
+                 and not parsed.query and not parsed.fragment)
+        _ = parsed.port
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ModelError(MODEL_NOT_CONFIGURED, 'invalid model endpoint; use a URL without embedded credentials/query')
     if parsed.scheme not in {"http", "https"}:
-        raise ModelError(MODEL_NOT_CONFIGURED, f"unsupported URL scheme: {parsed.scheme!r}")
+        raise ModelError(MODEL_NOT_CONFIGURED, "unsupported model endpoint scheme")
     if parsed.scheme == "http" and not allow_insecure and not _is_loopback(parsed.hostname):
         raise ModelError(
             MODEL_NOT_CONFIGURED,
             "refusing cleartext http:// to a non-loopback host; "
-            "set TRAVELSB_MODEL_ALLOW_INSECURE_HTTP=1 to accept it explicitly",
+            "HTTPS or an authenticated encrypted tunnel is required; insecure HTTP is a development-only exception",
         )
 
 
@@ -154,6 +183,19 @@ class OpenAICompatibleVisionProvider:
 
     # -- public ------------------------------------------------------------
     def complete(
+        self, request: VisionRequest, *, cancel_check: Callable[[], bool] | None = None,
+    ) -> VisionResponse:
+        try:
+            return self._complete(request, cancel_check=cancel_check)
+        except ModelError as exc:
+            # Failures before the wire (policy/encoding/capability) cost no calls.
+            if exc.attempts is None:
+                exc.attempts = 0
+            if exc.images_sent is None:
+                exc.images_sent = 0
+            raise
+
+    def _complete(
         self,
         request: VisionRequest,
         *,
@@ -165,6 +207,7 @@ class OpenAICompatibleVisionProvider:
         from ..authorization import require_context
 
         require_context(request.authorization)
+        self._require_mode_on()
 
         if not (self.base_url and self.api_key):
             raise ModelError(
@@ -222,7 +265,12 @@ class OpenAICompatibleVisionProvider:
         started = time.monotonic()
 
         for attempt in range(1, self.max_retries + 2):
-            self._raise_if_cancelled(cancel_check)
+            try:
+                self._raise_if_cancelled(cancel_check)
+                self._require_mode_on()
+            except ModelError as exc:
+                exc.attempts, exc.images_sent = attempt - 1, len(request.images) * (attempt - 1)
+                raise
             try:
                 resp = httpx.post(
                     url,
@@ -231,30 +279,43 @@ class OpenAICompatibleVisionProvider:
                     timeout=caps.timeout_sec,
                 )
             except httpx.TimeoutException as exc:
-                last = ModelError(MODEL_TIMEOUT, f"request timed out: {exc}", request_id=request_id)
+                last = ModelError(MODEL_TIMEOUT, "model request timed out", request_id=request_id)
             except httpx.HTTPError as exc:
+                cause = exc
+                tls = False
+                seen = set()
+                while cause is not None and id(cause) not in seen:
+                    seen.add(id(cause))
+                    if isinstance(cause, ssl.SSLError) or 'certificate_verify_failed' in str(cause).lower():
+                        tls = True
+                    cause = cause.__cause__ or cause.__context__
                 last = ModelError(
-                    MODEL_NETWORK_ERROR,
-                    redact(str(exc), self.api_key),
+                    MODEL_TLS_FAILED if tls else MODEL_NETWORK_ERROR,
+                    "model TLS certificate verification failed" if tls else "model network connection failed",
                     request_id=request_id,
                 )
             else:
                 if resp.status_code == 200:
                     # A cancel that arrived while the request was in flight must
                     # not be allowed to publish its answer.
-                    self._raise_if_cancelled(cancel_check)
-                    return self._parse(resp, request_id, attempt, started)
+                    try:
+                        self._raise_if_cancelled(cancel_check)
+                        return self._parse(resp, request_id, attempt, started)
+                    except ModelError as exc:
+                        exc.attempts, exc.images_sent = attempt, len(request.images) * attempt
+                        raise
 
-                text = redact(resp.text[:500], self.api_key)
-                code = classify_status(resp.status_code, text)
+                code = classify_status(resp.status_code, resp.text[:500])
                 last = ModelError(
                     code,
-                    f"provider returned {resp.status_code}: {text}",
+                    f"provider returned {resp.status_code}: details ***REDACTED***",
                     status=resp.status_code,
                     retry_after=_retry_after(resp),
                     request_id=request_id,
                 )
 
+            if last is not None:
+                last.attempts, last.images_sent = attempt, len(request.images) * attempt
             if last is None or not last.retryable or attempt > self.max_retries:
                 raise last
             delay = self._backoff(attempt, last.retry_after)
@@ -265,11 +326,20 @@ class OpenAICompatibleVisionProvider:
                 delay,
                 request_id,
             )
-            self._sleep(delay, cancel_check)
+            try:
+                self._sleep(delay, cancel_check)
+            except ModelError as exc:
+                exc.attempts, exc.images_sent = attempt, len(request.images) * attempt
+                raise
 
         raise last or ModelError(MODEL_NETWORK_ERROR, "vision call failed", request_id=request_id)
 
     # -- internals ---------------------------------------------------------
+    @staticmethod
+    def _require_mode_on():
+        if get_settings().model_mode != 'on':
+            raise ModelError(MODEL_UPLOAD_DENIED, 'model uploads are disabled')
+
     @staticmethod
     def _raise_if_cancelled(cancel_check: Callable[[], bool] | None) -> None:
         if cancel_check is not None and cancel_check():
@@ -298,7 +368,7 @@ class OpenAICompatibleVisionProvider:
         except ValueError as exc:
             raise ModelError(
                 MODEL_INVALID_OUTPUT,
-                f"provider returned non-JSON body: {exc}",
+                "provider returned a non-JSON body",
                 status=resp.status_code,
                 request_id=request_id,
             ) from exc
@@ -334,13 +404,16 @@ class OpenAICompatibleVisionProvider:
                 request_id=request_id,
             )
 
-        usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+        raw_usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+        usage = {k: v for k, v in raw_usage.items()
+                 if k in ('prompt_tokens', 'completion_tokens', 'total_tokens')
+                 and isinstance(v, int) and not isinstance(v, bool) and v >= 0}
         return VisionResponse(
             text=text,
-            model_id=str(data.get("model") or self.model_id),
+            model_id=self.model_id,
             usage=usage or {},
             latency_ms=int((time.monotonic() - started) * 1000),
-            request_id=str(data.get("id") or request_id),
+            request_id=request_id,
             attempts=attempt,
         )
 

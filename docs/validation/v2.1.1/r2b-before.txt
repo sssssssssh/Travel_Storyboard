@@ -32,7 +32,7 @@ tmp_path = PosixPath('<temp>')
         row = run(project['id'])
 >       assert (row.stats['analyzed'], row.stats['skipped']) == (1, 1)
 E       assert (0, 2) == (1, 1)
-E         
+E
 E         At index 0 diff: 0 != 1
 E         Use -v to get more diff
 
@@ -55,7 +55,7 @@ client = <starlette.testclient.TestClient object at 0x10ef40860>
             out = client.get(f'/api/segments/{sid}/vision-result').json()
 >           assert out['prompt_version'] == prompt
 E           AssertionError: assert 'v2' == 'v1'
-E             
+E
 E             - v1
 E             + v2
 
@@ -123,11 +123,11 @@ parameters = [('ba7d0d0d-8df6-4191-a876-744a515311ff',)]
     ) -> CursorResult[Unpack[TupleAny]]:
         """continue the _execute_context() method for a single DBAPI
         cursor.execute() or cursor.executemany() call.
-    
+
         """
         if dialect.bind_typing is BindTyping.SETINPUTSIZES:
             generic_setinputsizes = context._prepare_set_input_sizes()
-    
+
             if generic_setinputsizes:
                 try:
                     dialect.do_set_input_sizes(
@@ -137,20 +137,20 @@ parameters = [('ba7d0d0d-8df6-4191-a876-744a515311ff',)]
                     self._handle_dbapi_exception(
                         e, str(statement), parameters, None, context
                     )
-    
+
         cursor, str_statement, parameters = (
             context.cursor,
             context.statement,
             context.parameters,
         )
-    
+
         effective_parameters: Optional[_AnyExecuteParams]
-    
+
         if not context.executemany:
             effective_parameters = parameters[0]
         else:
             effective_parameters = parameters
-    
+
         evt_handled: bool = False
         try:
             if self._has_events or self.engine._has_events:
@@ -163,12 +163,12 @@ parameters = [('ba7d0d0d-8df6-4191-a876-744a515311ff',)]
                         context,
                         context.executemany,
                     )
-    
+
             if self._echo:
                 self._log_info(str_statement)
-    
+
                 stats = context._get_cache_stats()
-    
+
                 if not self.engine.hide_parameters:
                     self._log_info(
                         "[%s] %r",
@@ -235,8 +235,8 @@ parameters = [('ba7d0d0d-8df6-4191-a876-744a515311ff',)]
                         cursor, str_statement, effective_parameters, context
                     )
 
-.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1946: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1946:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x103d97470>
 cursor = <sqlite3.Cursor object at 0x10f546140>
@@ -265,8 +265,8 @@ tmp_path = PosixPath('<temp>')
 >           attempts = s.execute(text('SELECT * FROM segment_semantic_attempts WHERE project_id=:pid'),
                                  {'pid': project['id']}).mappings().all()
 
-backend/tests/test_vision_cache_versions.py:88: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+backend/tests/test_vision_cache_versions.py:88:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 .venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2473: in execute
     return self._execute_internal(
 .venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2373: in _execute_internal
@@ -285,7 +285,7 @@ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
 .venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1946: in _exec_single_context
     self.dialect.do_execute(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x103d97470>
 cursor = <sqlite3.Cursor object at 0x10f546140>
@@ -318,11 +318,11 @@ parameters = [('58ce9274-bd58-48b6-b275-a344a08e0951',)]
     ) -> CursorResult[Unpack[TupleAny]]:
         """continue the _execute_context() method for a single DBAPI
         cursor.execute() or cursor.executemany() call.
-    
+
         """
         if dialect.bind_typing is BindTyping.SETINPUTSIZES:
             generic_setinputsizes = context._prepare_set_input_sizes()
-    
+
             if generic_setinputsizes:
                 try:
                     dialect.do_set_input_sizes(
@@ -332,20 +332,20 @@ parameters = [('58ce9274-bd58-48b6-b275-a344a08e0951',)]
                     self._handle_dbapi_exception(
                         e, str(statement), parameters, None, context
                     )
-    
+
         cursor, str_statement, parameters = (
             context.cursor,
             context.statement,
             context.parameters,
         )
-    
+
         effective_parameters: Optional[_AnyExecuteParams]
-    
+
         if not context.executemany:
             effective_parameters = parameters[0]
         else:
             effective_parameters = parameters
-    
+
         evt_handled: bool = False
         try:
             if self._has_events or self.engine._has_events:
@@ -358,12 +358,12 @@ parameters = [('58ce9274-bd58-48b6-b275-a344a08e0951',)]
                         context,
                         context.executemany,
                     )
-    
+
             if self._echo:
                 self._log_info(str_statement)
-    
+
                 stats = context._get_cache_stats()
-    
+
                 if not self.engine.hide_parameters:
                     self._log_info(
                         "[%s] %r",
@@ -430,8 +430,8 @@ parameters = [('58ce9274-bd58-48b6-b275-a344a08e0951',)]
                         cursor, str_statement, effective_parameters, context
                     )
 
-.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1946: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1946:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x103d97470>
 cursor = <sqlite3.Cursor object at 0x10fbf1bc0>
@@ -470,8 +470,8 @@ monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f587ec0>
 >           assert s.execute(text('SELECT count(*) FROM segment_semantic_attempts WHERE project_id=:pid'),
                              {'pid': project['id']}).scalar_one() == 2
 
-backend/tests/test_vision_cache_versions.py:111: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+backend/tests/test_vision_cache_versions.py:111:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 .venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2473: in execute
     return self._execute_internal(
 .venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2373: in _execute_internal
@@ -490,7 +490,7 @@ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
 .venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1946: in _exec_single_context
     self.dialect.do_execute(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x103d97470>
 cursor = <sqlite3.Cursor object at 0x10fbf1bc0>
@@ -583,7 +583,7 @@ client = <starlette.testclient.TestClient object at 0x10f55be90>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x10f5b4b30>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x10f5b4b30>
 E             Use -v to get more diff
 
@@ -650,7 +650,7 @@ client = <starlette.testclient.TestClient object at 0x10f22b3b0>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x10f559e80>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentMotionReview object at 0x10f559e80>
 E             Use -v to get more diff
 
@@ -717,7 +717,7 @@ client = <starlette.testclient.TestClient object at 0x10f58a750>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x10f6a8530>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x10f6a8530>
 E             Use -v to get more diff
 
@@ -784,7 +784,7 @@ client = <starlette.testclient.TestClient object at 0x10f58b230>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x10f6a9b80>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentMotionReview object at 0x10f6a9b80>
 E             Use -v to get more diff
 
@@ -851,7 +851,7 @@ client = <starlette.testclient.TestClient object at 0x10f5b7710>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x10f670410>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x10f670410>
 E             Use -v to get more diff
 
@@ -918,7 +918,7 @@ client = <starlette.testclient.TestClient object at 0x10f558aa0>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x10f6aa8a0>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentMotionReview object at 0x10f6aa8a0>
 E             Use -v to get more diff
 
@@ -985,7 +985,7 @@ client = <starlette.testclient.TestClient object at 0x10f5b7e30>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x10f6707d0>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x10f6707d0>
 E             Use -v to get more diff
 
@@ -1052,7 +1052,7 @@ client = <starlette.testclient.TestClient object at 0x10f58b4d0>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x10f672db0>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentMotionReview object at 0x10f672db0>
 E             Use -v to get more diff
 
@@ -1119,7 +1119,7 @@ client = <starlette.testclient.TestClient object at 0x10f5b6900>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x10fcd11c0>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x10fcd11c0>
 E             Use -v to get more diff
 
@@ -1186,7 +1186,7 @@ client = <starlette.testclient.TestClient object at 0x10f6ab410>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x10f670c50>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentMotionReview object at 0x10f670c50>
 E             Use -v to get more diff
 
@@ -1253,7 +1253,7 @@ client = <starlette.testclient.TestClient object at 0x10f6aa600>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x10fcd1580>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x10fcd1580>
 E             Use -v to get more diff
 
@@ -1320,7 +1320,7 @@ client = <starlette.testclient.TestClient object at 0x10f5b5070>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x10fd84050>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentMotionReview object at 0x10fd84050>
 E             Use -v to get more diff
 
@@ -1387,7 +1387,7 @@ client = <starlette.testclient.TestClient object at 0x10f5b7ef0>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x10fd84f50>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x10fd84f50>
 E             Use -v to get more diff
 
@@ -1454,7 +1454,7 @@ client = <starlette.testclient.TestClient object at 0x10f670830>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x10f6ab830>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentMotionReview object at 0x10f6ab830>
 E             Use -v to get more diff
 

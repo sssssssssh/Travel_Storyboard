@@ -39,3 +39,21 @@ TSB-316 问题 → 修复：模型外部终检与数据库保存间有空窗；�
 红绿证据：新增初始 8 个缓存、14 个提交竞态用例修复前均失败（`r2b-before.txt`）；修复后通过，并补充 2 个 writer-first Event 用例、旧未知签名及覆盖度用例，共 26 项。暂停点在 provider 返回后、真实写事务之前；writer-first 用例证明 writer 先持锁则只提交一次，取消随后生效并由原 Runner 收敛。移除语义 commit guard 接线重新失败（`tsb316-reverse-publication.txt`），已恢复。UI 额外 1 项覆盖统计测试修复前失败，修复后前端 38 项通过。
 
 最终本地强制媒体全量 collected 740 / passed 696 / skipped 44 / failed 0 / errors 0（Python 3.12.14，macOS arm64）；前端 typecheck/lint/test/build 均通过，38 tests passed。同 SHA CI 待推送后核对。TSB-317～319 尚待后续批次，真实 HTTPS/Mac 模型及 200GB 门禁未完成。
+
+## R2-B 同 SHA CI 存证
+
+`3a767a58d566fedc0be3e7998cb2f978de562f5d`，Run [38743712708](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38743712708)，7/7 success。Windows 常规两 Python 作业各 719 passed / 0 skipped；Ubuntu 常规各 collected 719 / passed 675 / skipped 44；强制媒体 Windows 656 passed，Ubuntu 612 passed / 44 skipped；前端 38 passed。详见 `validation/v2.1.1/R2B_CI.json`。
+
+## R2-C / TSB-317、TSB-318
+
+TSB-317 问题 → 修复：以 `127.` 开头的外部主机可被误判为 loopback，网络异常及 HTTPX INFO 日志可能包含完整端点，旧授权上下文可绕过后来关闭的开关。改为 IP 地址解析/精确 localhost 判定，拒绝 URL 中嵌入凭据/查询/片段；默认拒绝公网 HTTP，保留的开关仅为开发测试例外并在 UI 标明。每次请求前再检查总开关；TLS 校验失败归类为不可重试的 MODEL_TLS_FAILED，网络/超时/HTTP 正文不公开，HTTPX URL 隐藏。供应商 usage 只接受非负整数 token 字段，请求 ID 使用本地产生的标识，不保存不可信网关回显。
+
+安全接入工具 `backend/tools/verify_secure_model.py` 默认只验证配置、零上传；显式 probe + acknowledge 才发送两张内存生成图片。真实地址和 Key 只填被忽略的 backend/.env。工具不修改云资源；localhost 选项仅记录操作人的加密隧道确认，不能自动证明远端隧道。可执行步骤和指标含义见 [HTTPS_ACCEPTANCE.md](validation/v2.1.1/HTTPS_ACCEPTANCE.md)。本机未提供实际 HTTPS 服务/凭据，T317-02 真实模型验证未执行，生产发布门禁未完成。
+
+TSB-318 问题 → 修复：视觉任务自行递归清理没有 Job 所有权及残留统计，成功登记也未回收。将两种精确叶路径接入 create_owned_staging / cleanup_staging_or_log；校验项目、Job 类型和叶名，仅原子新建可登记，已有目录及链接拒绝。所有结束路径在 finally 清理，并显示 stats.cleanup 的真实移除/残留字节、失败和重试信息；最终统计写入出错也不能跳过清理。成功移除 owner 登记，最多保留 256 条仅能证明目录不存在的幂等回执，回执不能删除后来重建的目录；失败保留登记。重启后不推导/接管未知目录，历史代理及粗剪不动。
+
+红绿证据：最初新增 30 项后端测试在修复前 24 failed / 6 passed；前端 2 项新增均失败。补充统计写入异常的两条测试，修复前均因缺少 cleanup 失败。反向移除 worker 的所有权注册，及恢复宽松 loopback 判定，测试再次失败，已恢复。另验证兄弟任务、重启失去登记、回执被重建目录攻击、登记上限及真实 FFmpeg 中文 >275 字符工作区；合成源 SHA/mtime 和历史粗剪字节不变。证据见 `validation/v2.1.1/r2c-*.txt`、`tsb317-*.txt`、`tsb318-*.txt`。
+
+范围：保留原片、SQLite 旧数据、人工评分/裁剪/角色、确认历史、代理与粗剪；不放宽 skip 守卫，不改 Runner 状态机，不开发 M6、音频语义或原生视频理解。自动化只使用本地模拟服务、注入异常、合成图片/视频；真实 HTTPS、Mac 8～10 段视觉流程和 200GB 性能另列未完成。
+
+R2-C 最终本地全量：collected 781 / passed 737 / skipped 44 / failed 0 / errors 0（macOS arm64，Python 3.12.14，TSB_REQUIRE_FFMPEG=1）；前端四项全部通过，40 tests passed。Windows 专属 skip 原因按既有守卫解释。pnpm 包装器在本机不可用，使用 npm run 执行完全相同的 package.json 四个脚本；CI 保持 pnpm。见 `validation/v2.1.1/R2C_LOCAL.json`。同 SHA CI 推送后核对。

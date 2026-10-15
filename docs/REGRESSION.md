@@ -608,3 +608,19 @@ M5 全链路（见 `docs/validation/v2.1-m5/`），但**未覆盖竖屏/无音�
 | ::test_coverage_counts_failures_and_cache_separately / VisionPanel coverage | TSB-315 | 计划、成功、缓存、失败与未覆盖分别计数/展示 |
 | test_vision_commit_races::test_after_model_before_writer_never_publishes_stale (14) | T316-01～05/07/08 | 两条链路在 provider 返回后使用 Event 注入取消/精细裁剪/排除/删除/源替换/检测变更/错项目 Job，无过期写入，取消期间 409 |
 | ::test_writer_first_commits_once_then_cancel_converges (2) | T316-06 | writer 先拿锁，取消确实等待，提交保留，终态 cancelled，无重复结果 |
+
+| 用例 | 任务 | 守护行为 |
+|---|---|---|
+| test_vision_transport_security::test_loopback_looking_host_is_not_a_loopback / malformed_or_credential_bearing_endpoint (7) | T317-01 | 伪本机域名、凭据/查询/非法 URL 预发送拒绝 |
+| ::test_tls_verification_failure_is_permanent_classified_and_private | T317-03 | TLS 错误不可重试、不泄露服务端信息 |
+| ::test_untrusted_errors_cannot_echo_endpoint_image_path_or_key (3) / test_httpx_logging_does_not_disclose_configured_endpoint | T317-04/06 | 网络/超时/服务错误及 HTTPX 日志不含 URL、Key、base64、路径 |
+| ::test_mode_off_refuses_provider_even_with_an_old_authorized_context | T317-05 | 关闭总开关后旧授权上下文也零出站；新旧 API 另由 authorization/compat 套件守护 |
+| ::test_user_migration_checker_never_uploads_without_explicit_ack (2) / test_user_checker_does_not_accept_unsafe_production_configuration (2) | T317-02 | 用户工具默认零上传、生产配置拒绝开发明文和未确认隧道；不替代真实 HTTPS |
+| test_vision_staging_ownership::test_workers_finally_report_real_cleanup (10) | T318-01/02/06 | 两条链路成功/模型错误/取消/占用/统计异常仍执行清理，残留字节及重试可见 |
+| ::test_exact_visual_stage_owns_bytes_and_releases_registry (2) / bounded_registry / completed_receipt | T318-01/06 | 回收 owner，有界回执不删除后来重建的目录，失败可重试 |
+| ::test_sibling_and_restarted_visual_stages_are_not_deleted (2) / test_foreign_job_wrong_kind_existing_and_restart_stages_are_never_adopted | T318-03/07 | 不删兄弟 stage、不接管已有目录或重启后的孤儿 |
+| ::test_swapped_visual_stage_link_does_not_touch_outside / test_visual_shape_expansion_does_not_authorize_parents (5) | T318-04/05 | symlink/junction 外部字节不变；父目录/错误形状拒绝 |
+| ::test_real_motion_in_deep_unicode_workspace_keeps_source_and_history | T318-08 | 真实 FFmpeg 中文深路径抽帧和拥有的 stage 回收，原合成源及历史产物不变；进入强制媒体清单 |
+| VisionPanel insecure-development-warning / cleanup residual | T317/318 | 明文例外必须显式可见，清理失败不能显示无残留 |
+
+手动补充 T01–T25 门禁：T317-02 实际持密钥 HTTPS/认证加密隧道多图接入，以及 TSB-319 Mac 8～10 段真实素材流程，均未执行；参见 `validation/v2.1.1/HTTPS_ACCEPTANCE.md`。CI 和上述合成媒体不能替代。

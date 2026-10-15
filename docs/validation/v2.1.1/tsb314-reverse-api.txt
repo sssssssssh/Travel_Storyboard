@@ -16,7 +16,7 @@ verdict = 'confirm'
         current = detail(client, shot)
 >       assert current['human_verdict'] == verdict
 E       AssertionError: assert '' == 'confirm'
-E         
+E
 E         - confirm
 
 backend/tests/test_motion_verdict_continuity.py:63: AssertionError
@@ -36,7 +36,7 @@ verdict = 'reject'
         current = detail(client, shot)
 >       assert current['human_verdict'] == verdict
 E       AssertionError: assert '' == 'reject'
-E         
+E
 E         - reject
 
 backend/tests/test_motion_verdict_continuity.py:63: AssertionError
@@ -56,7 +56,7 @@ verdict = 'unclear'
         current = detail(client, shot)
 >       assert current['human_verdict'] == verdict
 E       AssertionError: assert '' == 'unclear'
-E         
+E
 E         - unclear
 
 backend/tests/test_motion_verdict_continuity.py:63: AssertionError

@@ -1,0 +1,27 @@
+FF.                                                                      [100%]
+=================================== FAILURES ===================================
+________ test_loopback_looking_host_is_not_a_loopback[127.evil.invalid] ________
+
+host = '127.evil.invalid'
+
+    @pytest.mark.parametrize('host', ['127.evil.invalid', '127.0.0.1.evil.invalid', 'localhost.evil.invalid'])
+    def test_loopback_looking_host_is_not_a_loopback(host):
+>       with pytest.raises(ModelError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ModelError
+
+backend/tests/test_vision_transport_security.py:17: Failed
+_____ test_loopback_looking_host_is_not_a_loopback[127.0.0.1.evil.invalid] _____
+
+host = '127.0.0.1.evil.invalid'
+
+    @pytest.mark.parametrize('host', ['127.evil.invalid', '127.0.0.1.evil.invalid', 'localhost.evil.invalid'])
+    def test_loopback_looking_host_is_not_a_loopback(host):
+>       with pytest.raises(ModelError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ModelError
+
+backend/tests/test_vision_transport_security.py:17: Failed
+=========================== short test summary info ============================
+FAILED backend/tests/test_vision_transport_security.py::test_loopback_looking_host_is_not_a_loopback[127.evil.invalid]
+FAILED backend/tests/test_vision_transport_security.py::test_loopback_looking_host_is_not_a_loopback[127.0.0.1.evil.invalid]

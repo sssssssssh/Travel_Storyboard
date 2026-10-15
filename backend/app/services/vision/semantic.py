@@ -35,6 +35,7 @@ from ...database import begin_write, session_scope
 from ...ffmpeg import safe_image_open, safe_mkdir, safe_open, safe_stat, safe_unlink
 from ...models import Job, Asset, Frame, Segment, SegmentSemanticResult, SegmentSemanticAttempt, utcnow
 from ...paths import project_cache_dir, resolve_in_project
+from ..staging_cleanup import create_owned_staging, cleanup_staging_or_log, StagingNotOwned
 from ..runner import JobCancelled, JobFailures, cancel_check_for, register_task, update_job, merge_job_stats
 from . import schema as schema_mod
 from .authorization import authorize_upload
@@ -218,10 +219,11 @@ def render_privacy_image(src: str, dest: Path, *, target_width: int) -> bool:
                     (target_width, max(1, int(img.height * ratio))), Image.LANCZOS
                 )
             safe_mkdir(dest.parent)
-            img.save(dest, format="JPEG", quality=85, optimize=True)
+            with safe_open(dest, "wb") as stream:
+                img.save(stream, format="JPEG", quality=85, optimize=True)
         return safe_stat(dest) is not None
     except (OSError, ValueError) as exc:
-        logger.warning("Could not render privacy image from %s: %s", src, exc)
+        logger.warning("Could not render privacy image (%s)", type(exc).__name__)
         return False
 
 
@@ -435,6 +437,7 @@ def vision_analyze_task(job_id: str) -> None:
                stats={"total": total, "done": 0, "failed": 0, "phase": "analyzing"})
 
     try:
+        create_owned_staging(project_id, staging, owner_job_id=job_id)
         for index, candidate in enumerate(candidates, start=1):
             if cancel_check():
                 raise JobCancelled("vision_analyze cancelled")
@@ -528,11 +531,22 @@ def vision_analyze_task(job_id: str) -> None:
             _add_usage(usage_totals, usage)
             _progress(job_id, index, total, counts)
 
+    except (StagingNotOwned, FileExistsError):
+        counts["failed"] += 1
+        failures.record(kind="cleanup", ref=job_id,
+                        message="[STAGING_NOT_OWNED] staging creation refused; unknown residuals retained",
+                        error_code="STAGING_NOT_OWNED")
+    except OSError:
+        counts["failed"] += 1
+        failures.record(kind="staging", ref=job_id,
+                        message="[STAGING_IO_FAILED] visual staging I/O failed", error_code="STAGING_IO_FAILED")
     finally:
-        merge_job_stats(job_id, {"calls": sum(c.calls for c in considered),
-                                "images_sent": sum(c.images_sent for c in considered),
-                                "usage": _usage_totals(considered)})
-        _cleanup_staging(staging)
+        try:
+            merge_job_stats(job_id, {"calls": sum(c.calls for c in considered),
+                                    "images_sent": sum(c.images_sent for c in considered),
+                                    "usage": _usage_totals(considered)})
+        finally:
+            cleanup_staging_or_log(project_id, staging, owner_job_id=job_id)
 
     if budgets.exceeded:
         failures.record(kind="budget", ref=job_id,
@@ -647,24 +661,31 @@ def _analyze_one(
 
     candidate.calls += 1
     candidate.images_sent += len(rendered)
-    response = provider.complete(
-        VisionRequest(
-            prompt=schema_mod.build_prompt(
-                manifest,
-                coverage={
-                    "images_sent": len(rendered),
-                    "segments_considered": 1,
-                    "eligible": 1,
-                },
+    try:
+        response = provider.complete(
+            VisionRequest(
+                prompt=schema_mod.build_prompt(
+                    manifest,
+                    coverage={
+                        "images_sent": len(rendered),
+                        "segments_considered": 1,
+                        "eligible": 1,
+                    },
+                ),
+                images=[ImagePart(data=r.data, mime="image/jpeg", label=r.label) for r in rendered],
+                system=schema_mod.SYSTEM_PROMPT,
+                json_object=True,
+                max_tokens=settings.vision_max_tokens,
+                authorization=authorization,
             ),
-            images=[ImagePart(data=r.data, mime="image/jpeg", label=r.label) for r in rendered],
-            system=schema_mod.SYSTEM_PROMPT,
-            json_object=True,
-            max_tokens=settings.vision_max_tokens,
-            authorization=authorization,
-        ),
-        cancel_check=cancel_check,
-    )
+            cancel_check=cancel_check,
+        )
+    except ModelError as exc:
+        if exc.attempts is not None:
+            candidate.calls += exc.attempts - 1
+        if exc.images_sent is not None:
+            candidate.images_sent += exc.images_sent - len(rendered)
+        raise
 
     candidate.calls += max(0, response.attempts - 1)
     candidate.images_sent += len(rendered) * max(0, response.attempts - 1)
@@ -714,24 +735,6 @@ def _progress(job_id: str, index: int, total: int, counts: dict) -> None:
         "images_sent": counts["images_sent"],
         "phase": "analyzing",
     })
-
-
-def _cleanup_staging(staging: Path) -> None:
-    """Remove this job's rendered images. Only our own job-scoped directory."""
-    if not staging.exists():
-        return
-    for child in sorted(staging.rglob("*"), reverse=True):
-        try:
-            if child.is_dir():
-                child.rmdir()
-            else:
-                safe_unlink(child)
-        except OSError:
-            logger.warning("Could not remove %s", child, exc_info=True)
-    try:
-        staging.rmdir()
-    except OSError:
-        logger.warning("Vision staging not empty: %s", staging, exc_info=True)
 
 
 def register_vision_tasks() -> None:

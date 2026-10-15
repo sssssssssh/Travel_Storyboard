@@ -11,4 +11,3 @@ stderr | src/components/VisionPanel.test.tsx > unconfigured model shows guidance
       Tests  16 passed (16)
    Start at  21:16:22
    Duration  1.19s (transform 76ms, setup 0ms, collect 180ms, tests 217ms, environment 305ms, prepare 56ms)
-

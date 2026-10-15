@@ -62,7 +62,7 @@ client = <starlette.testclient.TestClient object at 0x11c6bd880>
         with session_scope() as s:
 >           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
 E           assert [<app.models.... 0x11d313950>] == []
-E             
+E
 E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x11d313950>
 E             Use -v to get more diff
 

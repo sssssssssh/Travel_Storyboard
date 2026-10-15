@@ -9,6 +9,7 @@ import logging
 import os
 import stat
 from contextlib import contextmanager, ExitStack
+from collections import OrderedDict
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from threading import RLock
@@ -48,6 +49,9 @@ class StageOwner:
 
 
 _OWNERS: dict[Path, StageOwner] = {}
+# Bounded absence receipts preserve immediate idempotence, never deletion rights.
+_CLEANED: OrderedDict[Path, StageOwner] = OrderedDict()
+_CLEANED_LIMIT = 256
 _GUARD = RLock()
 
 
@@ -99,6 +103,7 @@ def _is_staging_shape(root: Path, stage: Path) -> bool:
         len(p) == 2 and p[0] == 'roughcut' and p[1].startswith('staging-') and p[1][8:]
         or len(p) == 3 and p[:2] == ('proxies', 'staging') and p[2]
         or len(p) == 3 and p[0] == 'staging' and p[1] and p[2]
+        or len(p) == 3 and p[0] == 'vision' and p[1] in ('staging', 'motion') and p[2]
     )
 
 
@@ -150,6 +155,11 @@ def _check_creator(project_id: str, stage: Path, job_id: str | None):
             job = s.get(Job, job_id)
             if job is None or job.project_id != project_id:
                 raise StagingNotOwned('创建任务不属于此项目')
+        parts = stage.relative_to(project_cache_dir(project_id)).parts
+        if parts[0] == 'vision':
+            expected_type = {'staging': 'vision_analyze', 'motion': 'motion_review'}[parts[1]]
+            if not job_id or parts[2] != job_id or job.job_type != expected_type:
+                raise StagingNotOwned('视觉暂存叶子与创建任务类型不匹配')
         if stage.relative_to(project_cache_dir(project_id)).parts[0] == 'staging':
             asset_id = stage.relative_to(project_cache_dir(project_id)).parts[1]
             asset = s.get(Asset, asset_id)
@@ -209,6 +219,7 @@ def create_owned_staging(project_id: str, stage: str | Path, *, owner_job_id: st
             else: os.mkdir(long_path(target))
             ids = _validate_chain(root, target)
             _OWNERS[target] = StageOwner(project_id, owner_job_id, ids[-1], ids[:-1])
+            _CLEANED.pop(target, None)
     return target
 
 
@@ -250,6 +261,17 @@ def cleanup_owned_staging(project_id: str, stage: str | Path, *, owner_job_id: s
         root, target = _raw_target(project_id, stage)
         with _GUARD:
             owner = _OWNERS.get(target)
+            if owner is None:
+                receipt = _CLEANED.get(target)
+                if receipt and (receipt.project_id, receipt.job_id) == (project_id, owner_job_id):
+                    _check_creator(project_id, target, owner_job_id)
+                    _validate_chain(root, target, receipt, include_target=False)
+                    try: _lstat(target)
+                    except FileNotFoundError:
+                        result.ok, result.residual_bytes = True, 0
+                        result.message = '已清理；未获得再次删除的权限'
+                        return result
+                    raise StagingNotOwned('清理后出现的新目录不能继承删除权')
             if not owner or (owner.project_id, owner.job_id) != (project_id, owner_job_id):
                 raise StagingNotOwned('未登记为本任务创建的暂存目录')
             _check_creator(project_id, target, owner_job_id)
@@ -262,6 +284,8 @@ def cleanup_owned_staging(project_id: str, stage: str | Path, *, owner_job_id: s
                 try: _lstat(target)
                 except FileNotFoundError:
                     result.ok, result.message = True, '已登记暂存目录已清理'
+                    _retire_owner(target, owner)
+                    result.residual_bytes = 0
                     return result
                 _validate_chain(root, target, owner)
                 _iter_tree(target)  # preflight refuses links BEFORE deleting any file
@@ -285,6 +309,8 @@ def cleanup_owned_staging(project_id: str, stage: str | Path, *, owner_job_id: s
                 try: _lstat(target)
                 except FileNotFoundError:
                     result.ok, result.message = True, '已清理本任务暂存目录'
+                    _retire_owner(target, owner)
+                    result.residual_bytes = 0
                     return result
                 raise OSError('删除后目录仍存在')
     except (StagingNotOwned, ValueError) as exc:
@@ -304,6 +330,14 @@ def cleanup_owned_staging(project_id: str, stage: str | Path, *, owner_job_id: s
             result.residual_count = 1
         logger.warning('CLEANUP_FAILED project=%s job=%s error=%s', project_id, owner_job_id, type(exc).__name__)
     return result
+
+
+def _retire_owner(target: Path, owner: StageOwner) -> None:
+    _OWNERS.pop(target, None)
+    _CLEANED[target] = owner
+    _CLEANED.move_to_end(target)
+    while len(_CLEANED) > _CLEANED_LIMIT:
+        _CLEANED.popitem(last=False)
 
 
 def cleanup_staging_or_log(project_id: str, stage: str | Path, *, owner_job_id: str | None = None) -> CleanupResult:
@@ -355,6 +389,10 @@ def retry_job_cleanup(project_id: str, job_id: str) -> None:
             stages = [p for p, owner in _OWNERS.items()
                       if (owner.project_id, owner.job_id) == (project_id, job_id)]
         if not stages:
+            with session_scope() as s:
+                row = s.get(Job, job_id)
+                if (row.stats or {}).get('cleanup', {}).get('ok') is True:
+                    return  # already completed; no paths discovered or deleted
             raise CleanupRetryError(409, ERR_NOT_OWNED)
         # Bound each invocation to this job's recorded set; each deletion repeats
         # every safety check. No discovery, no adoption after process restart.

@@ -448,3 +448,36 @@ test('coverage distinguishes planned, successful and cached shots', async () => 
   expect(screen.getByText(/有效缓存 2 个/)).toBeTruthy()
   expect(screen.getByText(/计划分析 11 个/)).toBeTruthy()
 })
+
+test('insecure transport is labelled as a development exception', async () => {
+  mockApi({
+    '/api/vision/status': configuredStatus,
+    '/api/projects/p/vision/preview': preview,
+    '/api/projects/p/vision-results': { count: 0, items: [] },
+    '/api/projects/p/vision-candidates': [],
+    '/api/projects/p/motion-reviews': [],
+  })
+  setup()
+  await screen.findByText(/开发测试例外/)
+  expect(screen.getByText(/生产验收须使用 HTTPS 或加密隧道/)).toBeTruthy()
+})
+
+test('visual job cleanup residuals stay visible after model success', async () => {
+  mockApi({
+    '/api/vision/status': configuredStatus,
+    '/api/projects/p/vision/preview': preview,
+    '/api/projects/p/vision-results': { count: 0, items: [] },
+    '/api/projects/p/vision-candidates': [],
+    '/api/projects/p/motion-reviews': [],
+    '/api/projects/p/jobs/vision_analyze': { id: 'cleanup-job', status: 'pending', stats: {} },
+    '/api/jobs/cleanup-job': { id: 'cleanup-job', status: 'succeeded', stats: {
+      analyzed: 1, cleanup: { ok: false, residual_count: 1, residual_bytes: 123,
+        error_code: 'CLEANUP_FAILED', residual_paths: ['vision/staging/job/frame.jpg'] },
+    } },
+  })
+  setup()
+  fireEvent.click(await screen.findByRole('checkbox'))
+  fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
+  await screen.findByText(/有暂存残留，需安全重试/)
+  expect(screen.getByText(/123 字节/)).toBeTruthy()
+})

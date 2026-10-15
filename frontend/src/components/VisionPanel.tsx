@@ -13,6 +13,7 @@ import type {
 } from '../lib/types'
 import { useJob } from '../lib/useJob'
 import { Badge, Button, Card, Spinner } from './ui'
+import CleanupNotice from './CleanupNotice'
 
 /**
  * M5 image-semantics panel (TSB-305).
@@ -88,6 +89,12 @@ export default function VisionPanel({ projectId }: { projectId: string }) {
           {status.data?.model_name && <Badge tone="blue">{status.data.model_name}</Badge>}
         </div>
       </div>
+
+      {status.data?.allow_insecure_http && (
+        <p className="text-sm text-amber-300">
+          开发测试例外：已允许非本地明文 HTTP。生产验收须使用 HTTPS 或加密隧道，并关闭明文例外。
+        </p>
+      )}
 
       {!configured && (
         <p className="text-sm text-slate-400">
@@ -208,6 +215,7 @@ function JobProgress({ job }: { job: JobOut }) {
           用量：{Object.entries(stats.usage).map(([k, v]) => `${k}=${v}`).join(' · ')}
         </div>
       )}
+      {(stats.cleanup || job.status === 'cancelled') && <CleanupNotice cleanup={stats.cleanup} />}
       {job.error && <div className="text-amber-300">{job.error}</div>}
       {!!job.failures?.items?.length && (
         <ul className="list-inside list-disc text-amber-300">

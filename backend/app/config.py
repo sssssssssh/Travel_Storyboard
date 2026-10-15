@@ -67,7 +67,8 @@ class Settings(BaseSettings):
     model_supports_json_schema: bool = False
     model_supports_native_video: bool = False
     # A plain-`http://` endpoint is refused for non-loopback hosts unless the
-    # operator explicitly accepts cleartext for a known endpoint.
+    # operator explicitly accepts a DEVELOPMENT/TEST ONLY cleartext exception.
+    # Production acceptance requires false + HTTPS/authenticated encryption.
     model_allow_insecure_http: bool = False
 
     # --- Vision semantics (M5, TSB-303/304) ---

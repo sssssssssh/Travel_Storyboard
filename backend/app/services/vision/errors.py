@@ -22,6 +22,7 @@ MODEL_RATE_LIMITED = "MODEL_RATE_LIMITED"
 MODEL_SERVER_ERROR = "MODEL_SERVER_ERROR"
 MODEL_TIMEOUT = "MODEL_TIMEOUT"
 MODEL_NETWORK_ERROR = "MODEL_NETWORK_ERROR"
+MODEL_TLS_FAILED = "MODEL_TLS_FAILED"
 
 # --- Payload / result ------------------------------------------------------
 MODEL_INVALID_OUTPUT = "MODEL_INVALID_OUTPUT"
@@ -59,6 +60,8 @@ class ModelError(RuntimeError):
         status: int | None = None,
         retry_after: float | None = None,
         request_id: str | None = None,
+        attempts: int | None = None,
+        images_sent: int | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
@@ -66,6 +69,8 @@ class ModelError(RuntimeError):
         self.status = status
         self.retry_after = retry_after
         self.request_id = request_id
+        self.attempts = attempts
+        self.images_sent = images_sent
 
     @property
     def retryable(self) -> bool:

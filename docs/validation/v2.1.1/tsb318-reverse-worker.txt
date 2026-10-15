@@ -1,0 +1,63 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_workers_finally_report_real_cleanup[success-semantic] __________
+
+pipeline = 'semantic', outcome = 'success'
+project = {'id': '40f41820-c2c0-4042-99a7-e1273a43094c', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10ef847a0>
+tmp_path = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ef86660>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('outcome', ['success', 'model_error', 'cancel', 'locked'])
+    def test_workers_finally_report_real_cleanup(pipeline, outcome, project, stubbed, tmp_path, monkeypatch):
+        pid = project['id']; data = seed(project, tmp_path, 1); sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            def sample(*args):
+                staging = args[3]; staging.mkdir(parents=True, exist_ok=True)
+                frames = []
+                for i in range(2):
+                    path = staging / f'{i}.jpg'; Image.new('RGB', (16, 16), 'green').save(path)
+                    frames.append(motion.MotionFrame(str(path), i + 1.))
+                return frames
+            monkeypatch.setattr(motion, '_sample_frames', sample)
+            def infer(*a, **kw):
+                if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                if outcome == 'cancel':
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise JobCancelled('cancelled during inference')
+                return {'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                        'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False}, {}
+            monkeypatch.setattr(motion, '_analyze_motion', infer)
+            task = motion.motion_review_task
+            stage = motion.stage_dir(pid, jid)
+        else:
+            task = semantic.vision_analyze_task
+            stage = semantic.stage_image_dir(pid, jid)
+            if outcome in ('model_error', 'cancel'):
+                def infer(*a, **kw):
+                    if outcome == 'model_error': raise ModelError('MODEL_TIMEOUT', 'timeout')
+                    with session_scope() as s: s.get(Job, jid).status = 'cancelling'
+                    raise ModelError('CANCELLED', 'cancelled during inference')
+                monkeypatch.setattr(stubbed, 'complete', infer)
+        if outcome == 'locked':
+            monkeypatch.setattr(cleanup, '_remove_file', lambda *a: (_ for _ in ()).throw(PermissionError('locked')))
+        JobRunner()._run(jid, task)
+        row = _job_row(jid)
+        assert 'cleanup' in row.stats
+        if outcome == 'locked':
+            assert not row.stats['cleanup']['ok']
+            assert row.stats['cleanup']['residual_bytes'] > 0
+            assert row.stats['cleanup']['retryable']
+            assert stage.exists()
+            monkeypatch.undo()
+            assert cleanup.cleanup_staging_or_log(pid, stage, owner_job_id=jid).ok
+        else:
+>           assert row.stats['cleanup']['ok'] and not stage.exists()
+E           assert (False)
+
+backend/tests/test_vision_staging_ownership.py:91: AssertionError
+=========================== short test summary info ============================
+FAILED backend/tests/test_vision_staging_ownership.py::test_workers_finally_report_real_cleanup[success-semantic]

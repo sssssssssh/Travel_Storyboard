@@ -34,6 +34,7 @@ from ...database import begin_write, session_scope
 from ...ffmpeg import FFmpegError, extract_frame, safe_open, safe_stat, safe_unlink
 from ...models import Asset, Job, Segment, SegmentMotionReview, SegmentMotionVerdict, utcnow
 from ...paths import project_cache_dir
+from ..staging_cleanup import create_owned_staging, cleanup_staging_or_log, StagingNotOwned
 from ..runner import JobCancelled, JobFailures, cancel_check_for, register_task, update_job, merge_job_stats
 from .authorization import authorize_upload
 from .publication import validate_publication
@@ -256,6 +257,7 @@ def motion_review_task(job_id: str) -> None:
                stats={"total": total, "done": 0, "failed": 0, "phase": "sampling"})
 
     try:
+        create_owned_staging(project_id, staging, owner_job_id=job_id)
         for index, segment in enumerate(targets, start=1):
             if cancel_check():
                 raise JobCancelled("motion_review cancelled")
@@ -296,17 +298,28 @@ def motion_review_task(job_id: str) -> None:
             except FFmpegError as exc:
                 counts["failed"] += 1
                 failures.record(kind="motion", ref=segment["segment_id"],
-                                message=f"[{exc.code}] {exc}", error_code=exc.code)
+                                message=f"[{exc.code}] media processing failed", error_code=exc.code)
             _progress(job_id, index, total, counts)
+    except (StagingNotOwned, FileExistsError):
+        counts["failed"] += 1
+        failures.record(kind="cleanup", ref=job_id,
+                        message="[STAGING_NOT_OWNED] staging creation refused; unknown residuals retained",
+                        error_code="STAGING_NOT_OWNED")
+    except OSError:
+        counts["failed"] += 1
+        failures.record(kind="staging", ref=job_id,
+                        message="[STAGING_IO_FAILED] visual staging I/O failed", error_code="STAGING_IO_FAILED")
     finally:
         from .semantic import _add_usage
         totals = {}
         for target in targets:
             _add_usage(totals, target.get("request_usage", {}))
-        merge_job_stats(job_id, {"calls": sum(t.get("calls", 0) for t in targets),
-                                "images_sent": sum(t.get("images_sent", 0) for t in targets),
-                                "usage": totals})
-        _cleanup(staging)
+        try:
+            merge_job_stats(job_id, {"calls": sum(t.get("calls", 0) for t in targets),
+                                    "images_sent": sum(t.get("images_sent", 0) for t in targets),
+                                    "usage": totals})
+        finally:
+            cleanup_staging_or_log(project_id, staging, owner_job_id=job_id)
 
     stats = {
         "total": total,
@@ -386,7 +399,9 @@ def _sample_frames(project_id, job_id, segment, staging, frame_count, cancel_che
                 width=settings.vision_target_width, cancel_check=cancel_check,
             )
         except FFmpegError as exc:
-            logger.warning("Frame at %.2fs failed for %s: %s", t, segment["segment_id"], exc)
+            if exc.code == CANCELLED:
+                raise JobCancelled("motion sampling cancelled") from exc
+            logger.warning("Frame at %.2fs failed for %s [%s]", t, segment["segment_id"], exc.code)
             continue
         # Re-encode through Pillow so the upload carries no EXIF/GPS (C5).
         if _strip_metadata(dest, settings.vision_target_width):
@@ -408,10 +423,11 @@ def _strip_metadata(path: Path, target_width: int) -> bool:
                 clean = clean.resize(
                     (target_width, max(1, int(clean.height * ratio))), Image.LANCZOS
                 )
-            clean.save(path, format="JPEG", quality=85, optimize=True)
+            with safe_open(path, "wb") as stream:
+                clean.save(stream, format="JPEG", quality=85, optimize=True)
         return safe_stat(path) is not None
     except (OSError, ValueError) as exc:
-        logger.warning("Could not strip metadata from %s: %s", path, exc)
+        logger.warning("Could not strip metadata (%s)", type(exc).__name__)
         return False
 
 
@@ -440,17 +456,24 @@ def _analyze_motion(provider, segment, frames, cancel_check, *, authorization=No
             frame.data = stream.read()
     segment["calls"] = segment.get("calls", 0) + 1
     segment["images_sent"] = len(frames)
-    response = provider.complete(
-        VisionRequest(
-            prompt=prompt,
-            images=[ImagePart(data=f.data, mime="image/jpeg", label=f.label) for f in frames],
-            system=SYSTEM_PROMPT,
-            json_object=True,
-            max_tokens=settings.vision_max_tokens_motion,
-            authorization=authorization,
-        ),
-        cancel_check=cancel_check,
-    )
+    try:
+        response = provider.complete(
+            VisionRequest(
+                prompt=prompt,
+                images=[ImagePart(data=f.data, mime="image/jpeg", label=f.label) for f in frames],
+                system=SYSTEM_PROMPT,
+                json_object=True,
+                max_tokens=settings.vision_max_tokens_motion,
+                authorization=authorization,
+            ),
+            cancel_check=cancel_check,
+        )
+    except ModelError as exc:
+        if exc.attempts is not None:
+            segment["calls"] += exc.attempts - 1
+        if exc.images_sent is not None:
+            segment["images_sent"] += exc.images_sent - len(frames)
+        raise
 
     segment["calls"] += max(0, response.attempts - 1)
     segment["images_sent"] *= response.attempts
@@ -567,24 +590,6 @@ def _progress(job_id: str, index: int, total: int, counts: dict) -> None:
         "method": "multiframe",
         "phase": "analyzing",
     })
-
-
-def _cleanup(staging: Path) -> None:
-    """Remove this job's sampled frames only."""
-    if not staging.exists():
-        return
-    for child in sorted(staging.rglob("*"), reverse=True):
-        try:
-            if child.is_dir():
-                child.rmdir()
-            else:
-                safe_unlink(child)
-        except OSError:
-            logger.warning("Could not remove %s", child, exc_info=True)
-    try:
-        staging.rmdir()
-    except OSError:
-        logger.warning("Motion staging not empty: %s", staging, exc_info=True)
 
 
 def register_motion_tasks() -> None:
