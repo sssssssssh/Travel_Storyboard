@@ -1,0 +1,52 @@
+# macOS 后端全量测试原始输出
+# 命令: python -m pytest -o addopts=""   （覆盖 pytest.ini 的 -q 以便保留汇总行）
+# 机器: macOS 15.7.7 arm64 / Python 3.12.14 / FFmpeg 9.0.2
+# 口径说明: 469 passed + 44 skipped = 513 collected（--collect-only 亦为 513）
+
+============================= test session starts ==============================
+platform darwin -- Python 3.12.14, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/shush/Downloads/project/Travel_Storyboard/backend
+configfile: pytest.ini
+testpaths: tests
+plugins: cov-7.1.0, anyio-4.15.1
+collected 513 items
+
+tests/test_analysis_cancel_commit.py ......                              [  1%]
+tests/test_cache_recovery.py .....                                       [  2%]
+tests/test_cancel_cleanup.py .................ss..                       [  6%]
+tests/test_cancel_lifecycle.py ..............                            [  8%]
+tests/test_cancel_recovery.py ..........                                 [ 10%]
+tests/test_checkpoints.py ...............                                [ 13%]
+tests/test_ci_skip_guard.py ...                                          [ 14%]
+tests/test_cleanup_reporting.py ....                                     [ 15%]
+tests/test_concurrent_annotations.py ......................              [ 19%]
+tests/test_data_integrity.py ..........                                  [ 21%]
+tests/test_database_backup.py ....                                       [ 22%]
+tests/test_deep_media_http.py ssssssssssssssss...                        [ 25%]
+tests/test_deep_path_cleanup.py ..sss..s...ss                            [ 28%]
+tests/test_deep_scan_api.py ssssssssss....                               [ 31%]
+tests/test_ffmpeg_integration.py ................                        [ 34%]
+tests/test_hash_pipeline.py ....                                         [ 35%]
+tests/test_job_cancel_kills_process.py ......................            [ 39%]
+tests/test_job_mutex.py .....................                            [ 43%]
+tests/test_jobs.py ..........                                            [ 45%]
+tests/test_long_paths.py .ssss.s..................ssss                   [ 51%]
+tests/test_media_process_tree.py ..........                              [ 53%]
+tests/test_orphan_frame_safety.py ......                                 [ 54%]
+tests/test_output_dir.py ........................                        [ 58%]
+tests/test_proxy_duration.py ......................                      [ 63%]
+tests/test_publish_cancel.py ..                                          [ 63%]
+tests/test_review_package_privacy.py .............                       [ 66%]
+tests/test_review_proxies.py .....................                       [ 70%]
+tests/test_review_validation.py ...........................              [ 75%]
+tests/test_security.py ....................                              [ 79%]
+tests/test_stability_jobs.py ........                                    [ 80%]
+tests/test_staging_ownership.py ........................s                [ 85%]
+tests/test_story_direct.py .............................                 [ 91%]
+tests/test_terminal_races.py ..............                              [ 94%]
+tests/test_timeline_export.py ..............................             [100%]
+
+======================= 469 passed, 44 skipped in 31.23s =======================
+
+======================= 收集总数核对 =======================
+513 tests collected in 0.53s

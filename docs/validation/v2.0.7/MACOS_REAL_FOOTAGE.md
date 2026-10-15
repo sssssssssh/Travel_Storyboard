@@ -149,10 +149,23 @@ c1_problems: []
 **未做**：我没有跑完整的人工复核回路（导入 review requests → 再跑 proxies），
 所以**代理编码路径在真实素材上未被本记录覆盖**。
 
-### P2（文档漂移，AGENTS.md §3.5）
+### P2（原判为文档漂移，经复核**不成立**——已更正）
 
-`docs/validation/v2.0.7/local-backend.txt` 记录 **469 passed**，
-本次实测 **513 passed**。文档数字与实际不一致（正是 §3.5 警告的问题）。
+初稿曾写「`local-backend.txt` 记录 469 passed，本次实测 513 passed，属文档漂移」。
+**这是误判，特此更正。**
+
+实测两个数字都对，只是口径不同：
+
+| 来源 | 数字 | 含义 |
+| --- | --- | --- |
+| `pytest` stdout（含 `local-backend.txt`） | 469 passed, 44 skipped | pytest 的标准口径 |
+| `--junitxml` `testsuite@tests` / `--collect-only` | 513 | **收集**到的用例总数（含 44 个 skip） |
+
+关系为 **513 collected = 469 passed + 44 skipped**。二者不矛盾，
+`local-backend.txt` 的记录**准确**，无需修改（它是历史原始输出，本次也未改动）。
+
+**真正的教训**：报告测试数字时**必须写明口径**。本记录初稿把 junit 的
+"tests=513" 写成 "513 passed"，属于我自己的表述错误，已按上表更正。
 
 ### P3（环境差异，非代码问题）
 
@@ -165,11 +178,14 @@ AGENTS.md 假设 `backend/.venv`(3.13.7) 与项目自带 `bin/ffmpeg/`；
 
 | 套件 | 命令 | 结果 |
 | --- | --- | --- |
-| 后端全量 | `pytest -q` | **513 passed, 0 failed, 0 errors, 44 skipped** |
+| 后端全量 | `pytest -q` | **469 passed, 44 skipped（共收集 513）** |
 | 媒体作业（禁静默 skip） | `TSB_REQUIRE_FFMPEG=1 pytest test_ffmpeg_integration.py test_cancel_lifecycle.py` | **30 passed**（真实解码确实执行） |
 | 前端 typecheck | `tsc --noEmit` | 通过 |
 | 前端 lint | `eslint .` | 通过 |
 | 前端 test | `vitest run` | **21 passed** |
+
+后端原始输出存证：[macos-backend-py3.12.txt](macos-backend-py3.12.txt)
+（含 pytest 汇总行与独立的 `--collect-only` 收集数，便于核对口径）。
 
 44 个 skip 的 `-rs` 原因全部为平台事实类（`requires Windows` /
 `long-path behaviour is Windows-specific` / `MAX_PATH only constrains Windows`），
@@ -195,4 +211,4 @@ AGENTS.md 假设 `backend/.venv`(3.13.7) 与项目自带 `bin/ffmpeg/`；
    属 TSB 专项，本轮未覆盖。
 4. **素材维度不全** —— 无竖屏、无无音轨片段、无 HDR；6 段而非要求的 8～10 段。
 5. **60+ 段 / 200GB 全量性能未测** —— 本轮 4.4 GB。
-6. **P1/P2/P3 未修复** —— 仅记录，未提交改动。
+6. **P1/P3 未修复** —— 仅记录，未提交改动（P2 经复核不成立，已更正）。
