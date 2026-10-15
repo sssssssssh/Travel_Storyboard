@@ -11,10 +11,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
-from ..models import Asset, Job, Project, Segment, SegmentSemanticResult
+from ..models import Asset, Job, Project, Segment, SegmentMotionReview, SegmentSemanticResult
 from ..schemas import (
     JobOut,
     MotionCandidateOut,
+    MotionReviewOut,
+    MotionReviewRequest,
+    MotionVerdictRequest,
     VisionAnalyzeRequest,
     VisionPreviewOut,
     VisionResultOut,
@@ -202,6 +205,144 @@ def list_motion_candidates(project_id: str, db: Session = Depends(get_db)):
     from ..services.vision.review_candidates import build_candidates
 
     return build_candidates(db, project_id)
+
+
+# --- TSB-307: timestamped multi-frame motion review -----------------------
+
+def _motion_config(project: Project, request: JobRequest) -> dict:
+    options = request.options or {}
+    return {
+        "segment_ids": list(options.get("segment_ids") or []),
+        "frame_count": int(options.get("frame_count") or get_settings().motion_frame_count),
+        "limit": int(options.get("limit") or get_settings().vision_max_segments_per_job),
+        "upload_acknowledged": bool(options.get("upload_acknowledged")),
+    }
+
+
+@router.post("/projects/{project_id}/jobs/motion_review", response_model=JobOut, status_code=202)
+def start_motion_review(
+    project_id: str,
+    body: MotionReviewRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    """Queue a multi-frame dynamic review (202).
+
+    Deliberately a *job*, not a long synchronous HTTP call: it must be
+    cancellable and must not block the request thread while frames are decoded.
+    """
+    options = (body.model_dump() if body else {}) or {}
+    try:
+        return create_project_job(
+            db,
+            project_id,
+            JobRequest(job_type="motion_review", options=options, force=True),
+            config_builder=_motion_config,
+        )
+    except InvalidJobType as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ProjectNotFound:
+        raise HTTPException(status_code=404, detail="Project not found") from None
+    except JobConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail()) from exc
+
+
+@router.get("/projects/{project_id}/motion-reviews", response_model=list[MotionReviewOut])
+def list_motion_reviews(
+    project_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    rows = db.scalars(
+        select(SegmentMotionReview)
+        .where(
+            SegmentMotionReview.project_id == project_id,
+            SegmentMotionReview.is_current.is_(True),
+        )
+        .order_by(SegmentMotionReview.created_at.desc())
+        .limit(limit)
+    ).all()
+    return [_motion_out(r) for r in rows]
+
+
+@router.get("/segments/{segment_id}/motion-review", response_model=MotionReviewOut)
+def get_motion_review(segment_id: str, db: Session = Depends(get_db)):
+    row = db.scalars(
+        select(SegmentMotionReview)
+        .where(
+            SegmentMotionReview.segment_id == segment_id,
+            SegmentMotionReview.is_current.is_(True),
+        )
+        .order_by(SegmentMotionReview.created_at.desc())
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="No motion review for this segment")
+    return _motion_out(row)
+
+
+@router.post("/segments/{segment_id}/motion-review/verdict", response_model=MotionReviewOut)
+def set_motion_verdict(
+    segment_id: str,
+    body: MotionVerdictRequest,
+    db: Session = Depends(get_db),
+):
+    """Record a human verdict on a motion reading (C4).
+
+    The model's own conclusion stays in the row untouched; a re-run never clears
+    this field, which is what keeps "AI proposes, a person decides" structurally
+    true rather than merely intended.
+    """
+    from ..services.vision.motion import record_human_verdict
+
+    row = db.scalars(
+        select(SegmentMotionReview).where(
+            SegmentMotionReview.segment_id == segment_id,
+            SegmentMotionReview.is_current.is_(True),
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="No motion review for this segment")
+    try:
+        record_human_verdict(segment_id, body.verdict, body.note or "")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    db.rollback()
+    refreshed = db.scalars(
+        select(SegmentMotionReview).where(
+            SegmentMotionReview.segment_id == segment_id,
+            SegmentMotionReview.is_current.is_(True),
+        )
+    ).first()
+    return _motion_out(refreshed)
+
+
+def _motion_out(row: SegmentMotionReview) -> MotionReviewOut:
+    return MotionReviewOut(
+        id=row.id,
+        segment_id=row.segment_id,
+        asset_id=row.asset_id,
+        method=row.method,
+        status=row.status,
+        model_id=row.model_id,
+        prompt_version=row.prompt_version,
+        start_sec=row.start_sec,
+        end_sec=row.end_sec,
+        motion_type=row.motion_type,
+        stability_risk=row.stability_risk,
+        action_summary=row.action_summary,
+        analysis=dict(row.analysis_json or {}),
+        evidence=dict(row.evidence_json or {}),
+        request_usage=dict(row.request_usage or {}),
+        is_current=row.is_current,
+        human_verdict=row.human_verdict,
+        human_note=row.human_note,
+        human_at=row.human_at,
+        error_code=row.error_code,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
 
 
 def _result_out(row: SegmentSemanticResult) -> VisionResultOut:

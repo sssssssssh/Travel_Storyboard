@@ -34,12 +34,14 @@ from .services import (  # noqa: F401 - registers job tasks
     roughcut,
     story_planner,
 )
+from .services.vision.motion import register_motion_tasks
 from .services.vision.semantic import register_vision_tasks
 from .services.runner import converge_pending_cancellations, runner, resume_interrupted_jobs
 
 # M5 job types are registered explicitly rather than by import side effect, so
-# `vision_analyze` cannot be silently missing from TASK_REGISTRY.
+# they cannot be silently missing from TASK_REGISTRY.
 register_vision_tasks()
+register_motion_tasks()
 
 logger = logging.getLogger(__name__)
 

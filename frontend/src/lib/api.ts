@@ -148,6 +148,10 @@ export const endpoints = {
   visionResults: (id: string) => `/api/projects/${id}/vision-results`,
   segmentVisionResult: (segmentId: string) => `/api/segments/${segmentId}/vision-result`,
   visionCandidates: (id: string) => `/api/projects/${id}/vision-candidates`,
+  // --- M5.2 motion review (TSB-307) ---
+  motionReview: (id: string) => `/api/projects/${id}/jobs/motion_review`,
+  motionReviews: (id: string) => `/api/projects/${id}/motion-reviews`,
+  motionVerdict: (segmentId: string) => `/api/segments/${segmentId}/motion-review/verdict`,
   editPlan: (id: string) => `/api/projects/${id}/edit-plan`,
   exportJson: (id: string) => `/api/projects/${id}/export/json`,
   exportCsv: (id: string) => `/api/projects/${id}/export/csv`,

@@ -21,7 +21,10 @@ from sqlalchemy.orm import Session
 from ..models import Job, Project
 from .runner import EXCLUSIVE_JOB_TYPES, EXCLUSIVE_STATUSES, project_lock, runner
 
-VALID_JOB_TYPES = {"scan", "detect", "package", "proxies", "roughcut", "vision_analyze"}
+VALID_JOB_TYPES = {
+    "scan", "detect", "package", "proxies", "roughcut",
+    "vision_analyze", "motion_review",
+}
 
 
 def locking_job_for(project_id: str) -> Job | None:

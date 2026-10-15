@@ -338,3 +338,41 @@ export interface MotionCandidateOut {
   temporal_coverage_insufficient: boolean
   suggested_priority: string
 }
+
+/** A timestamped multi-frame motion reading (TSB-307).
+ *
+ *  `method` is "multiframe": stills at known timestamps, NOT continuous video.
+ *  The UI must keep that distinction visible. */
+export interface MotionReviewOut {
+  id: string
+  segment_id: string
+  asset_id: string
+  method: string
+  status: string
+  model_id: string
+  prompt_version: string
+  start_sec: number
+  end_sec: number
+  motion_type: string
+  stability_risk: string
+  action_summary: string
+  analysis: Record<string, unknown>
+  evidence: {
+    method?: string
+    frames?: { time_sec: number; frame_id?: string }[]
+    evidence_timestamps_sec?: number[]
+    limitations?: string[]
+    needs_human_review?: boolean
+    audio_analyzed?: boolean
+    video_analyzed?: boolean
+  }
+  request_usage: Record<string, number>
+  is_current: boolean
+  /** A person's own verdict; a model re-run never clears it. */
+  human_verdict: string
+  human_note: string
+  human_at: string | null
+  error_code: string
+  created_at: string
+  updated_at: string
+}

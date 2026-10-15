@@ -232,8 +232,7 @@ test('rule-based candidates are labelled as measurement, not a shake verdict', a
   expect(screen.getAllByText(/coverage/).length).toBeGreaterThan(0)
 })
 
-test('partial failure surfaces the per-item reason', async () => {
-  mockApi({
+test('partial failure surfaces the per-item reason', async () => {  mockApi({
     '/api/vision/status': configuredStatus,
     '/api/projects/p/vision/preview': preview,
     '/api/projects/p/vision-results': { limit: 50, offset: 0, count: 0, items: [] },
@@ -267,4 +266,108 @@ test('partial failure surfaces the per-item reason', async () => {
   expect(screen.getByText(/MODEL_TIMEOUT/)).toBeTruthy()
   // The coverage line legitimately appears in both the preview and the job progress.
   expect(screen.getAllByText(/未覆盖/).length).toBeGreaterThan(1)
+})
+
+// --- TSB-307: multi-frame motion review ----------------------------------
+
+const motionReview = {
+  id: 'm1',
+  segment_id: 'bbbbbbbb-1111-2222-3333-444444444444',
+  asset_id: 'a1',
+  method: 'multiframe',
+  status: 'succeeded',
+  model_id: 'GLM-5.3-Flash',
+  prompt_version: '1.0',
+  start_sec: 0,
+  end_sec: 5,
+  motion_type: 'pan',
+  stability_risk: 'medium',
+  action_summary: 'view rotates left across the lake',
+  analysis: {},
+  evidence: {
+    method: 'multiframe',
+    frames: [
+      { time_sec: 1 },
+      { time_sec: 2 },
+    ],
+    evidence_timestamps_sec: [1, 2],
+    limitations: ['frames far apart'],
+    needs_human_review: true,
+    audio_analyzed: false,
+    video_analyzed: false,
+  },
+  request_usage: { total_tokens: 42 },
+  is_current: true,
+  human_verdict: '',
+  human_note: '',
+  human_at: null,
+  error_code: '',
+  created_at: '2026-10-15T00:00:00Z',
+  updated_at: '2026-10-15T00:00:00Z',
+}
+
+test('motion results are labelled as multi-frame inference, not video', async () => {
+  mockApi({
+    '/api/vision/status': configuredStatus,
+    '/api/projects/p/vision/preview': preview,
+    '/api/projects/p/vision-results': { limit: 50, offset: 0, count: 0, items: [] },
+    '/api/projects/p/vision-candidates': [],
+    '/api/projects/p/motion-reviews': [motionReview],
+  })
+  setup()
+  await screen.findByText(/多帧动态推断结果/)
+  // The distinction from continuous video must be visible, not implied away.
+  expect(screen.getByText('多帧动态推断，非连续视频')).toBeTruthy()
+  expect(screen.getByText(/音频未分析/)).toBeTruthy()
+  expect(screen.getByText(/证据时间戳/)).toBeTruthy()
+  expect(screen.getByText('pan')).toBeTruthy()
+})
+
+test('an unknown motion verdict is marked for human confirmation', async () => {
+  mockApi({
+    '/api/vision/status': configuredStatus,
+    '/api/projects/p/vision/preview': preview,
+    '/api/projects/p/vision-results': { limit: 50, offset: 0, count: 0, items: [] },
+    '/api/projects/p/vision-candidates': [],
+    '/api/projects/p/motion-reviews': [
+      { ...motionReview, motion_type: 'unknown', stability_risk: 'unknown' },
+    ],
+  })
+  setup()
+  await screen.findByText('unknown')
+  expect(screen.getByText('需人工确认')).toBeTruthy()
+})
+
+test('a recorded human verdict replaces the verdict buttons', async () => {
+  mockApi({
+    '/api/vision/status': configuredStatus,
+    '/api/projects/p/vision/preview': preview,
+    '/api/projects/p/vision-results': { limit: 50, offset: 0, count: 0, items: [] },
+    '/api/projects/p/vision-candidates': [],
+    '/api/projects/p/motion-reviews': [{ ...motionReview, human_verdict: 'confirm' }],
+  })
+  setup()
+  await screen.findByText(/人工已确认：confirm/)
+  expect(screen.queryByRole('button', { name: '确认成立' })).toBeNull()
+})
+
+test('multi-frame review requires consent before it can be started', async () => {
+  mockApi({
+    '/api/vision/status': configuredStatus,
+    '/api/projects/p/vision/preview': preview,
+    '/api/projects/p/vision-results': { limit: 50, offset: 0, count: 0, items: [] },
+    '/api/projects/p/vision-candidates': [candidate],
+    '/api/projects/p/motion-reviews': [],
+  })
+  setup()
+  const button = await screen.findByRole('button', { name: '多帧复核' })
+  expect((button as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.getByText(/需先勾选上方同意项/)).toBeTruthy()
+
+  fireEvent.click(screen.getByRole('checkbox'))
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: '多帧复核' }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  )
 })

@@ -415,3 +415,46 @@ class MotionCandidateOut(BaseModel):
     reasons: list[str]
     temporal_coverage_insufficient: bool
     suggested_priority: str
+
+
+class MotionReviewRequest(BaseModel):
+    """Inputs for a timestamped multi-frame motion review (TSB-307)."""
+
+    segment_ids: list[str] = Field(default_factory=list)
+    frame_count: int | None = Field(default=None, ge=2, le=12)
+    limit: int | None = Field(default=None, ge=1, le=2000)
+    upload_acknowledged: bool = False
+
+
+class MotionVerdictRequest(BaseModel):
+    """A person's verdict on the current motion reading."""
+
+    verdict: str
+    note: str = ""
+
+
+class MotionReviewOut(ORMModel):
+    id: str
+    segment_id: str
+    asset_id: str
+    #: "multiframe" today. A future native-video adapter would report its own
+    #: value, and the UI must keep them visually distinct.
+    method: str
+    status: str
+    model_id: str
+    prompt_version: str
+    start_sec: float
+    end_sec: float
+    motion_type: str
+    stability_risk: str
+    action_summary: str
+    analysis: dict
+    evidence: dict
+    request_usage: dict
+    is_current: bool
+    human_verdict: str
+    human_note: str
+    human_at: datetime | None
+    error_code: str
+    created_at: datetime
+    updated_at: datetime

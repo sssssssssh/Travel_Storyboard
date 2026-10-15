@@ -138,6 +138,11 @@ jobs:
           tests/test_publish_cancel.py
           tests/test_cleanup_reporting.py
           tests/test_orphan_frame_safety.py
+          tests/test_vision_provider.py
+          tests/test_vision_schema.py
+          tests/test_vision_semantics.py
+          tests/test_vision_candidates.py
+          tests/test_vision_motion.py
       - name: Record exact commit and platform evidence
         if: always()
         working-directory: backend

@@ -67,6 +67,13 @@ def _job_config(project: Project, request: JobRequest) -> dict:
             "upload_acknowledged": bool(options.get("upload_acknowledged")),
             "prompt_version": settings.vision_prompt_version,
         }
+    if job_type == "motion_review":
+        return {
+            "segment_ids": list(options.get("segment_ids") or []),
+            "frame_count": int(options.get("frame_count") or settings.motion_frame_count),
+            "limit": int(options.get("limit") or settings.vision_max_segments_per_job),
+            "upload_acknowledged": bool(options.get("upload_acknowledged")),
+        }
     # roughcut
     return {}
 

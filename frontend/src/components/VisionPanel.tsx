@@ -5,6 +5,7 @@ import type {
   CoverageOut,
   JobOut,
   MotionCandidateOut,
+  MotionReviewOut,
   VisionPreviewOut,
   VisionResultOut,
   VisionResultsPage,
@@ -166,7 +167,14 @@ export default function VisionPanel({ projectId }: { projectId: string }) {
         onReload={() => qc.invalidateQueries({ queryKey: ['vision-results', projectId] })}
       />
 
-      <MotionCandidateList items={candidates.data ?? []} />
+      <MotionCandidateList
+        items={candidates.data ?? []}
+        projectId={projectId}
+        acknowledged={acknowledged}
+        onStarted={(jobId) => setJobId(jobId)}
+      />
+
+      <MotionReviewList projectId={projectId} />
     </Card>
   )
 }
@@ -294,7 +302,35 @@ function ResultsTable({
   )
 }
 
-function MotionCandidateList({ items }: { items: MotionCandidateOut[] }) {
+function MotionCandidateList({
+  items,
+  projectId,
+  acknowledged,
+  onStarted,
+}: {
+  items: MotionCandidateOut[]
+  projectId: string
+  acknowledged: boolean
+  onStarted: (jobId: string) => void
+}) {
+  const qc = useQueryClient()
+
+  const start = useMutation({
+    mutationFn: (segmentIds: string[]) =>
+      api<JobOut>(endpoints.motionReview(projectId), {
+        method: 'POST',
+        body: JSON.stringify({
+          segment_ids: segmentIds,
+          frame_count: 4,
+          upload_acknowledged: acknowledged,
+        }),
+      }),
+    onSuccess: (j) => {
+      onStarted(j.id)
+      qc.invalidateQueries({ queryKey: ['motion-reviews', projectId] })
+    },
+  })
+
   if (!items.length) return null
   const toneFor = (s: string) => (s === 'high' ? 'red' : s === 'medium' ? 'yellow' : 'slate')
 
@@ -323,8 +359,96 @@ function MotionCandidateList({ items }: { items: MotionCandidateOut[] }) {
                 {c.start_sec.toFixed(1)}–{c.end_sec.toFixed(1)}s · {c.frame_count} 帧
               </span>
               {c.temporal_coverage_insufficient && <Badge tone="yellow">运动不可判定</Badge>}
+              <Button
+                variant="ghost"
+                disabled={!acknowledged || start.isPending}
+                onClick={() => start.mutate([c.segment_id])}
+              >
+                多帧复核
+              </Button>
             </div>
             <div className="mt-1 text-slate-400">{c.reasons.join('；')}</div>
+          </li>
+        ))}
+      </ul>
+      {!acknowledged && (
+        <p className="text-xs text-amber-300">需先勾选上方同意项才能发起多帧复核。</p>
+      )}
+      {start.error && (
+        <p className="text-xs text-red-300">提交失败：{String((start.error as Error).message)}</p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Timestamped multi-frame results (TSB-307).
+ *
+ * The label "多帧动态推断" is deliberate and unavoidable: these readings come
+ * from stills at known timestamps, not from continuous video, and the interface
+ * must never imply the latter.
+ */
+function MotionReviewList({ projectId }: { projectId: string }) {
+  const qc = useQueryClient()
+  const reviews = useQuery({
+    queryKey: ['motion-reviews', projectId],
+    queryFn: () => api<MotionReviewOut[]>(endpoints.motionReviews(projectId)),
+  })
+
+  const verdict = useMutation({
+    mutationFn: ({ segmentId, value }: { segmentId: string; value: string }) =>
+      api<MotionReviewOut>(endpoints.motionVerdict(segmentId), {
+        method: 'POST',
+        body: JSON.stringify({ verdict: value }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['motion-reviews', projectId] }),
+  })
+
+  const items = reviews.data ?? []
+  if (!items.length) return null
+
+  return (
+    <div className="space-y-2 border-t border-ink-800 pt-3">
+      <div className="flex items-center gap-2">
+        <h4 className="text-sm font-semibold text-slate-200">多帧动态推断结果</h4>
+        <Badge tone="yellow">多帧动态推断，非连续视频</Badge>
+      </div>
+      <ul className="space-y-1 text-xs">
+        {items.slice(0, 10).map((m) => (
+          <li key={m.id} className="rounded border border-ink-800 bg-ink-800/40 p-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-slate-400">{m.segment_id.slice(0, 8)}</span>
+              <Badge tone={m.motion_type === 'unknown' ? 'yellow' : 'green'}>{m.motion_type}</Badge>
+              <Badge tone={m.stability_risk === 'high' ? 'red' : 'slate'}>
+                稳定风险 {m.stability_risk}
+              </Badge>
+              <span className="text-slate-500">
+                {m.start_sec.toFixed(1)}–{m.end_sec.toFixed(1)}s · 方法 {m.method}
+              </span>
+              {m.evidence?.needs_human_review && <Badge tone="yellow">需人工确认</Badge>}
+              {m.human_verdict && <Badge tone="green">人工已确认：{m.human_verdict}</Badge>}
+            </div>
+            <div className="mt-1 text-slate-300">{m.action_summary}</div>
+            <div className="mt-1 text-slate-500">
+              证据时间戳：{(m.evidence?.evidence_timestamps_sec ?? []).map((t) => `${t.toFixed(1)}s`).join(', ') || '—'}
+              {' · '}音频未分析
+            </div>
+            {!!m.evidence?.limitations?.length && (
+              <div className="text-slate-500">局限：{m.evidence.limitations.join('；')}</div>
+            )}
+            {!m.human_verdict && (
+              <div className="mt-1 flex gap-2">
+                <Button variant="ghost" onClick={() => verdict.mutate({ segmentId: m.segment_id, value: 'confirm' })}>
+                  确认成立
+                </Button>
+                <Button variant="ghost" onClick={() => verdict.mutate({ segmentId: m.segment_id, value: 'reject' })}>
+                  判定不成立
+                </Button>
+                <Button variant="ghost" onClick={() => verdict.mutate({ segmentId: m.segment_id, value: 'unclear' })}>
+                  仍不确定
+                </Button>
+              </div>
+            )}
           </li>
         ))}
       </ul>

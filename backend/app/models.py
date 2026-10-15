@@ -314,3 +314,57 @@ class SegmentSemanticResult(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class SegmentMotionReview(Base):
+    """M5.2 (TSB-307) — a timestamped multi-frame motion reading of one shot.
+
+    ``method`` records how the evidence was obtained. ``multiframe`` means
+    several stills sampled inside the valid interval were shown to the model; it
+    is **not** continuous video understanding, and the UI must not imply
+    otherwise. A future native-video adapter would add its own value here.
+
+    Human confirmation lives in ``human_verdict``/``human_at`` and is never
+    overwritten by a re-run: the model proposes, a person decides (C4).
+    """
+
+    __tablename__ = "segment_motion_reviews"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    asset_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+    segment_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+
+    method: Mapped[str] = mapped_column(String(32), default="multiframe")
+    status: Mapped[str] = mapped_column(String(32), default="succeeded")
+
+    model_provider: Mapped[str] = mapped_column(String(64), default="")
+    model_id: Mapped[str] = mapped_column(String(128), default="")
+    prompt_version: Mapped[str] = mapped_column(String(32), default="")
+
+    start_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    end_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    frame_manifest_hash: Mapped[str] = mapped_column(String(128), default="")
+
+    motion_type: Mapped[str] = mapped_column(String(32), default="unknown")
+    stability_risk: Mapped[str] = mapped_column(String(16), default="unknown")
+    action_summary: Mapped[str] = mapped_column(Text, default="")
+    analysis_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    evidence_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    request_usage: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: A person's own verdict; a re-run never clears it (C4).
+    human_verdict: Mapped[str] = mapped_column(String(32), default="")
+    human_note: Mapped[str] = mapped_column(Text, default="")
+    human_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    error_code: Mapped[str] = mapped_column(String(64), default="")
+    error_message: Mapped[str] = mapped_column(Text, default="")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
