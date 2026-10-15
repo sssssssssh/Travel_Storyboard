@@ -124,6 +124,9 @@ export interface JobOut {
     total_bytes?: number; processed_files?: number; total_files?: number; strict_extra_bytes?: number;
     forced_reprobe?: number; skipped_unchanged?: number; hash_passes?: number; hash_restarts?: number; needs_review?: number; source_changed?: number; files_generated?: number; bytes?: number;
     skipped_budget?: number; requested_duration_sec?: number; output_duration_sec?: number;
+    analyzed?: number; images_sent?: number; calls?: number;
+    usage?: Record<string, number>;
+    coverage?: CoverageOut;
     cleanup?: { ok: boolean; error_code?: string; retryable?: boolean; removed_files?: number;
       removed_bytes?: number; residual_count?: number; residual_bytes?: number | null; residual_paths?: string[] } }
   failures?: { count?: number; items?: JobFailureItem[] }
@@ -241,4 +244,97 @@ export interface BuildPlanResult {
   created: number
   errors: { index: number; message: string }[]
   total_duration_sec?: number
+}
+
+// --- M5 vision (TSB-304/305/306) -----------------------------------------
+
+/** How much of the library a run actually looked at. Never a "total" claim. */
+export interface CoverageOut {
+  library_segments: number
+  eligible: number
+  excluded: number
+  invalid: number
+  considered: number
+  not_covered: number
+  images_sent: number
+}
+
+export interface VisionStatusOut {
+  configured: boolean
+  mode: string
+  model_name: string
+  prompt_version: string
+  schema_version: string
+  supports_images: boolean
+  supports_multi_image: boolean
+  supports_json_schema: boolean
+  supports_native_video: boolean
+  max_images: number
+  max_calls_per_job: number
+  allow_insecure_http: boolean
+}
+
+export interface VisionPreviewOut {
+  model_name: string
+  configured: boolean
+  segments_to_analyze: number
+  estimated_images: number
+  estimated_requests: number
+  coverage: CoverageOut
+  sends_source_video: boolean
+  strips_metadata: boolean
+}
+
+export interface VisionResultOut {
+  id: string
+  segment_id: string
+  asset_id: string
+  status: string
+  model_provider: string
+  model_id: string
+  prompt_version: string
+  schema_version: string
+  source_signature: string
+  visual: {
+    scene_tags?: string[]
+    subjects?: string[]
+    visible_actions?: string[]
+    lighting?: string
+    composition?: string
+    mood?: string[]
+  }
+  evidence: {
+    state?: string
+    observed_confidence?: number
+    frame_ids?: string[]
+    limitations?: string[]
+    warnings?: string[]
+    review?: { needs_motion_review?: boolean; reasons?: string[] }
+  }
+  request_usage: Record<string, number>
+  is_current: boolean
+  error_code: string
+  created_at: string
+  updated_at: string
+}
+
+export interface VisionResultsPage {
+  limit: number
+  offset: number
+  count: number
+  items: VisionResultOut[]
+}
+
+/** One shot suggested for multi-frame review. `sources` names the origin so a
+ *  rule-based hint is never mistaken for a model judgement. */
+export interface MotionCandidateOut {
+  segment_id: string
+  asset_id: string
+  start_sec: number
+  end_sec: number
+  frame_count: number
+  sources: string[]
+  reasons: string[]
+  temporal_coverage_insufficient: boolean
+  suggested_priority: string
 }

@@ -141,6 +141,13 @@ export const endpoints = {
   importReviewRequests: (id: string) => `/api/projects/${id}/review-requests/import`,
   buildProxies: (id: string) => `/api/projects/${id}/review-requests/proxies`,
   analyzeStory: (id: string) => `/api/projects/${id}/story/analyze`,
+  // --- M5 vision (TSB-304/305/306) ---
+  visionStatus: '/api/vision/status',
+  visionPreview: (id: string) => `/api/projects/${id}/vision/preview`,
+  visionAnalyze: (id: string) => `/api/projects/${id}/jobs/vision_analyze`,
+  visionResults: (id: string) => `/api/projects/${id}/vision-results`,
+  segmentVisionResult: (segmentId: string) => `/api/segments/${segmentId}/vision-result`,
+  visionCandidates: (id: string) => `/api/projects/${id}/vision-candidates`,
   editPlan: (id: string) => `/api/projects/${id}/edit-plan`,
   exportJson: (id: string) => `/api/projects/${id}/export/json`,
   exportCsv: (id: string) => `/api/projects/${id}/export/csv`,

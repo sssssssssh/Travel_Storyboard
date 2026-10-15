@@ -13,6 +13,7 @@ import { useJob } from '../lib/useJob'
 import { Badge, Button, Card, Field, inputClass } from '../components/ui'
 
 import ReviewRequestCard from '../components/ReviewRequestCard'
+import VisionPanel from '../components/VisionPanel'
 
 export default function AIDirector() {
   const { id = '' } = useParams()
@@ -155,6 +156,13 @@ export default function AIDirector() {
           </ul>
         )}
       </Card>
+
+      {/* M5 · structured image semantics (TSB-305). Additive: the offline
+          package and the rule-based route above/below keep working without a
+          configured model. */}
+      <div className="mb-6">
+        <VisionPanel projectId={id} />
+      </div>
 
       {/* Round 2: import review requests */}
       <Card className="mb-6">
