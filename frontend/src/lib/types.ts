@@ -127,7 +127,7 @@ export interface JobOut {
     analyzed?: number; images_sent?: number; calls?: number;
     usage?: Record<string, number>;
     coverage?: CoverageOut;
-    cleanup?: { ok: boolean; error_code?: string; retryable?: boolean; removed_files?: number;
+    cleanup?: { ok: boolean; remediated?: boolean; had_failure?: boolean; error_code?: string; retryable?: boolean; removed_files?: number;
       removed_bytes?: number; residual_count?: number; residual_bytes?: number | null; residual_paths?: string[] } }
   failures?: { count?: number; items?: JobFailureItem[] }
   resume_token: Record<string, unknown>

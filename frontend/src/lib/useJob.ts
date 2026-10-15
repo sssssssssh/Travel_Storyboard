@@ -10,7 +10,7 @@ export function useJob(jobId: string | null) {
     enabled: !!jobId,
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      return status === 'pending' || status === 'running' ? 1500 : false
+      return status === 'pending' || status === 'running' || status === 'cancelling' ? 1500 : false
     },
   })
 }

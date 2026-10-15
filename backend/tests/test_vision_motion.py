@@ -343,7 +343,7 @@ def _row(job_id: str) -> Job:
 def test_job_samples_multiple_frames_and_stores_a_multiframe_result(project, stubbed, source_video):
     seg_id = _seed(project["id"], source_video)
     job_id = _job(project["id"], frame_count=3)
-    motion.motion_review_task(job_id)
+    _run_motion(job_id)
 
     row = _row(job_id)
     assert row.status == "succeeded", row.error
@@ -409,7 +409,7 @@ def test_short_interval_that_cannot_yield_two_frames_is_a_visible_failure(projec
     """Too-short shots must be reported, not silently counted as success."""
     seg_id = _seed(project["id"], source_video, start=2.0, end=2.0, duration=6.0)
     job_id = _job(project["id"], frame_count=3)
-    motion.motion_review_task(job_id)
+    _run_motion(job_id)
 
     row = _row(job_id)
     assert row.status == "partial_failed"
@@ -426,7 +426,7 @@ def test_source_longer_than_reported_duration_cannot_seek_past_the_end(project, 
     """A stale duration must not make the sampler seek beyond the file."""
     _seed(project["id"], source_video, start=5.0, end=999.0, duration=6.0)
     job_id = _job(project["id"], frame_count=3)
-    motion.motion_review_task(job_id)
+    _run_motion(job_id)
     # Either it samples inside 5-6s or it reports a failure; it must never hang
     # or claim frames it could not read.
     row = _row(job_id)
@@ -452,7 +452,7 @@ def test_model_failure_is_recorded_per_item(project, stubbed, source_video, monk
         lambda request, n: (_ for _ in ()).throw(ModelError("MODEL_TIMEOUT", "slow")),
     )
     job_id = _job(project["id"], frame_count=3)
-    motion.motion_review_task(job_id)
+    _run_motion(job_id)
     row = _row(job_id)
     assert row.status == "partial_failed"
     assert row.failures["items"][0]["error_code"] == "MODEL_TIMEOUT"
@@ -466,7 +466,7 @@ def test_invalid_model_output_is_a_visible_failure(project, stubbed, source_vide
         lambda request, n: VisionResponse(text="I cannot judge this.", model_id="stub"),
     )
     job_id = _job(project["id"], frame_count=2)
-    motion.motion_review_task(job_id)
+    _run_motion(job_id)
     assert _row(job_id).status == "partial_failed"
 
 
@@ -614,3 +614,9 @@ def test_media_layering_is_explicit():
 
     assert not unmarked, f"media-dependent tests missing @pytest.mark.needs_ffmpeg: {unmarked}"
     assert not overmarked, f"marked tests that do not use source_video: {overmarked}"
+
+
+def _run_motion(job_id):
+    # Terminal outcomes are owned by Runner after worker cleanup (TSB-320).
+    from app.services.runner import JobRunner
+    JobRunner()._run(job_id, motion.motion_review_task)

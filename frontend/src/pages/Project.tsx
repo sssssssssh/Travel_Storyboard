@@ -155,10 +155,10 @@ export default function Project() {
           <ul className="flex flex-col gap-2">
             {jobs.slice(0, 5).map((job) => (
               <li key={job.id} className="flex flex-wrap items-center gap-3 text-sm">
-                <Badge tone={statusTone[job.status] ?? 'slate'}>{statusLabel[job.status] ?? job.status}</Badge>
+                <Badge tone={job.stats.cleanup?.ok === false || (job.status === 'succeeded' && ['vision_analyze', 'motion_review'].includes(job.job_type) && !job.stats.cleanup) ? 'yellow' : statusTone[job.status] ?? 'slate'}>{job.status === 'succeeded' && (job.stats.cleanup?.ok === false || (['vision_analyze', 'motion_review'].includes(job.job_type) && !job.stats.cleanup)) ? '业务成功 · 清理需核对' : statusLabel[job.status] ?? job.status}</Badge>
                 {(job.status === 'pending' || job.status === 'running') && <Button variant="ghost" disabled={cancel.isPending} onClick={() => cancel.mutate(job.id)}>取消</Button>}
                 {job.status === 'cancelling' && <span className="text-xs text-amber-300">已收到取消请求，正在停止编码并清理暂存；完成后才会释放项目锁。</span>}
-                {!OCCUPYING_STATUSES.includes(job.status) && (job.status === 'cancelled' || job.stats.cleanup) && <CleanupNotice cleanup={job.stats.cleanup} />}
+                {!OCCUPYING_STATUSES.includes(job.status) && (job.status === 'cancelled' || job.stats.cleanup || ['vision_analyze', 'motion_review'].includes(job.job_type)) && <CleanupNotice cleanup={job.stats.cleanup} />}
                 {!hasActive && !OCCUPYING_STATUSES.includes(job.status) && job.stats.cleanup?.ok === false && job.stats.cleanup.retryable && <Button variant="ghost" disabled={retryCleanup.isPending} onClick={() => retryCleanup.mutate(job.id)}>安全重试清理</Button>}
                 <span className="text-slate-300">{{ scan: '素材建库', detect: '片段检测', package: '分析包', proxies: '二轮代理', roughcut: '粗剪' }[job.job_type] ?? job.job_type}</span>
                 <span className="text-xs text-slate-500" title={job.id}>编号 {job.id.slice(0, 8)}</span>

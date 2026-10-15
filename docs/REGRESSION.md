@@ -629,3 +629,17 @@ M5 全链路（见 `docs/validation/v2.1-m5/`），但**未覆盖竖屏/无音�
 |---|---|---|
 | test_vision_route_wiring::test_real_route_persists_all_visual_options (4) | TSB-319/312 接线 | 真实 FastAPI 匹配专用路由；前端 flat 和旧 options 包装都保留同意、选段、limit、force/frame_count |
 | ::test_visual_options_use_dedicated_validation (2) / test_ambiguous_consent_is_rejected_before_enqueue (2) | TSB-319/317 | 非法 limit 和矛盾的两种同意格式在入队前 422，不静默丢弃/覆盖 |
+
+## v2.1.2 / M5 收尾
+
+| 用例 | 任务 | 守护行为 |
+|---|---|---|
+| test_vision_cleanup_status::test_successful_model_with_failed_cleanup_is_partial_and_retry_is_model_free (2) | C320-01/02/06 | 两条真实 worker/Runner/API：模型成功但清理失败为 partial_failed；原结果保留；安全重试 0 新调用、终态/finished_at 不变、审计保留且标解决 |
+| ::test_worker_never_claims_success_before_runner_finalization (2) | C320-03/09 | worker 不提前写成功/部分失败，正常由 Runner 收敛成功 |
+| ::test_cancel_during_failed_cleanup_wins_and_terminal_time_is_immutable (2) | C320-05/09 | Event 清理屏障、取消优先、项目 409、finished_at 不回写；进程树/及时取消仍由原媒体套件守护 |
+| ::test_stats_failure_and_cleanup_failure_both_remain_visible (2) / test_cleanup_report_storage_failure_cannot_become_success (2) | C320-08 | 报表/清理同时故障均可见，报告失败不能伪装成功 |
+| ::test_stale_business_failure_snapshot_cannot_erase_cleanup_audit (2) | C320-04/08 | 旧失败对象发布新业务故障时不抹掉 durable cleanup audit；模型部分失败由原 semantics/motion 套件守护 |
+| ::test_unsafe_stage_is_visible_without_deleting_foreign_content (6) | C320-07 | 丢 owner/链接/兄弟任务：不删外部字节，API 清理异常可见，未知字节不当作 0 |
+| VisionPanel legacy-success cleanup/retry / CleanupNotice (新增 2) / useJob cancelling (新增 1) | C320-10 / U323-08/09/10 | 不保留纯绿色成功、重试只调 cleanup API、补救可见、未知数诚实、取消持续轮询 |
+
+T23 手动扩展：视觉业务成功但清理失败必须醒目警示；仅安全重试后保留终态、显示补救且模型调用数不增加。真实浏览器/真人工证据待 C 批，不以组件测试代替。

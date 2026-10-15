@@ -166,7 +166,7 @@ export default function VisionPanel({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      {job.data && <JobProgress job={job.data} />}
+      {job.data && <JobProgress job={job.data} projectId={projectId} />}
 
       <ResultsTable
         items={results.data?.items ?? []}
@@ -186,16 +186,23 @@ export default function VisionPanel({ projectId }: { projectId: string }) {
   )
 }
 
-function JobProgress({ job }: { job: JobOut }) {
+function JobProgress({ job, projectId }: { job: JobOut; projectId: string }) {
+  const qc = useQueryClient()
+  const retry = useMutation({
+    mutationFn: () => api<JobOut>(`/api/projects/${projectId}/jobs/${job.id}/cleanup-retry`, { method: 'POST' }),
+    onSuccess: (result) => qc.setQueryData(['job', job.id], result),
+  })
   const stats = job.stats ?? {}
   const coverage = stats.coverage as CoverageOut | undefined
+  const stopped = ['succeeded', 'partial_failed', 'failed', 'cancelled'].includes(job.status)
+  const unhealthy = stopped && stats.cleanup?.ok !== true
   const tone =
-    job.status === 'succeeded' ? 'green' : job.status === 'partial_failed' ? 'yellow' : job.status === 'failed' ? 'red' : 'blue'
+    job.status === 'failed' ? 'red' : unhealthy || job.status === 'partial_failed' ? 'yellow' : job.status === 'succeeded' ? 'green' : 'blue'
 
   return (
     <div className="space-y-1 rounded-md border border-ink-700 bg-ink-800/60 p-2 text-xs">
       <div className="flex items-center gap-2">
-        <Badge tone={tone}>{job.status}</Badge>
+        <Badge tone={tone}>{job.status === 'succeeded' && unhealthy ? `业务成功 · 清理${stats.cleanup ? '异常' : '状态未知'}` : job.status}</Badge>
         <span className="text-slate-300">
           分析 {stats.analyzed ?? 0} / 跳过 {stats.skipped ?? 0} / 失败 {stats.failed ?? 0}
           {typeof stats.images_sent === 'number' && <> · 发送图片 {stats.images_sent}</>}
@@ -215,7 +222,11 @@ function JobProgress({ job }: { job: JobOut }) {
           用量：{Object.entries(stats.usage).map(([k, v]) => `${k}=${v}`).join(' · ')}
         </div>
       )}
-      {(stats.cleanup || job.status === 'cancelled') && <CleanupNotice cleanup={stats.cleanup} />}
+      {(stats.cleanup || stopped) && <CleanupNotice cleanup={stats.cleanup} />}
+      {stopped && stats.cleanup?.ok === false && stats.cleanup.retryable && (
+        <Button variant="ghost" disabled={retry.isPending} onClick={() => retry.mutate()}>安全重试清理</Button>
+      )}
+      {retry.error && <div className="text-red-300">{retry.error.message}</div>}
       {job.error && <div className="text-amber-300">{job.error}</div>}
       {!!job.failures?.items?.length && (
         <ul className="list-inside list-disc text-amber-300">

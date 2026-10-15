@@ -1,0 +1,25 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_successful_model_with_failed_cleanup_is_partial_and_retry_is_model_free[semantic] _
+
+visual = ('4bd9e20a-526a-4033-beb0-ffef67516412', 'f8dc26fe-892a-42cd-baf2-66a8674a06b6', <module 'app.services.vision.semantic...e20a-526a-4033-beb0-ffef67516412', purpose='vision_analyze', acknowledged_at='2026-10-15T15:31:04+00:00', detail={}))])
+client = <starlette.testclient.TestClient object at 0x10ea273b0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10eb0f980>
+
+    def test_successful_model_with_failed_cleanup_is_partial_and_retry_is_model_free(visual, client, monkeypatch):
+        pid,jid,worker,task,calls = visual
+        with monkeypatch.context() as m:
+            m.setattr(cleanup, '_remove_file', locked)
+            r.JobRunner()._run(jid, task)
+        before = row(client,jid)
+>       assert before['status'] == 'partial_failed'
+E       AssertionError: assert 'succeeded' == 'partial_failed'
+E
+E         - partial_failed
+E         + succeeded
+
+backend/tests/test_vision_cleanup_status.py:59: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.staging_cleanup:staging_cleanup.py:331 CLEANUP_FAILED project=4bd9e20a-526a-4033-beb0-ffef67516412 job=f8dc26fe-892a-42cd-baf2-66a8674a06b6 error=PermissionError
+=========================== short test summary info ============================
+FAILED backend/tests/test_vision_cleanup_status.py::test_successful_model_with_failed_cleanup_is_partial_and_retry_is_model_free[semantic]

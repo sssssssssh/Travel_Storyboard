@@ -472,7 +472,10 @@ test('visual job cleanup residuals stay visible after model success', async () =
     '/api/projects/p/jobs/vision_analyze': { id: 'cleanup-job', status: 'pending', stats: {} },
     '/api/jobs/cleanup-job': { id: 'cleanup-job', status: 'succeeded', stats: {
       analyzed: 1, cleanup: { ok: false, residual_count: 1, residual_bytes: 123,
-        error_code: 'CLEANUP_FAILED', residual_paths: ['vision/staging/job/frame.jpg'] },
+        error_code: 'CLEANUP_FAILED', retryable: true, residual_paths: ['vision/staging/job/frame.jpg'] },
+    } },
+    '/api/projects/p/jobs/cleanup-job/cleanup-retry': { id: 'cleanup-job', status: 'succeeded', stats: {
+      analyzed: 1, cleanup: { ok: true, remediated: true, removed_files: 1, removed_bytes: 123 },
     } },
   })
   setup()
@@ -480,4 +483,9 @@ test('visual job cleanup residuals stay visible after model success', async () =
   fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
   await screen.findByText(/有暂存残留，需安全重试/)
   expect(screen.getByText(/123 字节/)).toBeTruthy()
+  expect(screen.queryByText('succeeded')).toBeNull()
+  expect(screen.getByRole('button', { name: '安全重试清理' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '安全重试清理' }))
+  await screen.findByText(/清理已补救/)
+  expect(vi.mocked(api).mock.calls.filter(([url]) => String(url).endsWith('/jobs/vision_analyze'))).toHaveLength(1)
 })

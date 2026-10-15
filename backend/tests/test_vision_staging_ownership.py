@@ -84,6 +84,7 @@ def test_workers_finally_report_real_cleanup(pipeline, outcome, project, stubbed
     row = _job_row(jid)
     assert 'cleanup' in row.stats
     if outcome == 'locked':
+        assert row.status == 'partial_failed'
         assert not row.stats['cleanup']['ok']
         assert row.stats['cleanup']['residual_bytes'] > 0
         assert row.stats['cleanup']['retryable']

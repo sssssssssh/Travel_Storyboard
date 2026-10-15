@@ -354,8 +354,9 @@ def cleanup_staging_or_log(project_id: str, stage: str | Path, *, owner_job_id: 
             report['path'] = redact(report['path'])
             report['residual_paths'] = [redact(p) for p in report['residual_paths']]
             record_cleanup_result(owner_job_id, report)
-        except Exception:
+        except Exception as exc:
             logger.exception('Could not record cleanup outcome job=%s', owner_job_id)
+            raise RuntimeError(f'CLEANUP_REPORT_FAILED (cleanup={result.error_code or "ok"})') from exc
     return result
 
 

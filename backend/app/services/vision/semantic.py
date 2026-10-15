@@ -567,11 +567,7 @@ def vision_analyze_task(job_id: str) -> None:
                                     analyzed=counts["analyzed"], cached=counts["skipped"]),
         "phase": "done",
     }
-    if len(failures):
-        update_job(job_id, status="partial_failed", stats=stats,
-                   error=f"{len(failures)} 个镜头或预算项失败")
-    else:
-        update_job(job_id, status="succeeded", stats=stats)
+    update_job(job_id, stats=stats)
 
 
 def _snapshot(candidate):

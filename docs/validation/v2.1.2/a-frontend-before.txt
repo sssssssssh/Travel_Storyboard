@@ -1,0 +1,145 @@
+
+> travel-storyboard-frontend@2.1.0 test
+> vitest run --run src/components/VisionPanel.test.tsx src/components/CleanupNotice.test.tsx
+
+
+ RUN  v2.1.9 <repo>/frontend
+
+ ❯ src/components/CleanupNotice.test.tsx (6 tests | 2 failed) 27ms
+   × unknown residual count is not shown as zero 5ms
+     → Unable to find an element with the text: /未知.*残留大小待核对/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<span[39m
+      [33mclass[39m=[32m"text-xs text-amber-300"[39m
+    [36m>[39m
+      [0m有暂存残留，需安全重试（[0m
+      [0m0[0m
+      [0m 项，[0m
+      [0m残留大小待核对[0m
+      [0m；[0m
+      [0mCLEANUP_FAILED[0m
+      [0m）[0m
+    [36m</span>[39m
+  [36m</div>[39m
+[36m</body>[39m
+   × safe retry success is visibly remediated while preserving history 1ms
+     → Unable to find an element with the text: /清理已补救.*42 字节/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<span[39m
+      [33mclass[39m=[32m"text-xs text-slate-500"[39m
+    [36m>[39m
+      [0m已清理：[0m
+      [0m1[0m
+      [0m 个文件，[0m
+      [0m42[0m
+      [0m 字节[0m
+    [36m</span>[39m
+  [36m</div>[39m
+[36m</body>[39m
+stderr | src/components/VisionPanel.test.tsx > unconfigured model shows guidance and sends no request
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ❯ src/components/VisionPanel.test.tsx (19 tests | 1 failed) 249ms
+   × visual job cleanup residuals stay visible after model success 16ms
+     → expected <span …(1)></span> to be null
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/CleanupNotice.test.tsx > unknown residual count is not shown as zero
+TestingLibraryElementError: Unable to find an element with the text: /未知.*残留大小待核对/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<span[39m
+      [33mclass[39m=[32m"text-xs text-amber-300"[39m
+    [36m>[39m
+      [0m有暂存残留，需安全重试（[0m
+      [0m0[0m
+      [0m 项，[0m
+      [0m残留大小待核对[0m
+      [0m；[0m
+      [0mCLEANUP_FAILED[0m
+      [0m）[0m
+    [36m</span>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/CleanupNotice.test.tsx:29:17
+     27| test('unknown residual count is not shown as zero', () => {
+     28|   render(<CleanupNotice cleanup={{ ok: false, residual_bytes: null }} …
+     29|   expect(screen.getByText(/未知.*残留大小待核对/)).toBeTruthy()
+       |                 ^
+     30| })
+     31|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/components/CleanupNotice.test.tsx > safe retry success is visibly remediated while preserving history
+TestingLibraryElementError: Unable to find an element with the text: /清理已补救.*42 字节/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<span[39m
+      [33mclass[39m=[32m"text-xs text-slate-500"[39m
+    [36m>[39m
+      [0m已清理：[0m
+      [0m1[0m
+      [0m 个文件，[0m
+      [0m42[0m
+      [0m 字节[0m
+    [36m</span>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/CleanupNotice.test.tsx:34:17
+     32| test('safe retry success is visibly remediated while preserving histor…
+     33|   render(<CleanupNotice cleanup={{ ok: true, remediated: true, removed…
+     34|   expect(screen.getByText(/清理已补救.*42 字节/)).toBeTruthy()
+       |                 ^
+     35| })
+     36|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/components/VisionPanel.test.tsx > visual job cleanup residuals stay visible after model success
+AssertionError: expected <span …(1)></span> to be null
+
+- Expected:
+null
+
++ Received:
+<span
+  class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-900/60 text-emerald-300"
+>
+  succeeded
+</span>
+
+ ❯ src/components/VisionPanel.test.tsx:483:43
+    481|   await screen.findByText(/有暂存残留，需安全重试/)
+    482|   expect(screen.getByText(/123 字节/)).toBeTruthy()
+    483|   expect(screen.queryByText('succeeded')).toBeNull()
+       |                                           ^
+    484|   expect(screen.getByRole('button', { name: '安全重试清理' })).toBeTru…
+    485| })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+ Test Files  2 failed (2)
+      Tests  3 failed | 22 passed (25)
+   Start at  23:25:10
+   Duration  1.27s (transform 117ms, setup 0ms, collect 337ms, tests 276ms, environment 691ms, prepare 108ms)

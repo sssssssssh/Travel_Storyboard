@@ -299,7 +299,7 @@ def test_new_job_reaches_the_provider_only_when_authorised(project, counting, mo
     _seed(project["id"], count=2)
 
     job_id = _make_job(project["id"], upload_acknowledged=True)
-    semantic.vision_analyze_task(job_id)
+    _run_vision(job_id)
 
     assert len(counting.calls) == 2, "each shot should have produced one attempt"
     # The stub always fails, so the job must report that rather than claim success.
@@ -375,3 +375,9 @@ def test_legacy_route_shares_the_boundary_with_the_new_one(project, monkeypatch)
     assert "is_configured" not in code, (
         "checking only is_configured() is exactly the silent-upload defect (TSB-312)"
     )
+
+
+def _run_vision(job_id):
+    # Terminal outcomes are owned by Runner after worker cleanup (TSB-320).
+    from app.services.runner import JobRunner
+    JobRunner()._run(job_id, semantic.vision_analyze_task)

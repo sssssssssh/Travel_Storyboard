@@ -1,0 +1,33 @@
+
+> travel-storyboard-frontend@2.1.0 test
+> vitest run --run src/lib/useJob.test.tsx
+
+
+ RUN  v2.1.9 <repo>/frontend
+
+ ❯ src/lib/useJob.test.tsx (1 test | 1 failed) 16ms
+   × cancelling keeps polling until cleanup and work have actually stopped 16ms
+     → expected 'cancelling' to be 'cancelled' // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/lib/useJob.test.tsx > cancelling keeps polling until cleanup and work have actually stopped
+AssertionError: expected 'cancelling' to be 'cancelled' // Object.is equality
+
+Expected: "cancelled"
+Received: "cancelling"
+
+ ❯ src/lib/useJob.test.tsx:21:46
+     19|   await act(async () => { await vi.advanceTimersByTimeAsync(1600) })
+     20|   await act(async () => { await vi.advanceTimersByTimeAsync(1600) })
+     21|   expect(result.result.current.data?.status).toBe('cancelled')
+       |                                              ^
+     22|   const count = vi.mocked(api).mock.calls.length
+     23|   await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  23:28:32
+   Duration  814ms (transform 31ms, setup 0ms, collect 121ms, tests 16ms, environment 317ms, prepare 44ms)

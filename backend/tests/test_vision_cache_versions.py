@@ -23,8 +23,13 @@ def seed(project, tmp_path, count=2):
     return data
 
 
-def run(pid, **options):
-    jid = _make_job(pid, **options); semantic.vision_analyze_task(jid)
+def run(pid, *, _runner=True, **options):
+    jid = _make_job(pid, **options)
+    if _runner:
+        from app.services.runner import JobRunner
+        JobRunner()._run(jid, semantic.vision_analyze_task)
+    else:
+        semantic.vision_analyze_task(jid)
     return _job_row(jid)
 
 
@@ -102,8 +107,11 @@ def test_parallel_identical_publish_has_one_current_row(project, stubbed, tmp_pa
         return original(*args, **kwargs)
     monkeypatch.setattr(semantic, '_store_result', synchronized)
     with ThreadPoolExecutor(2) as pool:
-        rows = [pool.submit(run, project['id'], force=True) for _ in range(2)]
-        assert all(f.result(timeout=20).status == 'succeeded' for f in rows)
+        rows = [pool.submit(run, project['id'], force=True, _runner=False) for _ in range(2)]
+        # Deliberately bypass project serialization to stress the publication writer.
+        # Direct workers stay running until Runner finalizes; both published once.
+        results = [f.result(timeout=20) for f in rows]
+        assert all(row.status == 'running' and row.stats['analyzed'] == 1 for row in results)
     with session_scope() as s:
         rows = s.scalars(select(SegmentSemanticResult).where(SegmentSemanticResult.project_id == project['id'])).all()
         assert sum(r.is_current for r in rows) == 1

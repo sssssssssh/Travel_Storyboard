@@ -239,7 +239,7 @@ def test_selection_skips_shots_without_frames(project):
 def test_job_analyzes_and_stores_results(project, stubbed):
     _seed(project["id"], [("a.mp4", 2, "pending"), ("b.mp4", 1, "pending")])
     job_id = _make_job(project["id"])
-    semantic.vision_analyze_task(job_id)
+    _run_vision(job_id)
 
     row = _job_row(job_id)
     assert row.status == "succeeded", row.error
@@ -398,10 +398,10 @@ def test_force_reruns_in_place_without_duplicating(project, stubbed):
     """
     _seed(project["id"], [("a.mp4", 1, "pending")])
     first = _make_job(project["id"])
-    semantic.vision_analyze_task(first)
+    _run_vision(first)
 
     forced = _make_job(project["id"], force=True)
-    semantic.vision_analyze_task(forced)
+    _run_vision(forced)
     row = _job_row(forced)
     assert row.status == "succeeded", row.error
     assert row.stats["analyzed"] == 1, "force must actually re-analyze"
@@ -476,7 +476,7 @@ def test_provider_failure_yields_partial_failed(project, monkeypatch, stubbed):
 
     monkeypatch.setattr(stubbed, "behaviour", behaviour)
     job_id = _make_job(project["id"])
-    semantic.vision_analyze_task(job_id)
+    _run_vision(job_id)
 
     row = _job_row(job_id)
     assert row.status == "partial_failed", "one failure must not read as success"
@@ -494,7 +494,7 @@ def test_invalid_model_output_is_a_visible_failure(project, monkeypatch, stubbed
         lambda request, n: VisionResponse(text="I cannot help with that.", model_id="stub"),
     )
     job_id = _make_job(project["id"])
-    semantic.vision_analyze_task(job_id)
+    _run_vision(job_id)
     row = _job_row(job_id)
     assert row.status == "partial_failed"
     assert row.failures["items"][0]["error_code"] == "MODEL_INVALID_OUTPUT"
@@ -506,7 +506,7 @@ def test_budget_is_enforced(project, stubbed, monkeypatch):
     monkeypatch.setattr(get_settings(), "model_max_calls_per_job", 1, raising=False)
     _seed(project["id"], [("a.mp4", 3, "pending")])
     job_id = _make_job(project["id"])
-    semantic.vision_analyze_task(job_id)
+    _run_vision(job_id)
 
     row = _job_row(job_id)
     assert row.stats["analyzed"] == 1
@@ -605,3 +605,9 @@ def test_semantic_token_budget_comes_from_config(project, stubbed):
     semantic.vision_analyze_task(_make_job(project["id"]))
     assert stubbed.calls, "provider should have been called"
     assert stubbed.calls[0].max_tokens == settings.vision_max_tokens
+
+
+def _run_vision(job_id):
+    # Terminal outcomes are owned by Runner after worker cleanup (TSB-320).
+    from app.services.runner import JobRunner
+    JobRunner()._run(job_id, semantic.vision_analyze_task)

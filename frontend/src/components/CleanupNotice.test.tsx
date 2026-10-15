@@ -13,7 +13,7 @@ test('successful cleanup displays actual files and bytes', () => {
   expect(screen.getByText('已清理：3 个文件，42 字节')).toBeTruthy()
 })
 test('failed cleanup displays residuals and only a bounded path summary', () => {
-  render(<CleanupNotice cleanup={{ ok: false, error_code: 'CLEANUP_FAILED', residual_count: 1, residual_bytes: 9, residual_paths: ['/Users/alice/private/proxies/staging/token'] }} />)
+  render(<CleanupNotice cleanup={{ ok: false, retryable: true, error_code: 'CLEANUP_FAILED', residual_count: 1, residual_bytes: 9, residual_paths: ['/Users/alice/private/proxies/staging/token'] }} />)
   expect(screen.getByText(/有暂存残留，需安全重试.*9 字节.*CLEANUP_FAILED/)).toBeTruthy()
   expect(screen.queryByText(/Users|alice|private/)).toBeNull()
 })
@@ -22,4 +22,14 @@ test('unknown residual byte count never claims zero bytes', () => {
   render(<CleanupNotice cleanup={{ ok: false, residual_count: 1, residual_bytes: null }} />)
   expect(screen.getByText(/残留大小待核对/)).toBeTruthy()
   expect(screen.queryByText(/0 字节/)).toBeNull()
+})
+
+test('unknown residual count is not shown as zero', () => {
+  render(<CleanupNotice cleanup={{ ok: false, residual_bytes: null }} />)
+  expect(screen.getByText(/未知.*残留大小待核对/)).toBeTruthy()
+})
+
+test('safe retry success is visibly remediated while preserving history', () => {
+  render(<CleanupNotice cleanup={{ ok: true, remediated: true, removed_files: 1, removed_bytes: 42 }} />)
+  expect(screen.getByText(/清理已补救.*42 字节/)).toBeTruthy()
 })

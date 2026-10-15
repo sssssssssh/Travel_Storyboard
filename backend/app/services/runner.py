@@ -138,10 +138,18 @@ class JobFailures:
 
     def publish(self) -> None:
         """Mirror the failure list onto the job row for the UI."""
-        update_job(
-            self.job_id,
-            failures={"count": self.total, "items": list(self.items)},
-        )
+        with session_scope() as s:
+            begin_write(s)
+            job = s.get(Job, self.job_id)
+            if job is None:
+                return
+            audits = {item['ref']: item for item in (job.failures or {}).get('items', [])
+                      if item.get('cleanup_audit')}
+            saved = [audits.get(item['ref'], item) if item.get('cleanup_audit') else item
+                     for item in self.items]
+            known = {item['ref'] for item in self.items if item.get('cleanup_audit')}
+            missing = [item for ref, item in audits.items() if ref not in known]
+            job.failures = {'count': self.total + len(missing), 'items': saved + missing}
 
     def __len__(self) -> int:
         return self.total
@@ -246,6 +254,14 @@ def record_cleanup_result(job_id: str, report: dict) -> None:
             items[legacy['path']] = legacy
         previous = items.get(report['path'], {})
         report = dict(report)
+        first_failure = previous.get('first_failure')
+        if not report['ok'] and not first_failure:
+            first_failure = {**report, 'recorded_at': _now().isoformat()}
+        if first_failure:
+            report['first_failure'] = first_failure
+            if report['ok']:
+                report['resolved_at'] = previous.get('resolved_at') or _now().isoformat()
+                report['resolution'] = 'safe_cleanup_retry'
         for field in ('removed_files', 'removed_bytes'):
             report[field] += int(previous.get(field, 0))
         items[report['path']] = report
@@ -253,6 +269,8 @@ def record_cleanup_result(job_id: str, report: dict) -> None:
         failures = [r for r in reports if not r['ok']]
         stats['cleanup'] = {
             'ok': not failures, 'items': items,
+            'had_failure': any(r.get('first_failure') for r in reports),
+            'remediated': not failures and any(r.get('first_failure') for r in reports),
             'error_code': failures[0]['error_code'] if failures else '',
             'retryable': any(r['retryable'] for r in failures),
             'removed_files': sum(r['removed_files'] for r in reports),
@@ -263,6 +281,26 @@ def record_cleanup_result(job_id: str, report: dict) -> None:
             'residual_paths': [p for r in failures for p in r['residual_paths']][:5],
         }
         job.stats = stats
+        # Same writer boundary as health: a worker cannot finish between these
+        # two facts. Keep the original audit after a safe retry resolves health.
+        facts = dict(job.failures or {})
+        entries = [dict(item) for item in facts.get('items', [])]
+        audit = next((item for item in entries if item.get('cleanup_audit')), None)
+        if failures and audit is None:
+            audit = {'kind': 'cleanup', 'ref': job_id, 'cleanup_audit': True,
+                     'error_code': failures[0]['error_code'],
+                     'message': '暂存清理异常；详见 stats.cleanup',
+                     'recorded_at': _now().isoformat()}
+            entries.append(audit)
+            facts['count'] = int(facts.get('count', 0)) + 1
+        if audit is not None:
+            if not failures:
+                audit.setdefault('resolved_at', _now().isoformat())
+                audit['resolution'] = 'safe_cleanup_retry'
+            else:
+                audit.pop('resolved_at', None)
+                audit.pop('resolution', None)
+            job.failures = {**facts, 'items': entries}
 
 
 def job_status(job_id: str) -> str | None:

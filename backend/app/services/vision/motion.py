@@ -333,11 +333,7 @@ def motion_review_task(job_id: str) -> None:
         "usage": totals,
         "phase": "done",
     }
-    if len(failures):
-        update_job(job_id, status="partial_failed", stats=stats,
-                   error=f"{len(failures)} 个镜头动态复核失败")
-    else:
-        update_job(job_id, status="succeeded", stats=stats)
+    update_job(job_id, stats=stats)
 
 
 def _select_targets(project_id: str, segment_ids: list[str], limit: int) -> list[dict]:

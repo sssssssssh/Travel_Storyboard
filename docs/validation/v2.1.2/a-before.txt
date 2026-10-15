@@ -1,0 +1,269 @@
+FFFF..FFFFFF                                                             [100%]
+=================================== FAILURES ===================================
+_ test_successful_model_with_failed_cleanup_is_partial_and_retry_is_model_free[semantic] _
+
+visual = ('8e7fa7e6-eb13-4425-83df-786dbc84b96d', 'b2ff4c76-b85e-4cc9-b864-2cc74a403198', <module 'app.services.vision.semantic...a7e6-eb13-4425-83df-786dbc84b96d', purpose='vision_analyze', acknowledged_at='2026-10-15T15:24:49+00:00', detail={}))])
+client = <starlette.testclient.TestClient object at 0x1065f6de0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x119499a00>
+
+    def test_successful_model_with_failed_cleanup_is_partial_and_retry_is_model_free(visual, client, monkeypatch):
+        pid,jid,worker,task,calls = visual
+        with monkeypatch.context() as m:
+            m.setattr(cleanup, '_remove_file', locked)
+            r.JobRunner()._run(jid, task)
+        before = row(client,jid)
+>       assert before['status'] == 'partial_failed'
+E       AssertionError: assert 'succeeded' == 'partial_failed'
+E
+E         - partial_failed
+E         + succeeded
+
+backend/tests/test_vision_cleanup_status.py:59: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.staging_cleanup:staging_cleanup.py:331 CLEANUP_FAILED project=8e7fa7e6-eb13-4425-83df-786dbc84b96d job=b2ff4c76-b85e-4cc9-b864-2cc74a403198 error=PermissionError
+_ test_successful_model_with_failed_cleanup_is_partial_and_retry_is_model_free[motion] _
+
+visual = ('ce9903c0-b2d3-4472-9723-bd0d91e906dd', 'c1d330c3-7015-4639-85e6-f394a47adf2a', <module 'app.services.vision.motion' ...s/project/Travel_Storyboard/backend/app/services/vision/motion.py'>, <function motion_review_task at 0x1059189a0>, [1])
+client = <starlette.testclient.TestClient object at 0x106249430>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1196a2b10>
+
+    def test_successful_model_with_failed_cleanup_is_partial_and_retry_is_model_free(visual, client, monkeypatch):
+        pid,jid,worker,task,calls = visual
+        with monkeypatch.context() as m:
+            m.setattr(cleanup, '_remove_file', locked)
+            r.JobRunner()._run(jid, task)
+        before = row(client,jid)
+>       assert before['status'] == 'partial_failed'
+E       AssertionError: assert 'succeeded' == 'partial_failed'
+E
+E         - partial_failed
+E         + succeeded
+
+backend/tests/test_vision_cleanup_status.py:59: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.staging_cleanup:staging_cleanup.py:331 CLEANUP_FAILED project=ce9903c0-b2d3-4472-9723-bd0d91e906dd job=c1d330c3-7015-4639-85e6-f394a47adf2a error=PermissionError
+____ test_worker_never_claims_success_before_runner_finalization[semantic] _____
+
+visual = ('04a0a03e-4d67-4972-af36-b462e43fe962', '764b0d96-7126-4a09-8055-455deef40762', <module 'app.services.vision.semantic...a03e-4d67-4972-af36-b462e43fe962', purpose='vision_analyze', acknowledged_at='2026-10-15T15:24:49+00:00', detail={}))])
+client = <starlette.testclient.TestClient object at 0x119499220>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1196a27b0>
+
+    def test_worker_never_claims_success_before_runner_finalization(visual,client,monkeypatch):
+        _,jid,worker,task,_ = visual
+        original = worker.update_job; premature = []
+        def observe(job_id,**fields):
+            if fields.get('status') in ('succeeded','partial_failed'): premature.append(fields['status'])
+            return original(job_id,**fields)
+        monkeypatch.setattr(worker,'update_job',observe)
+        r.JobRunner()._run(jid,task)
+>       assert premature==[]
+E       AssertionError: assert ['succeeded'] == []
+E
+E         Left contains one more item: 'succeeded'
+E         Use -v to get more diff
+
+backend/tests/test_vision_cleanup_status.py:89: AssertionError
+_____ test_worker_never_claims_success_before_runner_finalization[motion] ______
+
+visual = ('1fc72f5d-9d13-448a-a809-e4e77ba1803b', 'e1994636-3ef7-4741-bfe0-9734758515e3', <module 'app.services.vision.motion' ...s/project/Travel_Storyboard/backend/app/services/vision/motion.py'>, <function motion_review_task at 0x1059189a0>, [1])
+client = <starlette.testclient.TestClient object at 0x1046f2c00>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1196e3e00>
+
+    def test_worker_never_claims_success_before_runner_finalization(visual,client,monkeypatch):
+        _,jid,worker,task,_ = visual
+        original = worker.update_job; premature = []
+        def observe(job_id,**fields):
+            if fields.get('status') in ('succeeded','partial_failed'): premature.append(fields['status'])
+            return original(job_id,**fields)
+        monkeypatch.setattr(worker,'update_job',observe)
+        r.JobRunner()._run(jid,task)
+>       assert premature==[]
+E       AssertionError: assert ['succeeded'] == []
+E
+E         Left contains one more item: 'succeeded'
+E         Use -v to get more diff
+
+backend/tests/test_vision_cleanup_status.py:89: AssertionError
+_____ test_stats_failure_and_cleanup_failure_both_remain_visible[semantic] _____
+
+visual = ('f88f8a7b-30bb-45d2-912c-2beb6fc309c0', '4f55628c-05dd-4fc4-89a4-da48ba98f31b', <module 'app.services.vision.semantic...8a7b-30bb-45d2-912c-2beb6fc309c0', purpose='vision_analyze', acknowledged_at='2026-10-15T15:24:49+00:00', detail={}))])
+client = <starlette.testclient.TestClient object at 0x1196fddc0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x119717fe0>
+
+    def test_stats_failure_and_cleanup_failure_both_remain_visible(visual,client,monkeypatch):
+        _,jid,worker,task,_=visual
+        monkeypatch.setattr(worker,'merge_job_stats',lambda *a: (_ for _ in ()).throw(RuntimeError('original stats failure')))
+        monkeypatch.setattr(cleanup,'_remove_file',locked)
+        r.JobRunner()._run(jid,task)
+        result=row(client,jid)
+        assert result['status']=='failed' and 'original stats failure' in result['error']
+        assert result['stats']['cleanup']['ok'] is False
+>       assert any(f.get('cleanup_audit') for f in result['failures']['items'])
+E       assert False
+E        +  where False = any(<generator object test_stats_failure_and_cleanup_failure_both_remain_visible.<locals>.<genexpr> at 0x119743920>)
+
+backend/tests/test_vision_cleanup_status.py:123: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.staging_cleanup:staging_cleanup.py:331 CLEANUP_FAILED project=f88f8a7b-30bb-45d2-912c-2beb6fc309c0 job=4f55628c-05dd-4fc4-89a4-da48ba98f31b error=PermissionError
+ERROR    app.services.runner:runner.py:455 Job 4f55628c-05dd-4fc4-89a4-da48ba98f31b failed
+Traceback (most recent call last):
+  File "<repo>/backend/app/services/runner.py", line 442, in _run
+    task(job_id)
+  File "<repo>/backend/app/services/vision/semantic.py", line 545, in vision_analyze_task
+    merge_job_stats(job_id, {"calls": sum(c.calls for c in considered),
+  File "<repo>/backend/tests/test_vision_cleanup_status.py", line 117, in <lambda>
+    monkeypatch.setattr(worker,'merge_job_stats',lambda *a: (_ for _ in ()).throw(RuntimeError('original stats failure')))
+                                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/backend/tests/test_vision_cleanup_status.py", line 117, in <genexpr>
+    monkeypatch.setattr(worker,'merge_job_stats',lambda *a: (_ for _ in ()).throw(RuntimeError('original stats failure')))
+RuntimeError: original stats failure
+______ test_stats_failure_and_cleanup_failure_both_remain_visible[motion] ______
+
+visual = ('80b5ea2a-6a70-4b56-a939-aa273eef252e', '522bf98b-ec25-4083-9b3a-5203d33e7a90', <module 'app.services.vision.motion' ...s/project/Travel_Storyboard/backend/app/services/vision/motion.py'>, <function motion_review_task at 0x1059189a0>, [1])
+client = <starlette.testclient.TestClient object at 0x1196e3170>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1197167b0>
+
+    def test_stats_failure_and_cleanup_failure_both_remain_visible(visual,client,monkeypatch):
+        _,jid,worker,task,_=visual
+        monkeypatch.setattr(worker,'merge_job_stats',lambda *a: (_ for _ in ()).throw(RuntimeError('original stats failure')))
+        monkeypatch.setattr(cleanup,'_remove_file',locked)
+        r.JobRunner()._run(jid,task)
+        result=row(client,jid)
+        assert result['status']=='failed' and 'original stats failure' in result['error']
+        assert result['stats']['cleanup']['ok'] is False
+>       assert any(f.get('cleanup_audit') for f in result['failures']['items'])
+E       assert False
+E        +  where False = any(<generator object test_stats_failure_and_cleanup_failure_both_remain_visible.<locals>.<genexpr> at 0x119740860>)
+
+backend/tests/test_vision_cleanup_status.py:123: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.staging_cleanup:staging_cleanup.py:331 CLEANUP_FAILED project=80b5ea2a-6a70-4b56-a939-aa273eef252e job=522bf98b-ec25-4083-9b3a-5203d33e7a90 error=PermissionError
+ERROR    app.services.runner:runner.py:455 Job 522bf98b-ec25-4083-9b3a-5203d33e7a90 failed
+Traceback (most recent call last):
+  File "<repo>/backend/app/services/runner.py", line 442, in _run
+    task(job_id)
+  File "<repo>/backend/app/services/vision/motion.py", line 318, in motion_review_task
+    merge_job_stats(job_id, {"calls": sum(t.get("calls", 0) for t in targets),
+  File "<repo>/backend/tests/test_vision_cleanup_status.py", line 117, in <lambda>
+    monkeypatch.setattr(worker,'merge_job_stats',lambda *a: (_ for _ in ()).throw(RuntimeError('original stats failure')))
+                                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/backend/tests/test_vision_cleanup_status.py", line 117, in <genexpr>
+    monkeypatch.setattr(worker,'merge_job_stats',lambda *a: (_ for _ in ()).throw(RuntimeError('original stats failure')))
+RuntimeError: original stats failure
+_____ test_cleanup_report_storage_failure_cannot_become_success[semantic] ______
+
+visual = ('8e274343-9542-4643-ac56-62fad7afdafc', '3e21e456-965a-4ff7-9813-fbaf793fb0d0', <module 'app.services.vision.semantic...4343-9542-4643-ac56-62fad7afdafc', purpose='vision_analyze', acknowledged_at='2026-10-15T15:24:49+00:00', detail={}))])
+client = <starlette.testclient.TestClient object at 0x1196fd880>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x119716db0>
+
+    def test_cleanup_report_storage_failure_cannot_become_success(visual,client,monkeypatch):
+        _,jid,_,task,_=visual
+        monkeypatch.setattr(r,'record_cleanup_result',lambda *a: (_ for _ in ()).throw(OSError('report storage unavailable')))
+        monkeypatch.setattr(cleanup,'_remove_file',locked)
+        r.JobRunner()._run(jid,task)
+        result=row(client,jid)
+>       assert result['status']=='failed' and 'CLEANUP_REPORT_FAILED' in result['error']
+E       AssertionError: assert ('succeeded' == 'failed'
+E
+E         - failed
+E         + succeeded)
+
+backend/tests/test_vision_cleanup_status.py:132: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.staging_cleanup:staging_cleanup.py:331 CLEANUP_FAILED project=8e274343-9542-4643-ac56-62fad7afdafc job=3e21e456-965a-4ff7-9813-fbaf793fb0d0 error=PermissionError
+ERROR    app.services.staging_cleanup:staging_cleanup.py:358 Could not record cleanup outcome job=3e21e456-965a-4ff7-9813-fbaf793fb0d0
+Traceback (most recent call last):
+  File "<repo>/backend/app/services/staging_cleanup.py", line 356, in cleanup_staging_or_log
+    record_cleanup_result(owner_job_id, report)
+  File "<repo>/backend/tests/test_vision_cleanup_status.py", line 128, in <lambda>
+    monkeypatch.setattr(r,'record_cleanup_result',lambda *a: (_ for _ in ()).throw(OSError('report storage unavailable')))
+                                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/backend/tests/test_vision_cleanup_status.py", line 128, in <genexpr>
+    monkeypatch.setattr(r,'record_cleanup_result',lambda *a: (_ for _ in ()).throw(OSError('report storage unavailable')))
+OSError: report storage unavailable
+______ test_cleanup_report_storage_failure_cannot_become_success[motion] _______
+
+visual = ('698a00f1-09b7-44f2-91a6-cb7233896b02', 'cb00f6bf-3cc3-4e80-b81d-21aa4e8e2a21', <module 'app.services.vision.motion' ...s/project/Travel_Storyboard/backend/app/services/vision/motion.py'>, <function motion_review_task at 0x1059189a0>, [1])
+client = <starlette.testclient.TestClient object at 0x1196fdc70>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x119715460>
+
+    def test_cleanup_report_storage_failure_cannot_become_success(visual,client,monkeypatch):
+        _,jid,_,task,_=visual
+        monkeypatch.setattr(r,'record_cleanup_result',lambda *a: (_ for _ in ()).throw(OSError('report storage unavailable')))
+        monkeypatch.setattr(cleanup,'_remove_file',locked)
+        r.JobRunner()._run(jid,task)
+        result=row(client,jid)
+>       assert result['status']=='failed' and 'CLEANUP_REPORT_FAILED' in result['error']
+E       AssertionError: assert ('succeeded' == 'failed'
+E
+E         - failed
+E         + succeeded)
+
+backend/tests/test_vision_cleanup_status.py:132: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.staging_cleanup:staging_cleanup.py:331 CLEANUP_FAILED project=698a00f1-09b7-44f2-91a6-cb7233896b02 job=cb00f6bf-3cc3-4e80-b81d-21aa4e8e2a21 error=PermissionError
+ERROR    app.services.staging_cleanup:staging_cleanup.py:358 Could not record cleanup outcome job=cb00f6bf-3cc3-4e80-b81d-21aa4e8e2a21
+Traceback (most recent call last):
+  File "<repo>/backend/app/services/staging_cleanup.py", line 356, in cleanup_staging_or_log
+    record_cleanup_result(owner_job_id, report)
+  File "<repo>/backend/tests/test_vision_cleanup_status.py", line 128, in <lambda>
+    monkeypatch.setattr(r,'record_cleanup_result',lambda *a: (_ for _ in ()).throw(OSError('report storage unavailable')))
+                                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/backend/tests/test_vision_cleanup_status.py", line 128, in <genexpr>
+    monkeypatch.setattr(r,'record_cleanup_result',lambda *a: (_ for _ in ()).throw(OSError('report storage unavailable')))
+OSError: report storage unavailable
+__ test_stale_business_failure_snapshot_cannot_erase_cleanup_audit[semantic] ___
+
+visual = ('fa330c99-c8e0-418e-8f02-b877b9f90cfd', '0c485aa8-6f8c-48b7-8676-8d6b4dbdb1d0', <module 'app.services.vision.semantic...project/Travel_Storyboard/backend/app/services/vision/semantic.py'>, <function vision_analyze_task at 0x1058ffa60>, [])
+client = <starlette.testclient.TestClient object at 0x1036ee6f0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11a016bd0>
+
+    def test_stale_business_failure_snapshot_cannot_erase_cleanup_audit(visual,client,monkeypatch):
+        pid,jid,_,_,_=visual
+        from test_vision_staging_ownership import visual_stage
+        owner,path=visual_stage(pid,'vision_analyze')
+        snapshot=r.JobFailures(owner)
+        cleanup.create_owned_staging(pid,path,owner_job_id=owner);(path/'bytes').write_bytes(b'owned')
+        monkeypatch.setattr(cleanup,'_remove_file',locked)
+        cleanup.cleanup_staging_or_log(pid,path,owner_job_id=owner)
+        snapshot.record(kind='budget',ref=jid,message='budget failed',error_code='MODEL_BUDGET_EXCEEDED')
+>       assert any(f.get('cleanup_audit') for f in row(client,owner)['failures']['items'])
+E       assert False
+E        +  where False = any(<generator object test_stale_business_failure_snapshot_cannot_erase_cleanup_audit.<locals>.<genexpr> at 0x11a01f5e0>)
+
+backend/tests/test_vision_cleanup_status.py:144: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.staging_cleanup:staging_cleanup.py:331 CLEANUP_FAILED project=fa330c99-c8e0-418e-8f02-b877b9f90cfd job=0e819d24-a08b-4761-b0ec-aface9718978 error=PermissionError
+___ test_stale_business_failure_snapshot_cannot_erase_cleanup_audit[motion] ____
+
+visual = ('0e823852-0fbb-4a39-9e65-b86f52b6b238', '1437721f-924e-4445-92a7-7c3790eded58', <module 'app.services.vision.motion' ...ds/project/Travel_Storyboard/backend/app/services/vision/motion.py'>, <function motion_review_task at 0x1059189a0>, [])
+client = <starlette.testclient.TestClient object at 0x1196e0e30>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1196a3890>
+
+    def test_stale_business_failure_snapshot_cannot_erase_cleanup_audit(visual,client,monkeypatch):
+        pid,jid,_,_,_=visual
+        from test_vision_staging_ownership import visual_stage
+        owner,path=visual_stage(pid,'vision_analyze')
+        snapshot=r.JobFailures(owner)
+        cleanup.create_owned_staging(pid,path,owner_job_id=owner);(path/'bytes').write_bytes(b'owned')
+        monkeypatch.setattr(cleanup,'_remove_file',locked)
+        cleanup.cleanup_staging_or_log(pid,path,owner_job_id=owner)
+        snapshot.record(kind='budget',ref=jid,message='budget failed',error_code='MODEL_BUDGET_EXCEEDED')
+>       assert any(f.get('cleanup_audit') for f in row(client,owner)['failures']['items'])
+E       assert False
+E        +  where False = any(<generator object test_stale_business_failure_snapshot_cannot_erase_cleanup_audit.<locals>.<genexpr> at 0x119674d40>)
+
+backend/tests/test_vision_cleanup_status.py:144: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.staging_cleanup:staging_cleanup.py:331 CLEANUP_FAILED project=0e823852-0fbb-4a39-9e65-b86f52b6b238 job=4d2217cd-59a0-4da2-a8e9-f70ededdceac error=PermissionError
+=========================== short test summary info ============================
+FAILED backend/tests/test_vision_cleanup_status.py::test_successful_model_with_failed_cleanup_is_partial_and_retry_is_model_free[semantic]
+FAILED backend/tests/test_vision_cleanup_status.py::test_successful_model_with_failed_cleanup_is_partial_and_retry_is_model_free[motion]
+FAILED backend/tests/test_vision_cleanup_status.py::test_worker_never_claims_success_before_runner_finalization[semantic]
+FAILED backend/tests/test_vision_cleanup_status.py::test_worker_never_claims_success_before_runner_finalization[motion]
+FAILED backend/tests/test_vision_cleanup_status.py::test_stats_failure_and_cleanup_failure_both_remain_visible[semantic]
+FAILED backend/tests/test_vision_cleanup_status.py::test_stats_failure_and_cleanup_failure_both_remain_visible[motion]
+FAILED backend/tests/test_vision_cleanup_status.py::test_cleanup_report_storage_failure_cannot_become_success[semantic]
+FAILED backend/tests/test_vision_cleanup_status.py::test_cleanup_report_storage_failure_cannot_become_success[motion]
+FAILED backend/tests/test_vision_cleanup_status.py::test_stale_business_failure_snapshot_cannot_erase_cleanup_audit[semantic]
+FAILED backend/tests/test_vision_cleanup_status.py::test_stale_business_failure_snapshot_cannot_erase_cleanup_audit[motion]
