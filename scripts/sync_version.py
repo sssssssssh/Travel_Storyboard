@@ -10,17 +10,17 @@ import re
 
 
 def synchronize(root: Path, *, check: bool) -> bool:
-    target=(root/'VERSION').read_text().strip()
+    target=(root/'VERSION').read_text(encoding='utf-8').strip()
     if not re.fullmatch(r'\d+\.\d+\.\d+',target):
         raise ValueError('invalid release VERSION')
     path=root/'frontend/package.json'
-    data=json.loads(path.read_text())
+    data=json.loads(path.read_text(encoding='utf-8'))
     if data.get('version')==target:
         return True
     if check:
         return False
     data['version']=target
-    path.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n')
+    path.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     return True
 
 

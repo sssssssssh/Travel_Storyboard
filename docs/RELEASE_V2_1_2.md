@@ -47,3 +47,5 @@ TSB-322：新增 16 个强制媒体用例，以真实正式 API → Runner → F
 逐项矩阵见 `validation/v2.1.2/FORMAT_MATRIX.json`，L1/现有 L2 缺口分开；版本/媒体错误码/CI 接线原始红绿与反向证据为 b-*.txt，JUnit 和平台 skip 解释见 B_LOCAL.json。本批同 SHA CI 推送后核对。
 
 范围：不变更原片、正式 SQLite、人工状态、检测算法/边界或模型授权/TLS/清理安全边界；兼容测试仅生成小型隔离文件。没有新增版权来源不明的旅行视频、没有复制同一实片充数、没有开发 M6/音频/原生视频模型。C 批浏览器/真人工 UI 及真实产物验收待执行；8～10 段多类型实片和 HDR 色彩准确性、200GB 性能仍未完成。
+
+B 批首次 CI 的 Windows 编码失败与补救见 [B_WINDOWS_ENCODING.md](validation/v2.1.2/B_WINDOWS_ENCODING.md)。UTF-8 修正后重新执行全量与同 SHA CI；首次失败未记作通过。

@@ -189,4 +189,4 @@ def test_mixed_project_retains_good_formats_and_isolates_corruption(client,tmp_p
 
 def test_matrix_is_explicitly_forced_in_the_media_job():
     workflow=Path(__file__).resolve().parents[2]/'.github/workflows/ci.yml'
-    assert 'tests/test_media_format_matrix.py' in workflow.read_text()
+    assert 'tests/test_media_format_matrix.py' in workflow.read_text(encoding='utf-8')
