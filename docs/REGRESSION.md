@@ -596,3 +596,15 @@ M5 全链路（见 `docs/validation/v2.1-m5/`），但**未覆盖竖屏/无音�
 | VisionPanel human-state (3) / verdict version-note-conflict (1) | T314-07 | 三态/历史/备注可见，提交绑定用户看到的证据，错误可见 |
 
 手动门禁：在 Mac 真实素材和真实 HTTPS 模型条件下复查人工判定原样重跑、改裁剪重跑、历史及升级前后数据；本轮尚未执行，不以以上自动化替代。
+
+| 用例 | 任务 | 守护行为 |
+|---|---|---|
+| test_vision_cache_versions::test_adding_c_only_calls_c / test_only_trimmed_a_invalidates | T315-01/02 | 单镜头键，新增/精细裁剪仅重算受影响镜头 |
+| ::test_prompt_round_trip_activates_requested_version | T315-03 | v1→v2→v1 确实调用并正确切换 current |
+| ::test_actual_frame_change_cannot_hit_cache (2) / missing_source | T315-04 | JPEG 替换/缺失、源失效不得误命中 |
+| ::test_force_retains_request_audit_and_actual_wire_fingerprint | T315-05 | force 调用与独立请求审计/实际帧指纹 |
+| ::test_parallel_identical_publish_has_one_current_row | T315-06 | 双线程两个有意调用，写锁串行，唯一当前版本且两个审计 |
+| ::test_legacy_unknown_signature_is_retained_but_not_treated_as_valid | T315-07 | 旧签名保留为历史，不假定有效 |
+| ::test_coverage_counts_failures_and_cache_separately / VisionPanel coverage | TSB-315 | 计划、成功、缓存、失败与未覆盖分别计数/展示 |
+| test_vision_commit_races::test_after_model_before_writer_never_publishes_stale (14) | T316-01～05/07/08 | 两条链路在 provider 返回后使用 Event 注入取消/精细裁剪/排除/删除/源替换/检测变更/错项目 Job，无过期写入，取消期间 409 |
+| ::test_writer_first_commits_once_then_cancel_converges (2) | T316-06 | writer 先拿锁，取消确实等待，提交保留，终态 cancelled，无重复结果 |

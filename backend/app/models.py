@@ -316,6 +316,22 @@ class SegmentSemanticResult(Base):
     )
 
 
+class SegmentSemanticAttempt(Base):
+    """Every successful provider result, including forced identical re-runs."""
+    __tablename__ = "segment_semantic_attempts"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    job_id: Mapped[str] = mapped_column(String(36), index=True)
+    segment_id: Mapped[str] = mapped_column(String(36), index=True)
+    result_id: Mapped[str] = mapped_column(String(36), index=True)
+    source_signature: Mapped[str] = mapped_column(String(128))
+    frame_manifest_hash: Mapped[str] = mapped_column(String(128))
+    analysis_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    evidence_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    request_usage: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class SegmentMotionReview(Base):
     """M5.2 (TSB-307) — a timestamped multi-frame motion reading of one shot.
 

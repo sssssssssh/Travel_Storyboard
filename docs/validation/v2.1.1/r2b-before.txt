@@ -1,0 +1,1484 @@
+FFFFFFFFFFFFFFFFFFFFFF                                                   [100%]
+=================================== FAILURES ===================================
+__________________________ test_adding_c_only_calls_c __________________________
+
+project = {'id': '5bd0a3fa-c102-4c91-9a79-80c4a577b758', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10ef5fad0>
+tmp_path = PosixPath('<temp>')
+
+    def test_adding_c_only_calls_c(project, stubbed, tmp_path):
+        data = seed(project, tmp_path)
+        run(project['id'])
+        extra = _seed(project['id'], [('c.mp4', 1, 'pending')])
+        path = tmp_path / 'c.mp4'; path.write_bytes(b'new-source')
+        with session_scope() as s:
+            s.get(Asset, extra['assets']['c.mp4']).source_path = str(path)
+        row = run(project['id'])
+>       assert row.stats['skipped'] == 2
+E       assert 0 == 2
+
+backend/tests/test_vision_cache_versions.py:39: AssertionError
+_______________________ test_only_trimmed_a_invalidates ________________________
+
+project = {'id': '8452b7b6-ddcd-473d-b72c-3cde9d234600', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f1d7e60>
+tmp_path = PosixPath('<temp>')
+
+    def test_only_trimmed_a_invalidates(project, stubbed, tmp_path):
+        data = seed(project, tmp_path)
+        run(project['id'])
+        with session_scope() as s:
+            s.get(Segment, data['segments'][0]['segment_id']).start_sec += 0.0001
+        row = run(project['id'])
+>       assert (row.stats['analyzed'], row.stats['skipped']) == (1, 1)
+E       assert (0, 2) == (1, 1)
+E         
+E         At index 0 diff: 0 != 1
+E         Use -v to get more diff
+
+backend/tests/test_vision_cache_versions.py:50: AssertionError
+______________ test_prompt_round_trip_activates_requested_version ______________
+
+project = {'id': 'e4d3295b-2ca0-48c2-a9b1-cdc0d0b4d446', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f22bef0>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f22ac60>
+client = <starlette.testclient.TestClient object at 0x10ef40860>
+
+    def test_prompt_round_trip_activates_requested_version(project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1)
+        sid = data['segments'][0]['segment_id']
+        for prompt in ('v1', 'v2', 'v1'):
+            monkeypatch.setattr(get_settings(), 'vision_prompt_version', prompt)
+            row = run(project['id'])
+            assert row.status == 'succeeded'
+            out = client.get(f'/api/segments/{sid}/vision-result').json()
+>           assert out['prompt_version'] == prompt
+E           AssertionError: assert 'v2' == 'v1'
+E             
+E             - v1
+E             + v2
+
+backend/tests/test_vision_cache_versions.py:62: AssertionError
+______________ test_actual_frame_change_cannot_hit_cache[replace] ______________
+
+project = {'id': 'de821aa2-69f1-415e-a481-c3fad05636ac', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f22b8f0>
+tmp_path = PosixPath('<temp>')
+change = 'replace'
+
+    @pytest.mark.parametrize('change', ['replace', 'delete'])
+    def test_actual_frame_change_cannot_hit_cache(project, stubbed, tmp_path, change):
+        data = seed(project, tmp_path, 1)
+        run(project['id'])
+        with session_scope() as s:
+            frame = s.scalars(select(Frame).where(Frame.segment_id == data['segments'][0]['segment_id'])).one()
+        path = resolve_in_project(project['id'], frame.image_path)
+        if change == 'replace':
+            Image.new('RGB', (320, 180), 'white').save(path)
+        else:
+            path.unlink()
+        row = run(project['id'])
+>       assert row.stats['skipped'] == 0
+E       assert 1 == 0
+
+backend/tests/test_vision_cache_versions.py:78: AssertionError
+______________ test_actual_frame_change_cannot_hit_cache[delete] _______________
+
+project = {'id': 'ccb4c67d-0510-4813-b0a4-ff6bb4d477c0', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f228380>
+tmp_path = PosixPath('<temp>')
+change = 'delete'
+
+    @pytest.mark.parametrize('change', ['replace', 'delete'])
+    def test_actual_frame_change_cannot_hit_cache(project, stubbed, tmp_path, change):
+        data = seed(project, tmp_path, 1)
+        run(project['id'])
+        with session_scope() as s:
+            frame = s.scalars(select(Frame).where(Frame.segment_id == data['segments'][0]['segment_id'])).one()
+        path = resolve_in_project(project['id'], frame.image_path)
+        if change == 'replace':
+            Image.new('RGB', (320, 180), 'white').save(path)
+        else:
+            path.unlink()
+        row = run(project['id'])
+>       assert row.stats['skipped'] == 0
+E       assert 1 == 0
+
+backend/tests/test_vision_cache_versions.py:78: AssertionError
+_________ test_force_retains_request_audit_and_actual_wire_fingerprint _________
+
+self = <sqlalchemy.engine.base.Connection object at 0x10f5584a0>
+dialect = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x103d97470>
+context = <sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x10f559cd0>
+statement = <sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x10f55af30>
+parameters = [('ba7d0d0d-8df6-4191-a876-744a515311ff',)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -> CursorResult[Unpack[TupleAny]]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        evt_handled: bool = False
+        try:
+            if self._has_events or self.engine._has_events:
+                for fn in self.dispatch.before_cursor_execute:
+                    str_statement, effective_parameters = fn(
+                        self,
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                        context.executemany,
+                    )
+    
+            if self._echo:
+                self._log_info(str_statement)
+    
+                stats = context._get_cache_stats()
+    
+                if not self.engine.hide_parameters:
+                    self._log_info(
+                        "[%s] %r",
+                        stats,
+                        sql_util._repr_params(
+                            effective_parameters,
+                            batches=10,
+                            ismulti=context.executemany,
+                        ),
+                    )
+                else:
+                    self._log_info(
+                        "[%s] [SQL parameters hidden due to "
+                        "hide_parameters=True]",
+                        stats,
+                    )
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+>                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1946: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x103d97470>
+cursor = <sqlite3.Cursor object at 0x10f546140>
+statement = 'SELECT * FROM segment_semantic_attempts WHERE project_id=?'
+parameters = ('ba7d0d0d-8df6-4191-a876-744a515311ff',)
+context = <sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x10f559cd0>
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+>       cursor.execute(statement, parameters)
+E       sqlite3.OperationalError: no such table: segment_semantic_attempts
+
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py:1192: OperationalError
+
+The above exception was the direct cause of the following exception:
+
+project = {'id': 'ba7d0d0d-8df6-4191-a876-744a515311ff', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f55b1d0>
+tmp_path = PosixPath('<temp>')
+
+    def test_force_retains_request_audit_and_actual_wire_fingerprint(project, stubbed, tmp_path):
+        data = seed(project, tmp_path, 1)
+        one = run(project['id']); two = run(project['id'], force=True)
+        assert len(stubbed.calls) == 2
+        assert two.stats['calls'] == 1
+        with session_scope() as s:
+>           attempts = s.execute(text('SELECT * FROM segment_semantic_attempts WHERE project_id=:pid'),
+                                 {'pid': project['id']}).mappings().all()
+
+backend/tests/test_vision_cache_versions.py:88: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2473: in execute
+    return self._execute_internal(
+.venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2373: in _execute_internal
+    result = conn.execute(
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1451: in execute
+    return meth(
+.venv/lib/python3.12/site-packages/sqlalchemy/sql/elements.py:533: in _execute_on_connection
+    return connection._execute_clauseelement(
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1671: in _execute_clauseelement
+    ret = self._execute_context(
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1825: in _execute_context
+    return self._exec_single_context(
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1965: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:2335: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1946: in _exec_single_context
+    self.dialect.do_execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x103d97470>
+cursor = <sqlite3.Cursor object at 0x10f546140>
+statement = 'SELECT * FROM segment_semantic_attempts WHERE project_id=?'
+parameters = ('ba7d0d0d-8df6-4191-a876-744a515311ff',)
+context = <sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x10f559cd0>
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+>       cursor.execute(statement, parameters)
+E       sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) no such table: segment_semantic_attempts
+E       [SQL: SELECT * FROM segment_semantic_attempts WHERE project_id=?]
+E       [parameters: ('ba7d0d0d-8df6-4191-a876-744a515311ff',)]
+E       (Background on this error at: https://sqlalche.me/e/21/e3q8)
+
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py:1192: OperationalError
+_____________ test_parallel_identical_publish_has_one_current_row ______________
+
+self = <sqlalchemy.engine.base.Connection object at 0x10f586a20>
+dialect = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x103d97470>
+context = <sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x10f5864b0>
+statement = <sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x10f587e90>
+parameters = [('58ce9274-bd58-48b6-b275-a344a08e0951',)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -> CursorResult[Unpack[TupleAny]]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        evt_handled: bool = False
+        try:
+            if self._has_events or self.engine._has_events:
+                for fn in self.dispatch.before_cursor_execute:
+                    str_statement, effective_parameters = fn(
+                        self,
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                        context.executemany,
+                    )
+    
+            if self._echo:
+                self._log_info(str_statement)
+    
+                stats = context._get_cache_stats()
+    
+                if not self.engine.hide_parameters:
+                    self._log_info(
+                        "[%s] %r",
+                        stats,
+                        sql_util._repr_params(
+                            effective_parameters,
+                            batches=10,
+                            ismulti=context.executemany,
+                        ),
+                    )
+                else:
+                    self._log_info(
+                        "[%s] [SQL parameters hidden due to "
+                        "hide_parameters=True]",
+                        stats,
+                    )
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+>                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1946: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x103d97470>
+cursor = <sqlite3.Cursor object at 0x10fbf1bc0>
+statement = 'SELECT count(*) FROM segment_semantic_attempts WHERE project_id=?'
+parameters = ('58ce9274-bd58-48b6-b275-a344a08e0951',)
+context = <sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x10f5864b0>
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+>       cursor.execute(statement, parameters)
+E       sqlite3.OperationalError: no such table: segment_semantic_attempts
+
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py:1192: OperationalError
+
+The above exception was the direct cause of the following exception:
+
+project = {'id': '58ce9274-bd58-48b6-b275-a344a08e0951', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f5868d0>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f587ec0>
+
+    def test_parallel_identical_publish_has_one_current_row(project, stubbed, tmp_path, monkeypatch):
+        seed(project, tmp_path, 1)
+        original = semantic._store_result
+        gate = Barrier(2)
+        def synchronized(*args, **kwargs):
+            gate.wait(timeout=10)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(semantic, '_store_result', synchronized)
+        with ThreadPoolExecutor(2) as pool:
+            rows = [pool.submit(run, project['id'], force=True) for _ in range(2)]
+            assert all(f.result(timeout=20).status == 'succeeded' for f in rows)
+        with session_scope() as s:
+            rows = s.scalars(select(SegmentSemanticResult).where(SegmentSemanticResult.project_id == project['id'])).all()
+            assert sum(r.is_current for r in rows) == 1
+            # Two intentional provider calls have two audited publications, one version.
+>           assert s.execute(text('SELECT count(*) FROM segment_semantic_attempts WHERE project_id=:pid'),
+                             {'pid': project['id']}).scalar_one() == 2
+
+backend/tests/test_vision_cache_versions.py:111: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2473: in execute
+    return self._execute_internal(
+.venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2373: in _execute_internal
+    result = conn.execute(
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1451: in execute
+    return meth(
+.venv/lib/python3.12/site-packages/sqlalchemy/sql/elements.py:533: in _execute_on_connection
+    return connection._execute_clauseelement(
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1671: in _execute_clauseelement
+    ret = self._execute_context(
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1825: in _execute_context
+    return self._exec_single_context(
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1965: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:2335: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1946: in _exec_single_context
+    self.dialect.do_execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x103d97470>
+cursor = <sqlite3.Cursor object at 0x10fbf1bc0>
+statement = 'SELECT count(*) FROM segment_semantic_attempts WHERE project_id=?'
+parameters = ('58ce9274-bd58-48b6-b275-a344a08e0951',)
+context = <sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x10f5864b0>
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+>       cursor.execute(statement, parameters)
+E       sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) no such table: segment_semantic_attempts
+E       [SQL: SELECT count(*) FROM segment_semantic_attempts WHERE project_id=?]
+E       [parameters: ('58ce9274-bd58-48b6-b275-a344a08e0951',)]
+E       (Background on this error at: https://sqlalche.me/e/21/e3q8)
+
+.venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py:1192: OperationalError
+_______________ test_missing_source_is_not_a_valid_cached_input ________________
+
+project = {'id': 'dd0a7912-c468-47cc-920e-a511d1feef19', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f22b080>
+tmp_path = PosixPath('<temp>')
+
+    def test_missing_source_is_not_a_valid_cached_input(project, stubbed, tmp_path):
+        seed(project, tmp_path, 1)
+        run(project['id'])
+        (tmp_path / 'a.mp4').unlink()
+        row = run(project['id'])
+>       assert row.stats['skipped'] == 0
+E       assert 1 == 0
+
+backend/tests/test_vision_cache_versions.py:120: AssertionError
+____ test_after_model_before_writer_never_publishes_stale[cancel-semantic] _____
+
+pipeline = 'semantic', change = 'cancel'
+project = {'id': '6db3da28-38ad-42a0-b184-f3141d666b90', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f58a690>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f58abd0>
+client = <starlette.testclient.TestClient object at 0x10f55be90>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('change', ['cancel', 'trim', 'exclude', 'delete', 'source', 'asset', 'job_project'])
+    def test_after_model_before_writer_never_publishes_stale(pipeline, change, project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1); pid = project['id']; sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        module = semantic if pipeline == 'semantic' else motion
+        table = SegmentSemanticResult if pipeline == 'semantic' else SegmentMotionReview
+        task = semantic.vision_analyze_task if pipeline == 'semantic' else motion.motion_review_task
+        store_name = '_store_result' if pipeline == 'semantic' else '_store'
+        original = getattr(module, store_name)
+        reached, resume = Event(), Event()
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            frames = []
+            from PIL import Image
+            for i in range(2):
+                p = tmp_path / f'm{i}.jpg'; Image.new('RGB', (16, 16), 'red').save(p)
+                frames.append(motion.MotionFrame(str(p), i + 1.))
+            monkeypatch.setattr(motion, '_sample_frames', lambda *a: frames)
+            monkeypatch.setattr(motion, '_analyze_motion', lambda *a, **kw: ({
+                'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False,
+            }, {}))
+        def pause(*args, **kwargs):
+            reached.set(); assert resume.wait(15)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, store_name, pause)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(JobRunner()._run, jid, task)
+            try:
+                assert reached.wait(15)
+                if change == 'source':
+                    (tmp_path / 'a.mp4').write_bytes(b'replaced-before-publication')
+                else:
+                    with session_scope() as s:
+                        if change == 'cancel': s.get(Job, jid).status = 'cancelling'
+                        elif change == 'trim': s.get(Segment, sid).start_sec += 0.0001
+                        elif change == 'exclude': s.get(Segment, sid).user_rating = 'exclude'
+                        elif change == 'delete': s.delete(s.get(Segment, sid))
+                        elif change == 'asset': s.get(Asset, data['assets']['a.mp4']).analyzed_source_signature = 'new'
+                        elif change == 'job_project':
+                            from app.models import Project
+                            other = Project(name='other'); s.add(other); s.flush()
+                            s.get(Job, jid).project_id = other.id
+                if change == 'cancel':
+                    conflict = client.post(f'/api/projects/{pid}/jobs/vision_analyze', json={'upload_acknowledged': True})
+                    assert conflict.status_code == 409
+            finally:
+                resume.set()
+            future.result(timeout=20)
+        with session_scope() as s:
+>           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
+E           assert [<app.models.... 0x10f5b4b30>] == []
+E             
+E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x10f5b4b30>
+E             Use -v to get more diff
+
+backend/tests/test_vision_commit_races.py:67: AssertionError
+_____ test_after_model_before_writer_never_publishes_stale[cancel-motion] ______
+
+pipeline = 'motion', change = 'cancel'
+project = {'id': '4dec0fbb-fff5-45f5-924b-883c3771c632', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f5b5ca0>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f5b6ba0>
+client = <starlette.testclient.TestClient object at 0x10f22b3b0>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('change', ['cancel', 'trim', 'exclude', 'delete', 'source', 'asset', 'job_project'])
+    def test_after_model_before_writer_never_publishes_stale(pipeline, change, project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1); pid = project['id']; sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        module = semantic if pipeline == 'semantic' else motion
+        table = SegmentSemanticResult if pipeline == 'semantic' else SegmentMotionReview
+        task = semantic.vision_analyze_task if pipeline == 'semantic' else motion.motion_review_task
+        store_name = '_store_result' if pipeline == 'semantic' else '_store'
+        original = getattr(module, store_name)
+        reached, resume = Event(), Event()
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            frames = []
+            from PIL import Image
+            for i in range(2):
+                p = tmp_path / f'm{i}.jpg'; Image.new('RGB', (16, 16), 'red').save(p)
+                frames.append(motion.MotionFrame(str(p), i + 1.))
+            monkeypatch.setattr(motion, '_sample_frames', lambda *a: frames)
+            monkeypatch.setattr(motion, '_analyze_motion', lambda *a, **kw: ({
+                'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False,
+            }, {}))
+        def pause(*args, **kwargs):
+            reached.set(); assert resume.wait(15)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, store_name, pause)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(JobRunner()._run, jid, task)
+            try:
+                assert reached.wait(15)
+                if change == 'source':
+                    (tmp_path / 'a.mp4').write_bytes(b'replaced-before-publication')
+                else:
+                    with session_scope() as s:
+                        if change == 'cancel': s.get(Job, jid).status = 'cancelling'
+                        elif change == 'trim': s.get(Segment, sid).start_sec += 0.0001
+                        elif change == 'exclude': s.get(Segment, sid).user_rating = 'exclude'
+                        elif change == 'delete': s.delete(s.get(Segment, sid))
+                        elif change == 'asset': s.get(Asset, data['assets']['a.mp4']).analyzed_source_signature = 'new'
+                        elif change == 'job_project':
+                            from app.models import Project
+                            other = Project(name='other'); s.add(other); s.flush()
+                            s.get(Job, jid).project_id = other.id
+                if change == 'cancel':
+                    conflict = client.post(f'/api/projects/{pid}/jobs/vision_analyze', json={'upload_acknowledged': True})
+                    assert conflict.status_code == 409
+            finally:
+                resume.set()
+            future.result(timeout=20)
+        with session_scope() as s:
+>           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
+E           assert [<app.models.... 0x10f559e80>] == []
+E             
+E             Left contains one more item: <app.models.SegmentMotionReview object at 0x10f559e80>
+E             Use -v to get more diff
+
+backend/tests/test_vision_commit_races.py:67: AssertionError
+_____ test_after_model_before_writer_never_publishes_stale[trim-semantic] ______
+
+pipeline = 'semantic', change = 'trim'
+project = {'id': '9aff3852-e10c-4d81-8895-155e627d6602', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f5b7cb0>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f5b7470>
+client = <starlette.testclient.TestClient object at 0x10f58a750>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('change', ['cancel', 'trim', 'exclude', 'delete', 'source', 'asset', 'job_project'])
+    def test_after_model_before_writer_never_publishes_stale(pipeline, change, project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1); pid = project['id']; sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        module = semantic if pipeline == 'semantic' else motion
+        table = SegmentSemanticResult if pipeline == 'semantic' else SegmentMotionReview
+        task = semantic.vision_analyze_task if pipeline == 'semantic' else motion.motion_review_task
+        store_name = '_store_result' if pipeline == 'semantic' else '_store'
+        original = getattr(module, store_name)
+        reached, resume = Event(), Event()
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            frames = []
+            from PIL import Image
+            for i in range(2):
+                p = tmp_path / f'm{i}.jpg'; Image.new('RGB', (16, 16), 'red').save(p)
+                frames.append(motion.MotionFrame(str(p), i + 1.))
+            monkeypatch.setattr(motion, '_sample_frames', lambda *a: frames)
+            monkeypatch.setattr(motion, '_analyze_motion', lambda *a, **kw: ({
+                'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False,
+            }, {}))
+        def pause(*args, **kwargs):
+            reached.set(); assert resume.wait(15)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, store_name, pause)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(JobRunner()._run, jid, task)
+            try:
+                assert reached.wait(15)
+                if change == 'source':
+                    (tmp_path / 'a.mp4').write_bytes(b'replaced-before-publication')
+                else:
+                    with session_scope() as s:
+                        if change == 'cancel': s.get(Job, jid).status = 'cancelling'
+                        elif change == 'trim': s.get(Segment, sid).start_sec += 0.0001
+                        elif change == 'exclude': s.get(Segment, sid).user_rating = 'exclude'
+                        elif change == 'delete': s.delete(s.get(Segment, sid))
+                        elif change == 'asset': s.get(Asset, data['assets']['a.mp4']).analyzed_source_signature = 'new'
+                        elif change == 'job_project':
+                            from app.models import Project
+                            other = Project(name='other'); s.add(other); s.flush()
+                            s.get(Job, jid).project_id = other.id
+                if change == 'cancel':
+                    conflict = client.post(f'/api/projects/{pid}/jobs/vision_analyze', json={'upload_acknowledged': True})
+                    assert conflict.status_code == 409
+            finally:
+                resume.set()
+            future.result(timeout=20)
+        with session_scope() as s:
+>           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
+E           assert [<app.models.... 0x10f6a8530>] == []
+E             
+E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x10f6a8530>
+E             Use -v to get more diff
+
+backend/tests/test_vision_commit_races.py:67: AssertionError
+______ test_after_model_before_writer_never_publishes_stale[trim-motion] _______
+
+pipeline = 'motion', change = 'trim'
+project = {'id': 'dce526dc-02c7-4dce-9694-6e00f8de76ce', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f6a9880>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f6aa6c0>
+client = <starlette.testclient.TestClient object at 0x10f58b230>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('change', ['cancel', 'trim', 'exclude', 'delete', 'source', 'asset', 'job_project'])
+    def test_after_model_before_writer_never_publishes_stale(pipeline, change, project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1); pid = project['id']; sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        module = semantic if pipeline == 'semantic' else motion
+        table = SegmentSemanticResult if pipeline == 'semantic' else SegmentMotionReview
+        task = semantic.vision_analyze_task if pipeline == 'semantic' else motion.motion_review_task
+        store_name = '_store_result' if pipeline == 'semantic' else '_store'
+        original = getattr(module, store_name)
+        reached, resume = Event(), Event()
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            frames = []
+            from PIL import Image
+            for i in range(2):
+                p = tmp_path / f'm{i}.jpg'; Image.new('RGB', (16, 16), 'red').save(p)
+                frames.append(motion.MotionFrame(str(p), i + 1.))
+            monkeypatch.setattr(motion, '_sample_frames', lambda *a: frames)
+            monkeypatch.setattr(motion, '_analyze_motion', lambda *a, **kw: ({
+                'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False,
+            }, {}))
+        def pause(*args, **kwargs):
+            reached.set(); assert resume.wait(15)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, store_name, pause)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(JobRunner()._run, jid, task)
+            try:
+                assert reached.wait(15)
+                if change == 'source':
+                    (tmp_path / 'a.mp4').write_bytes(b'replaced-before-publication')
+                else:
+                    with session_scope() as s:
+                        if change == 'cancel': s.get(Job, jid).status = 'cancelling'
+                        elif change == 'trim': s.get(Segment, sid).start_sec += 0.0001
+                        elif change == 'exclude': s.get(Segment, sid).user_rating = 'exclude'
+                        elif change == 'delete': s.delete(s.get(Segment, sid))
+                        elif change == 'asset': s.get(Asset, data['assets']['a.mp4']).analyzed_source_signature = 'new'
+                        elif change == 'job_project':
+                            from app.models import Project
+                            other = Project(name='other'); s.add(other); s.flush()
+                            s.get(Job, jid).project_id = other.id
+                if change == 'cancel':
+                    conflict = client.post(f'/api/projects/{pid}/jobs/vision_analyze', json={'upload_acknowledged': True})
+                    assert conflict.status_code == 409
+            finally:
+                resume.set()
+            future.result(timeout=20)
+        with session_scope() as s:
+>           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
+E           assert [<app.models.... 0x10f6a9b80>] == []
+E             
+E             Left contains one more item: <app.models.SegmentMotionReview object at 0x10f6a9b80>
+E             Use -v to get more diff
+
+backend/tests/test_vision_commit_races.py:67: AssertionError
+____ test_after_model_before_writer_never_publishes_stale[exclude-semantic] ____
+
+pipeline = 'semantic', change = 'exclude'
+project = {'id': '2f8ca204-dfb3-43cd-8b91-20aefd18004d', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f6a9e50>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f6ab110>
+client = <starlette.testclient.TestClient object at 0x10f5b7710>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('change', ['cancel', 'trim', 'exclude', 'delete', 'source', 'asset', 'job_project'])
+    def test_after_model_before_writer_never_publishes_stale(pipeline, change, project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1); pid = project['id']; sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        module = semantic if pipeline == 'semantic' else motion
+        table = SegmentSemanticResult if pipeline == 'semantic' else SegmentMotionReview
+        task = semantic.vision_analyze_task if pipeline == 'semantic' else motion.motion_review_task
+        store_name = '_store_result' if pipeline == 'semantic' else '_store'
+        original = getattr(module, store_name)
+        reached, resume = Event(), Event()
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            frames = []
+            from PIL import Image
+            for i in range(2):
+                p = tmp_path / f'm{i}.jpg'; Image.new('RGB', (16, 16), 'red').save(p)
+                frames.append(motion.MotionFrame(str(p), i + 1.))
+            monkeypatch.setattr(motion, '_sample_frames', lambda *a: frames)
+            monkeypatch.setattr(motion, '_analyze_motion', lambda *a, **kw: ({
+                'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False,
+            }, {}))
+        def pause(*args, **kwargs):
+            reached.set(); assert resume.wait(15)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, store_name, pause)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(JobRunner()._run, jid, task)
+            try:
+                assert reached.wait(15)
+                if change == 'source':
+                    (tmp_path / 'a.mp4').write_bytes(b'replaced-before-publication')
+                else:
+                    with session_scope() as s:
+                        if change == 'cancel': s.get(Job, jid).status = 'cancelling'
+                        elif change == 'trim': s.get(Segment, sid).start_sec += 0.0001
+                        elif change == 'exclude': s.get(Segment, sid).user_rating = 'exclude'
+                        elif change == 'delete': s.delete(s.get(Segment, sid))
+                        elif change == 'asset': s.get(Asset, data['assets']['a.mp4']).analyzed_source_signature = 'new'
+                        elif change == 'job_project':
+                            from app.models import Project
+                            other = Project(name='other'); s.add(other); s.flush()
+                            s.get(Job, jid).project_id = other.id
+                if change == 'cancel':
+                    conflict = client.post(f'/api/projects/{pid}/jobs/vision_analyze', json={'upload_acknowledged': True})
+                    assert conflict.status_code == 409
+            finally:
+                resume.set()
+            future.result(timeout=20)
+        with session_scope() as s:
+>           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
+E           assert [<app.models.... 0x10f670410>] == []
+E             
+E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x10f670410>
+E             Use -v to get more diff
+
+backend/tests/test_vision_commit_races.py:67: AssertionError
+_____ test_after_model_before_writer_never_publishes_stale[exclude-motion] _____
+
+pipeline = 'motion', change = 'exclude'
+project = {'id': 'e2b48198-9220-4b62-bd2f-652ea7d44143', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f5881a0>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f588ef0>
+client = <starlette.testclient.TestClient object at 0x10f558aa0>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('change', ['cancel', 'trim', 'exclude', 'delete', 'source', 'asset', 'job_project'])
+    def test_after_model_before_writer_never_publishes_stale(pipeline, change, project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1); pid = project['id']; sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        module = semantic if pipeline == 'semantic' else motion
+        table = SegmentSemanticResult if pipeline == 'semantic' else SegmentMotionReview
+        task = semantic.vision_analyze_task if pipeline == 'semantic' else motion.motion_review_task
+        store_name = '_store_result' if pipeline == 'semantic' else '_store'
+        original = getattr(module, store_name)
+        reached, resume = Event(), Event()
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            frames = []
+            from PIL import Image
+            for i in range(2):
+                p = tmp_path / f'm{i}.jpg'; Image.new('RGB', (16, 16), 'red').save(p)
+                frames.append(motion.MotionFrame(str(p), i + 1.))
+            monkeypatch.setattr(motion, '_sample_frames', lambda *a: frames)
+            monkeypatch.setattr(motion, '_analyze_motion', lambda *a, **kw: ({
+                'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False,
+            }, {}))
+        def pause(*args, **kwargs):
+            reached.set(); assert resume.wait(15)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, store_name, pause)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(JobRunner()._run, jid, task)
+            try:
+                assert reached.wait(15)
+                if change == 'source':
+                    (tmp_path / 'a.mp4').write_bytes(b'replaced-before-publication')
+                else:
+                    with session_scope() as s:
+                        if change == 'cancel': s.get(Job, jid).status = 'cancelling'
+                        elif change == 'trim': s.get(Segment, sid).start_sec += 0.0001
+                        elif change == 'exclude': s.get(Segment, sid).user_rating = 'exclude'
+                        elif change == 'delete': s.delete(s.get(Segment, sid))
+                        elif change == 'asset': s.get(Asset, data['assets']['a.mp4']).analyzed_source_signature = 'new'
+                        elif change == 'job_project':
+                            from app.models import Project
+                            other = Project(name='other'); s.add(other); s.flush()
+                            s.get(Job, jid).project_id = other.id
+                if change == 'cancel':
+                    conflict = client.post(f'/api/projects/{pid}/jobs/vision_analyze', json={'upload_acknowledged': True})
+                    assert conflict.status_code == 409
+            finally:
+                resume.set()
+            future.result(timeout=20)
+        with session_scope() as s:
+>           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
+E           assert [<app.models.... 0x10f6aa8a0>] == []
+E             
+E             Left contains one more item: <app.models.SegmentMotionReview object at 0x10f6aa8a0>
+E             Use -v to get more diff
+
+backend/tests/test_vision_commit_races.py:67: AssertionError
+____ test_after_model_before_writer_never_publishes_stale[delete-semantic] _____
+
+pipeline = 'semantic', change = 'delete'
+project = {'id': 'cb5ce8cc-5241-4c09-a29d-86c73c74b816', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f6aad20>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f6abd10>
+client = <starlette.testclient.TestClient object at 0x10f5b7e30>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('change', ['cancel', 'trim', 'exclude', 'delete', 'source', 'asset', 'job_project'])
+    def test_after_model_before_writer_never_publishes_stale(pipeline, change, project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1); pid = project['id']; sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        module = semantic if pipeline == 'semantic' else motion
+        table = SegmentSemanticResult if pipeline == 'semantic' else SegmentMotionReview
+        task = semantic.vision_analyze_task if pipeline == 'semantic' else motion.motion_review_task
+        store_name = '_store_result' if pipeline == 'semantic' else '_store'
+        original = getattr(module, store_name)
+        reached, resume = Event(), Event()
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            frames = []
+            from PIL import Image
+            for i in range(2):
+                p = tmp_path / f'm{i}.jpg'; Image.new('RGB', (16, 16), 'red').save(p)
+                frames.append(motion.MotionFrame(str(p), i + 1.))
+            monkeypatch.setattr(motion, '_sample_frames', lambda *a: frames)
+            monkeypatch.setattr(motion, '_analyze_motion', lambda *a, **kw: ({
+                'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False,
+            }, {}))
+        def pause(*args, **kwargs):
+            reached.set(); assert resume.wait(15)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, store_name, pause)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(JobRunner()._run, jid, task)
+            try:
+                assert reached.wait(15)
+                if change == 'source':
+                    (tmp_path / 'a.mp4').write_bytes(b'replaced-before-publication')
+                else:
+                    with session_scope() as s:
+                        if change == 'cancel': s.get(Job, jid).status = 'cancelling'
+                        elif change == 'trim': s.get(Segment, sid).start_sec += 0.0001
+                        elif change == 'exclude': s.get(Segment, sid).user_rating = 'exclude'
+                        elif change == 'delete': s.delete(s.get(Segment, sid))
+                        elif change == 'asset': s.get(Asset, data['assets']['a.mp4']).analyzed_source_signature = 'new'
+                        elif change == 'job_project':
+                            from app.models import Project
+                            other = Project(name='other'); s.add(other); s.flush()
+                            s.get(Job, jid).project_id = other.id
+                if change == 'cancel':
+                    conflict = client.post(f'/api/projects/{pid}/jobs/vision_analyze', json={'upload_acknowledged': True})
+                    assert conflict.status_code == 409
+            finally:
+                resume.set()
+            future.result(timeout=20)
+        with session_scope() as s:
+>           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
+E           assert [<app.models.... 0x10f6707d0>] == []
+E             
+E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x10f6707d0>
+E             Use -v to get more diff
+
+backend/tests/test_vision_commit_races.py:67: AssertionError
+_____ test_after_model_before_writer_never_publishes_stale[delete-motion] ______
+
+pipeline = 'motion', change = 'delete'
+project = {'id': '7924068c-aa24-4cb7-ac7b-4f40c54a785b', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f670650>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f673950>
+client = <starlette.testclient.TestClient object at 0x10f58b4d0>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('change', ['cancel', 'trim', 'exclude', 'delete', 'source', 'asset', 'job_project'])
+    def test_after_model_before_writer_never_publishes_stale(pipeline, change, project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1); pid = project['id']; sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        module = semantic if pipeline == 'semantic' else motion
+        table = SegmentSemanticResult if pipeline == 'semantic' else SegmentMotionReview
+        task = semantic.vision_analyze_task if pipeline == 'semantic' else motion.motion_review_task
+        store_name = '_store_result' if pipeline == 'semantic' else '_store'
+        original = getattr(module, store_name)
+        reached, resume = Event(), Event()
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            frames = []
+            from PIL import Image
+            for i in range(2):
+                p = tmp_path / f'm{i}.jpg'; Image.new('RGB', (16, 16), 'red').save(p)
+                frames.append(motion.MotionFrame(str(p), i + 1.))
+            monkeypatch.setattr(motion, '_sample_frames', lambda *a: frames)
+            monkeypatch.setattr(motion, '_analyze_motion', lambda *a, **kw: ({
+                'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False,
+            }, {}))
+        def pause(*args, **kwargs):
+            reached.set(); assert resume.wait(15)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, store_name, pause)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(JobRunner()._run, jid, task)
+            try:
+                assert reached.wait(15)
+                if change == 'source':
+                    (tmp_path / 'a.mp4').write_bytes(b'replaced-before-publication')
+                else:
+                    with session_scope() as s:
+                        if change == 'cancel': s.get(Job, jid).status = 'cancelling'
+                        elif change == 'trim': s.get(Segment, sid).start_sec += 0.0001
+                        elif change == 'exclude': s.get(Segment, sid).user_rating = 'exclude'
+                        elif change == 'delete': s.delete(s.get(Segment, sid))
+                        elif change == 'asset': s.get(Asset, data['assets']['a.mp4']).analyzed_source_signature = 'new'
+                        elif change == 'job_project':
+                            from app.models import Project
+                            other = Project(name='other'); s.add(other); s.flush()
+                            s.get(Job, jid).project_id = other.id
+                if change == 'cancel':
+                    conflict = client.post(f'/api/projects/{pid}/jobs/vision_analyze', json={'upload_acknowledged': True})
+                    assert conflict.status_code == 409
+            finally:
+                resume.set()
+            future.result(timeout=20)
+        with session_scope() as s:
+>           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
+E           assert [<app.models.... 0x10f672db0>] == []
+E             
+E             Left contains one more item: <app.models.SegmentMotionReview object at 0x10f672db0>
+E             Use -v to get more diff
+
+backend/tests/test_vision_commit_races.py:67: AssertionError
+____ test_after_model_before_writer_never_publishes_stale[source-semantic] _____
+
+pipeline = 'semantic', change = 'source'
+project = {'id': '1c4dcb3a-1c5c-4056-a8c8-fa30581bf384', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f6702f0>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f672ae0>
+client = <starlette.testclient.TestClient object at 0x10f5b6900>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('change', ['cancel', 'trim', 'exclude', 'delete', 'source', 'asset', 'job_project'])
+    def test_after_model_before_writer_never_publishes_stale(pipeline, change, project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1); pid = project['id']; sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        module = semantic if pipeline == 'semantic' else motion
+        table = SegmentSemanticResult if pipeline == 'semantic' else SegmentMotionReview
+        task = semantic.vision_analyze_task if pipeline == 'semantic' else motion.motion_review_task
+        store_name = '_store_result' if pipeline == 'semantic' else '_store'
+        original = getattr(module, store_name)
+        reached, resume = Event(), Event()
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            frames = []
+            from PIL import Image
+            for i in range(2):
+                p = tmp_path / f'm{i}.jpg'; Image.new('RGB', (16, 16), 'red').save(p)
+                frames.append(motion.MotionFrame(str(p), i + 1.))
+            monkeypatch.setattr(motion, '_sample_frames', lambda *a: frames)
+            monkeypatch.setattr(motion, '_analyze_motion', lambda *a, **kw: ({
+                'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False,
+            }, {}))
+        def pause(*args, **kwargs):
+            reached.set(); assert resume.wait(15)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, store_name, pause)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(JobRunner()._run, jid, task)
+            try:
+                assert reached.wait(15)
+                if change == 'source':
+                    (tmp_path / 'a.mp4').write_bytes(b'replaced-before-publication')
+                else:
+                    with session_scope() as s:
+                        if change == 'cancel': s.get(Job, jid).status = 'cancelling'
+                        elif change == 'trim': s.get(Segment, sid).start_sec += 0.0001
+                        elif change == 'exclude': s.get(Segment, sid).user_rating = 'exclude'
+                        elif change == 'delete': s.delete(s.get(Segment, sid))
+                        elif change == 'asset': s.get(Asset, data['assets']['a.mp4']).analyzed_source_signature = 'new'
+                        elif change == 'job_project':
+                            from app.models import Project
+                            other = Project(name='other'); s.add(other); s.flush()
+                            s.get(Job, jid).project_id = other.id
+                if change == 'cancel':
+                    conflict = client.post(f'/api/projects/{pid}/jobs/vision_analyze', json={'upload_acknowledged': True})
+                    assert conflict.status_code == 409
+            finally:
+                resume.set()
+            future.result(timeout=20)
+        with session_scope() as s:
+>           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
+E           assert [<app.models.... 0x10fcd11c0>] == []
+E             
+E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x10fcd11c0>
+E             Use -v to get more diff
+
+backend/tests/test_vision_commit_races.py:67: AssertionError
+_____ test_after_model_before_writer_never_publishes_stale[source-motion] ______
+
+pipeline = 'motion', change = 'source'
+project = {'id': '97f5edbf-1fc0-4282-a42a-e7e53cb3afe8', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f5b4d70>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f5b6ae0>
+client = <starlette.testclient.TestClient object at 0x10f6ab410>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('change', ['cancel', 'trim', 'exclude', 'delete', 'source', 'asset', 'job_project'])
+    def test_after_model_before_writer_never_publishes_stale(pipeline, change, project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1); pid = project['id']; sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        module = semantic if pipeline == 'semantic' else motion
+        table = SegmentSemanticResult if pipeline == 'semantic' else SegmentMotionReview
+        task = semantic.vision_analyze_task if pipeline == 'semantic' else motion.motion_review_task
+        store_name = '_store_result' if pipeline == 'semantic' else '_store'
+        original = getattr(module, store_name)
+        reached, resume = Event(), Event()
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            frames = []
+            from PIL import Image
+            for i in range(2):
+                p = tmp_path / f'm{i}.jpg'; Image.new('RGB', (16, 16), 'red').save(p)
+                frames.append(motion.MotionFrame(str(p), i + 1.))
+            monkeypatch.setattr(motion, '_sample_frames', lambda *a: frames)
+            monkeypatch.setattr(motion, '_analyze_motion', lambda *a, **kw: ({
+                'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False,
+            }, {}))
+        def pause(*args, **kwargs):
+            reached.set(); assert resume.wait(15)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, store_name, pause)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(JobRunner()._run, jid, task)
+            try:
+                assert reached.wait(15)
+                if change == 'source':
+                    (tmp_path / 'a.mp4').write_bytes(b'replaced-before-publication')
+                else:
+                    with session_scope() as s:
+                        if change == 'cancel': s.get(Job, jid).status = 'cancelling'
+                        elif change == 'trim': s.get(Segment, sid).start_sec += 0.0001
+                        elif change == 'exclude': s.get(Segment, sid).user_rating = 'exclude'
+                        elif change == 'delete': s.delete(s.get(Segment, sid))
+                        elif change == 'asset': s.get(Asset, data['assets']['a.mp4']).analyzed_source_signature = 'new'
+                        elif change == 'job_project':
+                            from app.models import Project
+                            other = Project(name='other'); s.add(other); s.flush()
+                            s.get(Job, jid).project_id = other.id
+                if change == 'cancel':
+                    conflict = client.post(f'/api/projects/{pid}/jobs/vision_analyze', json={'upload_acknowledged': True})
+                    assert conflict.status_code == 409
+            finally:
+                resume.set()
+            future.result(timeout=20)
+        with session_scope() as s:
+>           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
+E           assert [<app.models.... 0x10f670c50>] == []
+E             
+E             Left contains one more item: <app.models.SegmentMotionReview object at 0x10f670c50>
+E             Use -v to get more diff
+
+backend/tests/test_vision_commit_races.py:67: AssertionError
+_____ test_after_model_before_writer_never_publishes_stale[asset-semantic] _____
+
+pipeline = 'semantic', change = 'asset'
+project = {'id': 'e4e7af08-1ec7-44a0-8153-da3ff0aeec62', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f6733b0>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f672c90>
+client = <starlette.testclient.TestClient object at 0x10f6aa600>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('change', ['cancel', 'trim', 'exclude', 'delete', 'source', 'asset', 'job_project'])
+    def test_after_model_before_writer_never_publishes_stale(pipeline, change, project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1); pid = project['id']; sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        module = semantic if pipeline == 'semantic' else motion
+        table = SegmentSemanticResult if pipeline == 'semantic' else SegmentMotionReview
+        task = semantic.vision_analyze_task if pipeline == 'semantic' else motion.motion_review_task
+        store_name = '_store_result' if pipeline == 'semantic' else '_store'
+        original = getattr(module, store_name)
+        reached, resume = Event(), Event()
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            frames = []
+            from PIL import Image
+            for i in range(2):
+                p = tmp_path / f'm{i}.jpg'; Image.new('RGB', (16, 16), 'red').save(p)
+                frames.append(motion.MotionFrame(str(p), i + 1.))
+            monkeypatch.setattr(motion, '_sample_frames', lambda *a: frames)
+            monkeypatch.setattr(motion, '_analyze_motion', lambda *a, **kw: ({
+                'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False,
+            }, {}))
+        def pause(*args, **kwargs):
+            reached.set(); assert resume.wait(15)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, store_name, pause)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(JobRunner()._run, jid, task)
+            try:
+                assert reached.wait(15)
+                if change == 'source':
+                    (tmp_path / 'a.mp4').write_bytes(b'replaced-before-publication')
+                else:
+                    with session_scope() as s:
+                        if change == 'cancel': s.get(Job, jid).status = 'cancelling'
+                        elif change == 'trim': s.get(Segment, sid).start_sec += 0.0001
+                        elif change == 'exclude': s.get(Segment, sid).user_rating = 'exclude'
+                        elif change == 'delete': s.delete(s.get(Segment, sid))
+                        elif change == 'asset': s.get(Asset, data['assets']['a.mp4']).analyzed_source_signature = 'new'
+                        elif change == 'job_project':
+                            from app.models import Project
+                            other = Project(name='other'); s.add(other); s.flush()
+                            s.get(Job, jid).project_id = other.id
+                if change == 'cancel':
+                    conflict = client.post(f'/api/projects/{pid}/jobs/vision_analyze', json={'upload_acknowledged': True})
+                    assert conflict.status_code == 409
+            finally:
+                resume.set()
+            future.result(timeout=20)
+        with session_scope() as s:
+>           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
+E           assert [<app.models.... 0x10fcd1580>] == []
+E             
+E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x10fcd1580>
+E             Use -v to get more diff
+
+backend/tests/test_vision_commit_races.py:67: AssertionError
+______ test_after_model_before_writer_never_publishes_stale[asset-motion] ______
+
+pipeline = 'motion', change = 'asset'
+project = {'id': '528cadf2-bea4-4695-b186-03ab1cc17f48', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10fcd2ae0>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10fcd3fb0>
+client = <starlette.testclient.TestClient object at 0x10f5b5070>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('change', ['cancel', 'trim', 'exclude', 'delete', 'source', 'asset', 'job_project'])
+    def test_after_model_before_writer_never_publishes_stale(pipeline, change, project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1); pid = project['id']; sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        module = semantic if pipeline == 'semantic' else motion
+        table = SegmentSemanticResult if pipeline == 'semantic' else SegmentMotionReview
+        task = semantic.vision_analyze_task if pipeline == 'semantic' else motion.motion_review_task
+        store_name = '_store_result' if pipeline == 'semantic' else '_store'
+        original = getattr(module, store_name)
+        reached, resume = Event(), Event()
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            frames = []
+            from PIL import Image
+            for i in range(2):
+                p = tmp_path / f'm{i}.jpg'; Image.new('RGB', (16, 16), 'red').save(p)
+                frames.append(motion.MotionFrame(str(p), i + 1.))
+            monkeypatch.setattr(motion, '_sample_frames', lambda *a: frames)
+            monkeypatch.setattr(motion, '_analyze_motion', lambda *a, **kw: ({
+                'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False,
+            }, {}))
+        def pause(*args, **kwargs):
+            reached.set(); assert resume.wait(15)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, store_name, pause)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(JobRunner()._run, jid, task)
+            try:
+                assert reached.wait(15)
+                if change == 'source':
+                    (tmp_path / 'a.mp4').write_bytes(b'replaced-before-publication')
+                else:
+                    with session_scope() as s:
+                        if change == 'cancel': s.get(Job, jid).status = 'cancelling'
+                        elif change == 'trim': s.get(Segment, sid).start_sec += 0.0001
+                        elif change == 'exclude': s.get(Segment, sid).user_rating = 'exclude'
+                        elif change == 'delete': s.delete(s.get(Segment, sid))
+                        elif change == 'asset': s.get(Asset, data['assets']['a.mp4']).analyzed_source_signature = 'new'
+                        elif change == 'job_project':
+                            from app.models import Project
+                            other = Project(name='other'); s.add(other); s.flush()
+                            s.get(Job, jid).project_id = other.id
+                if change == 'cancel':
+                    conflict = client.post(f'/api/projects/{pid}/jobs/vision_analyze', json={'upload_acknowledged': True})
+                    assert conflict.status_code == 409
+            finally:
+                resume.set()
+            future.result(timeout=20)
+        with session_scope() as s:
+>           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
+E           assert [<app.models.... 0x10fd84050>] == []
+E             
+E             Left contains one more item: <app.models.SegmentMotionReview object at 0x10fd84050>
+E             Use -v to get more diff
+
+backend/tests/test_vision_commit_races.py:67: AssertionError
+__ test_after_model_before_writer_never_publishes_stale[job_project-semantic] __
+
+pipeline = 'semantic', change = 'job_project'
+project = {'id': 'b994978b-c471-42af-bcab-ad5209fe9cb8', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10fd85850>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10fd857f0>
+client = <starlette.testclient.TestClient object at 0x10f5b7ef0>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('change', ['cancel', 'trim', 'exclude', 'delete', 'source', 'asset', 'job_project'])
+    def test_after_model_before_writer_never_publishes_stale(pipeline, change, project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1); pid = project['id']; sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        module = semantic if pipeline == 'semantic' else motion
+        table = SegmentSemanticResult if pipeline == 'semantic' else SegmentMotionReview
+        task = semantic.vision_analyze_task if pipeline == 'semantic' else motion.motion_review_task
+        store_name = '_store_result' if pipeline == 'semantic' else '_store'
+        original = getattr(module, store_name)
+        reached, resume = Event(), Event()
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            frames = []
+            from PIL import Image
+            for i in range(2):
+                p = tmp_path / f'm{i}.jpg'; Image.new('RGB', (16, 16), 'red').save(p)
+                frames.append(motion.MotionFrame(str(p), i + 1.))
+            monkeypatch.setattr(motion, '_sample_frames', lambda *a: frames)
+            monkeypatch.setattr(motion, '_analyze_motion', lambda *a, **kw: ({
+                'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False,
+            }, {}))
+        def pause(*args, **kwargs):
+            reached.set(); assert resume.wait(15)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, store_name, pause)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(JobRunner()._run, jid, task)
+            try:
+                assert reached.wait(15)
+                if change == 'source':
+                    (tmp_path / 'a.mp4').write_bytes(b'replaced-before-publication')
+                else:
+                    with session_scope() as s:
+                        if change == 'cancel': s.get(Job, jid).status = 'cancelling'
+                        elif change == 'trim': s.get(Segment, sid).start_sec += 0.0001
+                        elif change == 'exclude': s.get(Segment, sid).user_rating = 'exclude'
+                        elif change == 'delete': s.delete(s.get(Segment, sid))
+                        elif change == 'asset': s.get(Asset, data['assets']['a.mp4']).analyzed_source_signature = 'new'
+                        elif change == 'job_project':
+                            from app.models import Project
+                            other = Project(name='other'); s.add(other); s.flush()
+                            s.get(Job, jid).project_id = other.id
+                if change == 'cancel':
+                    conflict = client.post(f'/api/projects/{pid}/jobs/vision_analyze', json={'upload_acknowledged': True})
+                    assert conflict.status_code == 409
+            finally:
+                resume.set()
+            future.result(timeout=20)
+        with session_scope() as s:
+>           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
+E           assert [<app.models.... 0x10fd84f50>] == []
+E             
+E             Left contains one more item: <app.models.SegmentSemanticResult object at 0x10fd84f50>
+E             Use -v to get more diff
+
+backend/tests/test_vision_commit_races.py:67: AssertionError
+___ test_after_model_before_writer_never_publishes_stale[job_project-motion] ___
+
+pipeline = 'motion', change = 'job_project'
+project = {'id': 'decee42f-84f6-4117-a309-f43a7cb839d0', 'name': 'vision-test', 'source_roots': [], 'output_dir': '', ...}
+stubbed = <test_vision_semantics._StubProvider object at 0x10f6718b0>
+tmp_path = PosixPath('<temp>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f672c00>
+client = <starlette.testclient.TestClient object at 0x10f670830>
+
+    @pytest.mark.parametrize('pipeline', ['semantic', 'motion'])
+    @pytest.mark.parametrize('change', ['cancel', 'trim', 'exclude', 'delete', 'source', 'asset', 'job_project'])
+    def test_after_model_before_writer_never_publishes_stale(pipeline, change, project, stubbed, tmp_path, monkeypatch, client):
+        data = seed(project, tmp_path, 1); pid = project['id']; sid = data['segments'][0]['segment_id']
+        jid = _make_job(pid, segment_ids=[sid])
+        module = semantic if pipeline == 'semantic' else motion
+        table = SegmentSemanticResult if pipeline == 'semantic' else SegmentMotionReview
+        task = semantic.vision_analyze_task if pipeline == 'semantic' else motion.motion_review_task
+        store_name = '_store_result' if pipeline == 'semantic' else '_store'
+        original = getattr(module, store_name)
+        reached, resume = Event(), Event()
+        if pipeline == 'motion':
+            with session_scope() as s: s.get(Job, jid).job_type = 'motion_review'
+            frames = []
+            from PIL import Image
+            for i in range(2):
+                p = tmp_path / f'm{i}.jpg'; Image.new('RGB', (16, 16), 'red').save(p)
+                frames.append(motion.MotionFrame(str(p), i + 1.))
+            monkeypatch.setattr(motion, '_sample_frames', lambda *a: frames)
+            monkeypatch.setattr(motion, '_analyze_motion', lambda *a, **kw: ({
+                'motion_type': 'pan', 'stability_risk': 'low', 'action_summary': 'view',
+                'evidence_timestamps_sec': [1., 2.], 'limitations': [], 'needs_human_review': False,
+            }, {}))
+        def pause(*args, **kwargs):
+            reached.set(); assert resume.wait(15)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, store_name, pause)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(JobRunner()._run, jid, task)
+            try:
+                assert reached.wait(15)
+                if change == 'source':
+                    (tmp_path / 'a.mp4').write_bytes(b'replaced-before-publication')
+                else:
+                    with session_scope() as s:
+                        if change == 'cancel': s.get(Job, jid).status = 'cancelling'
+                        elif change == 'trim': s.get(Segment, sid).start_sec += 0.0001
+                        elif change == 'exclude': s.get(Segment, sid).user_rating = 'exclude'
+                        elif change == 'delete': s.delete(s.get(Segment, sid))
+                        elif change == 'asset': s.get(Asset, data['assets']['a.mp4']).analyzed_source_signature = 'new'
+                        elif change == 'job_project':
+                            from app.models import Project
+                            other = Project(name='other'); s.add(other); s.flush()
+                            s.get(Job, jid).project_id = other.id
+                if change == 'cancel':
+                    conflict = client.post(f'/api/projects/{pid}/jobs/vision_analyze', json={'upload_acknowledged': True})
+                    assert conflict.status_code == 409
+            finally:
+                resume.set()
+            future.result(timeout=20)
+        with session_scope() as s:
+>           assert s.scalars(select(table).where(table.segment_id == sid, table.is_current.is_(True))).all() == []
+E           assert [<app.models.... 0x10f6ab830>] == []
+E             
+E             Left contains one more item: <app.models.SegmentMotionReview object at 0x10f6ab830>
+E             Use -v to get more diff
+
+backend/tests/test_vision_commit_races.py:67: AssertionError
+=========================== short test summary info ============================
+FAILED backend/tests/test_vision_cache_versions.py::test_adding_c_only_calls_c
+FAILED backend/tests/test_vision_cache_versions.py::test_only_trimmed_a_invalidates
+FAILED backend/tests/test_vision_cache_versions.py::test_prompt_round_trip_activates_requested_version
+FAILED backend/tests/test_vision_cache_versions.py::test_actual_frame_change_cannot_hit_cache[replace]
+FAILED backend/tests/test_vision_cache_versions.py::test_actual_frame_change_cannot_hit_cache[delete]
+FAILED backend/tests/test_vision_cache_versions.py::test_force_retains_request_audit_and_actual_wire_fingerprint
+FAILED backend/tests/test_vision_cache_versions.py::test_parallel_identical_publish_has_one_current_row
+FAILED backend/tests/test_vision_cache_versions.py::test_missing_source_is_not_a_valid_cached_input
+FAILED backend/tests/test_vision_commit_races.py::test_after_model_before_writer_never_publishes_stale[cancel-semantic]
+FAILED backend/tests/test_vision_commit_races.py::test_after_model_before_writer_never_publishes_stale[cancel-motion]
+FAILED backend/tests/test_vision_commit_races.py::test_after_model_before_writer_never_publishes_stale[trim-semantic]
+FAILED backend/tests/test_vision_commit_races.py::test_after_model_before_writer_never_publishes_stale[trim-motion]
+FAILED backend/tests/test_vision_commit_races.py::test_after_model_before_writer_never_publishes_stale[exclude-semantic]
+FAILED backend/tests/test_vision_commit_races.py::test_after_model_before_writer_never_publishes_stale[exclude-motion]
+FAILED backend/tests/test_vision_commit_races.py::test_after_model_before_writer_never_publishes_stale[delete-semantic]
+FAILED backend/tests/test_vision_commit_races.py::test_after_model_before_writer_never_publishes_stale[delete-motion]
+FAILED backend/tests/test_vision_commit_races.py::test_after_model_before_writer_never_publishes_stale[source-semantic]
+FAILED backend/tests/test_vision_commit_races.py::test_after_model_before_writer_never_publishes_stale[source-motion]
+FAILED backend/tests/test_vision_commit_races.py::test_after_model_before_writer_never_publishes_stale[asset-semantic]
+FAILED backend/tests/test_vision_commit_races.py::test_after_model_before_writer_never_publishes_stale[asset-motion]
+FAILED backend/tests/test_vision_commit_races.py::test_after_model_before_writer_never_publishes_stale[job_project-semantic]
+FAILED backend/tests/test_vision_commit_races.py::test_after_model_before_writer_never_publishes_stale[job_project-motion]

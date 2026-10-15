@@ -32,12 +32,14 @@ from sqlalchemy.exc import IntegrityError
 
 from ...config import get_settings
 from ...database import begin_write, session_scope
-from ...ffmpeg import safe_image_open, safe_mkdir, safe_stat, safe_unlink
-from ...models import Job, Asset, Frame, Segment, SegmentSemanticResult, utcnow
+from ...ffmpeg import safe_image_open, safe_mkdir, safe_open, safe_stat, safe_unlink
+from ...models import Job, Asset, Frame, Segment, SegmentSemanticResult, SegmentSemanticAttempt, utcnow
 from ...paths import project_cache_dir, resolve_in_project
-from ..runner import JobCancelled, JobFailures, cancel_check_for, register_task, update_job
+from ..runner import JobCancelled, JobFailures, cancel_check_for, register_task, update_job, merge_job_stats
 from . import schema as schema_mod
 from .authorization import authorize_upload
+from .verdicts import digest, source_identity
+from .publication import validate_publication
 from .errors import (
     CANCELLED,
     INSUFFICIENT_FRAMES,
@@ -64,6 +66,13 @@ class Candidate:
     frame_paths: list[str] = field(default_factory=list)
     story_role: str = ""
     user_rating: str = "pending"
+    project_id: str = ""
+    source_identity: str = ""
+    actual_manifest: list = field(default_factory=list)
+    calls: int = 0
+    images_sent: int = 0
+    usage: dict = field(default_factory=dict)
+    request_audit: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -71,6 +80,7 @@ class RenderedImage:
     path: str
     label: str
     frame_id: str
+    data: bytes = b""
 
 
 # --------------------------------------------------------------------------
@@ -112,11 +122,13 @@ def select_candidates(
                 end_sec=float(segment.end_sec),
                 story_role=segment.story_role or "",
                 user_rating=segment.user_rating or "pending",
+                project_id=project_id,
+                source_identity=source_identity(asset),
             )
 
         if by_segment:
             frame_rows = s.execute(
-                select(Frame).where(Frame.segment_id.in_(list(by_segment)))
+                select(Frame).where(Frame.segment_id.in_(list(by_segment))).order_by(Frame.time_sec, Frame.id)
             ).scalars().all()
             for frame in frame_rows:
                 cand = by_segment.get(frame.segment_id)
@@ -152,7 +164,7 @@ def select_candidates(
     return candidates
 
 
-def coverage_report(project_id: str, considered: list[Candidate], images_sent: int) -> dict:
+def coverage_report(project_id: str, considered: list[Candidate], images_sent: int, *, analyzed: int | None = None, cached: int = 0) -> dict:
     """Honest accounting of how much of the library was actually looked at."""
     with session_scope() as s:
         all_segments = s.execute(
@@ -178,7 +190,10 @@ def coverage_report(project_id: str, considered: list[Candidate], images_sent: i
         "excluded": excluded,
         "invalid": invalid,
         "considered": len(considered),
-        "not_covered": max(0, eligible - len(considered_ids)),
+        "planned": len(considered_ids),
+        "analyzed": analyzed or 0,
+        "cached_valid": cached,
+        "not_covered": max(0, eligible - (len(considered_ids) if analyzed is None else analyzed + cached)),
         "images_sent": images_sent,
     }
 
@@ -215,26 +230,20 @@ def stage_image_dir(project_id: str, job_id: str) -> Path:
     return project_cache_dir(project_id) / "vision" / "staging" / job_id
 
 
-def image_manifest_hash(entries: list[tuple[str, int]]) -> str:
-    """Stable hash of (shot identity, frame count) for the exact images sent."""
-    payload = json.dumps(sorted(entries), separators=(",", ":")).encode()
-    return hashlib.sha256(payload).hexdigest()[:64]
+def image_manifest_hash(entries: list) -> str:
+    """Ordered frame IDs/labels and SHA-256 of actual immutable JPEG payloads."""
+    return digest(entries)
 
 
 def source_signature(candidates: list[Candidate]) -> str:
-    """Signature of the *inputs*: shot identity plus its current bounds and frames.
-
-    Re-trimming a shot or re-detecting it changes this, which makes a stored
-    result detectably stale instead of silently wrong.
-    """
-    payload = json.dumps(
-        sorted(
-            (c.segment_id, round(c.start_sec, 3), round(c.end_sec, 3), sorted(c.frame_ids))
-            for c in candidates
-        ),
-        separators=(",", ":"),
-    ).encode()
-    return hashlib.sha256(payload).hexdigest()[:64]
+    """Versioned per-shot identity, independent of the selection batch."""
+    settings = get_settings()
+    return digest(["semantic-input-v2", [
+        [c.project_id, c.asset_id, c.segment_id, c.source_identity,
+         c.start_sec, c.end_sec, c.story_role, c.actual_manifest]
+        for c in candidates], settings.model_name, settings.vision_prompt_version,
+        settings.vision_schema_version, schema_mod.SCHEMA_VERSION,
+        settings.model_max_images, settings.vision_target_width, "jpeg85-rgb-lanczos-v1"])
 
 
 # --------------------------------------------------------------------------
@@ -252,6 +261,7 @@ def _store_result(
     src_sig: str,
     manifest_hash: str,
     usage: dict,
+    job_id: str,
 ) -> None:
     """Upsert one validated result and demote the previous current row.
 
@@ -266,6 +276,7 @@ def _store_result(
     """
     with session_scope() as s:
         begin_write(s)
+        validate_publication(s, job_id, project_id, _snapshot(candidate), "vision_analyze")
         existing = s.scalars(
             select(SegmentSemanticResult).where(
                 SegmentSemanticResult.segment_id == candidate.segment_id,
@@ -311,20 +322,29 @@ def _store_result(
             for key, value in payload.items():
                 setattr(existing, key, value)
         else:
-            s.add(
-                SegmentSemanticResult(
-                    project_id=project_id,
-                    segment_id=candidate.segment_id,
-                    **payload,
-                )
-            )
+            existing = SegmentSemanticResult(project_id=project_id,
+                                             segment_id=candidate.segment_id, **payload)
+            s.add(existing)
+        s.flush()
+        s.add(SegmentSemanticAttempt(
+            project_id=project_id, job_id=job_id, segment_id=candidate.segment_id,
+            result_id=existing.id, source_signature=src_sig, frame_manifest_hash=manifest_hash,
+            analysis_json=validated.visual,
+            evidence_json={**candidate.request_audit, "model_id": model_id,
+                           "prompt_version": prompt_version, "schema_version": schema_mod.SCHEMA_VERSION,
+                           "manifest": candidate.actual_manifest},
+            request_usage=usage or {},
+        ))
 
 
 def _already_done(
-    segment_id: str, src_sig: str, manifest_hash: str, model_id: str, prompt_version: str
+    segment_id: str, src_sig: str, manifest_hash: str, model_id: str, prompt_version: str,
+    *, job_id: str, candidate: Candidate
 ) -> bool:
     """Idempotency key from the task book: skip a successful identical run."""
     with session_scope() as s:
+        begin_write(s)
+        validate_publication(s, job_id, candidate.project_id, _snapshot(candidate), "vision_analyze")
         existing = s.scalars(
             select(SegmentSemanticResult).where(
                 SegmentSemanticResult.segment_id == segment_id,
@@ -333,6 +353,7 @@ def _already_done(
                 SegmentSemanticResult.model_id == model_id,
                 SegmentSemanticResult.prompt_version == prompt_version,
                 SegmentSemanticResult.status == "succeeded",
+                SegmentSemanticResult.is_current.is_(True),
             )
         ).first()
     return existing is not None
@@ -404,8 +425,6 @@ def vision_analyze_task(job_id: str) -> None:
     budgets = _Budget(settings.model_max_calls_per_job)
     provider = get_provider()
     staging = stage_image_dir(project_id, job_id)
-    manifest_hash = image_manifest_hash([(c.segment_id, len(c.frame_ids)) for c in candidates])
-    src_sig = source_signature(candidates)
 
     counts = {"analyzed": 0, "skipped": 0, "failed": 0, "images_sent": 0}
     usage_totals: dict[str, int] = {}
@@ -422,22 +441,33 @@ def vision_analyze_task(job_id: str) -> None:
 
             considered.append(candidate)
 
-            if not force and _already_done(
-                candidate.segment_id, src_sig, manifest_hash,
-                settings.model_name, settings.vision_prompt_version,
-            ):
-                counts["skipped"] += 1
-                _progress(job_id, index, total, counts)
-                continue
-
             try:
+                rendered = _render_images(project_id, candidate, staging)
+                candidate.actual_manifest = [[r.frame_id, r.label, hashlib.sha256(r.data).hexdigest()]
+                                             for r in rendered]
+                src_sig = source_signature([candidate])
+                manifest_hash = image_manifest_hash(candidate.actual_manifest)
+                if not candidate.source_identity:
+                    raise ModelError(SOURCE_CHANGED, "source is unavailable or changed during selection")
+                if not rendered:
+                    raise ModelError(INSUFFICIENT_FRAMES, "no readable representative frame")
+                if not force and _already_done(
+                    candidate.segment_id, src_sig, manifest_hash,
+                    settings.model_name, settings.vision_prompt_version,
+                    job_id=job_id, candidate=candidate,
+                ):
+                    counts["skipped"] += 1
+                    _progress(job_id, index, total, counts)
+                    continue
                 budgets.spend()
                 outcome, usage, sent = _analyze_one(
                     project_id, candidate, staging, provider, cancel_check,
-                    authorization=context,
+                    authorization=context, rendered=rendered,
                 )
             except ModelError as exc:
                 if exc.code == CANCELLED:
+                    failures.record(kind="vision", ref=candidate.segment_id,
+                                    message="[CANCELLED] provider cancelled", error_code=CANCELLED)
                     raise JobCancelled("vision_analyze cancelled") from exc
                 counts["failed"] += 1
                 failures.record(kind="vision", ref=candidate.segment_id,
@@ -469,8 +499,18 @@ def vision_analyze_task(job_id: str) -> None:
                     project_id, candidate, validated[0],
                     provider_name=provider.name, model_id=settings.model_name,
                     prompt_version=settings.vision_prompt_version,
-                    src_sig=src_sig, manifest_hash=manifest_hash, usage=usage,
+                    src_sig=src_sig, manifest_hash=manifest_hash, usage=usage, job_id=job_id,
                 )
+            except ModelError as exc:
+                counts["failed"] += 1
+                failures.record(kind="vision", ref=candidate.segment_id,
+                                message=f"[{exc.code}] {exc.message}", error_code=exc.code)
+                _progress(job_id, index, total, counts)
+                continue
+            except JobCancelled:
+                failures.record(kind="vision", ref=candidate.segment_id,
+                                message="[CANCELLED] cancelled before publication", error_code=CANCELLED)
+                raise
             except IntegrityError as exc:
                 # The version key already exists. That is a real outcome the
                 # operator must see: reporting it as `skipped` with no failure
@@ -478,18 +518,20 @@ def vision_analyze_task(job_id: str) -> None:
                 counts["failed"] += 1
                 failures.record(
                     kind="vision", ref=candidate.segment_id,
-                    message=f"[{schema_mod.MODEL_INVALID_OUTPUT}] 结果写入冲突：{exc.orig}",
-                    error_code=schema_mod.MODEL_INVALID_OUTPUT,
+                    message="[DB_CONFLICT] result publication conflict",
+                    error_code="DB_CONFLICT",
                 )
                 _progress(job_id, index, total, counts)
                 continue
 
             counts["analyzed"] += 1
-            counts["images_sent"] += sent
             _add_usage(usage_totals, usage)
             _progress(job_id, index, total, counts)
 
     finally:
+        merge_job_stats(job_id, {"calls": sum(c.calls for c in considered),
+                                "images_sent": sum(c.images_sent for c in considered),
+                                "usage": _usage_totals(considered)})
         _cleanup_staging(staging)
 
     if budgets.exceeded:
@@ -503,10 +545,12 @@ def vision_analyze_task(job_id: str) -> None:
         "failed": counts["failed"],
         "analyzed": counts["analyzed"],
         "skipped": counts["skipped"],
-        "images_sent": counts["images_sent"],
-        "calls": budgets.used,
-        "usage": usage_totals,
-        "coverage": coverage_report(project_id, considered, counts["images_sent"]),
+        "images_sent": sum(c.images_sent for c in considered),
+        "calls": sum(c.calls for c in considered),
+        "reused": 0,
+        "usage": _usage_totals(considered),
+        "coverage": coverage_report(project_id, candidates, sum(c.images_sent for c in considered),
+                                    analyzed=counts["analyzed"], cached=counts["skipped"]),
         "phase": "done",
     }
     if len(failures):
@@ -516,23 +560,20 @@ def vision_analyze_task(job_id: str) -> None:
         update_job(job_id, status="succeeded", stats=stats)
 
 
-def _analyze_one(
-    project_id: str,
-    candidate: Candidate,
-    staging: Path,
-    provider,
-    cancel_check,
-    *,
-    authorization=None,
-):
-    """Render, call and validate one shot.
+def _snapshot(candidate):
+    return {"segment_id": candidate.segment_id, "asset_id": candidate.asset_id,
+            "start_sec": candidate.start_sec, "end_sec": candidate.end_sec,
+            "source_signature": candidate.source_identity}
 
-    Returns ``((validated, problems), usage, images_sent)`` or
-    ``(None, {}, 0)`` when no frame could be rendered.
-    """
+
+def _read_bytes(path):
+    with safe_open(path, "rb") as stream:
+        return stream.read()
+
+
+def _render_images(project_id, candidate, staging):
     settings = get_settings()
     rendered: list[RenderedImage] = []
-
     for idx, (frame_id, rel_path) in enumerate(
         zip(candidate.frame_ids, candidate.frame_paths)
     ):
@@ -543,10 +584,40 @@ def _analyze_one(
         dest = staging / f"{candidate.segment_id[:8]}-{idx}.jpg"
         if render_privacy_image(str(src), dest, target_width=settings.vision_target_width):
             rendered.append(
-                RenderedImage(path=str(dest), label=f"frame_{idx + 1}", frame_id=frame_id)
+                RenderedImage(path=str(dest), label=f"frame_{idx + 1}", frame_id=frame_id,
+                              data=_read_bytes(dest))
             )
         if len(rendered) >= settings.model_max_images:
             break
+
+    return rendered
+
+
+def _usage_totals(candidates):
+    totals = {}
+    for candidate in candidates:
+        _add_usage(totals, candidate.usage)
+    return totals
+
+
+def _analyze_one(
+    project_id: str,
+    candidate: Candidate,
+    staging: Path,
+    provider,
+    cancel_check,
+    *,
+    authorization=None,
+    rendered=None,
+):
+    """Render, call and validate one shot.
+
+    Returns ``((validated, problems), usage, images_sent)`` or
+    ``(None, {}, 0)`` when no frame could be rendered.
+    """
+    settings = get_settings()
+    if rendered is None:
+        rendered = _render_images(project_id, candidate, staging)
 
     if not rendered:
         return None, {}, 0
@@ -574,6 +645,8 @@ def _analyze_one(
 
     from .providers.base import ImagePart, VisionRequest
 
+    candidate.calls += 1
+    candidate.images_sent += len(rendered)
     response = provider.complete(
         VisionRequest(
             prompt=schema_mod.build_prompt(
@@ -584,7 +657,7 @@ def _analyze_one(
                     "eligible": 1,
                 },
             ),
-            images=[ImagePart(path=r.path, label=r.label) for r in rendered],
+            images=[ImagePart(data=r.data, mime="image/jpeg", label=r.label) for r in rendered],
             system=schema_mod.SYSTEM_PROMPT,
             json_object=True,
             max_tokens=settings.vision_max_tokens,
@@ -593,10 +666,11 @@ def _analyze_one(
         cancel_check=cancel_check,
     )
 
-    # Server-side re-check: the shot may have been re-detected while the model was
-    # thinking. A result describing stale bounds must not be stored (C2/C3).
-    if not _still_valid(candidate):
-        raise ModelError(SOURCE_CHANGED, "segment changed while the model was running")
+    candidate.calls += max(0, response.attempts - 1)
+    candidate.images_sent += len(rendered) * max(0, response.attempts - 1)
+    candidate.usage = response.usage
+    candidate.request_audit = {"request_id": response.request_id, "attempts": response.attempts,
+                               "latency_ms": response.latency_ms}
 
     # A response with no parseable object at all is a per-item failure, not a
     # crash: re-raising here would abandon the whole batch and lose the fact

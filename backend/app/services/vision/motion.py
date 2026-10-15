@@ -34,8 +34,9 @@ from ...database import begin_write, session_scope
 from ...ffmpeg import FFmpegError, extract_frame, safe_open, safe_stat, safe_unlink
 from ...models import Asset, Job, Segment, SegmentMotionReview, SegmentMotionVerdict, utcnow
 from ...paths import project_cache_dir
-from ..runner import JobCancelled, JobFailures, cancel_check_for, register_task, update_job
+from ..runner import JobCancelled, JobFailures, cancel_check_for, register_task, update_job, merge_job_stats
 from .authorization import authorize_upload
+from .publication import validate_publication
 from .verdicts import VerdictConflict, source_identity, input_identity, evidence_identity, invalid_reason
 from .errors import (
     CANCELLED,
@@ -67,6 +68,7 @@ class MotionFrame:
     path: str
     time_sec: float
     frame_id: str = ""
+    data: bytes | None = None
 
     @property
     def label(self) -> str:
@@ -276,11 +278,17 @@ def motion_review_task(job_id: str) -> None:
                 )
                 _store(project_id, segment, result, frames,
                        provider_name=provider.name, model_id=settings.model_name,
-                       usage=usage)
+                       usage=usage, job_id=job_id)
                 counts["analyzed"] += 1
                 counts["frames"] += len(frames)
+            except JobCancelled:
+                failures.record(kind="motion", ref=segment["segment_id"],
+                                message="[CANCELLED] cancelled before publication", error_code=CANCELLED)
+                raise
             except ModelError as exc:
                 if exc.code == CANCELLED:
+                    failures.record(kind="motion", ref=segment["segment_id"],
+                                    message="[CANCELLED] provider cancelled", error_code=CANCELLED)
                     raise JobCancelled("motion_review cancelled") from exc
                 counts["failed"] += 1
                 failures.record(kind="motion", ref=segment["segment_id"],
@@ -291,6 +299,13 @@ def motion_review_task(job_id: str) -> None:
                                 message=f"[{exc.code}] {exc}", error_code=exc.code)
             _progress(job_id, index, total, counts)
     finally:
+        from .semantic import _add_usage
+        totals = {}
+        for target in targets:
+            _add_usage(totals, target.get("request_usage", {}))
+        merge_job_stats(job_id, {"calls": sum(t.get("calls", 0) for t in targets),
+                                "images_sent": sum(t.get("images_sent", 0) for t in targets),
+                                "usage": totals})
         _cleanup(staging)
 
     stats = {
@@ -300,6 +315,9 @@ def motion_review_task(job_id: str) -> None:
         "analyzed": counts["analyzed"],
         "frames_sampled": counts["frames"],
         "method": "multiframe",
+        "calls": sum(t.get("calls", 0) for t in targets),
+        "images_sent": sum(t.get("images_sent", 0) for t in targets),
+        "usage": totals,
         "phase": "done",
     }
     if len(failures):
@@ -417,10 +435,15 @@ def _analyze_motion(provider, segment, frames, cancel_check, *, authorization=No
     )
 
     settings = get_settings()
+    for frame in frames:
+        with safe_open(frame.path, "rb") as stream:
+            frame.data = stream.read()
+    segment["calls"] = segment.get("calls", 0) + 1
+    segment["images_sent"] = len(frames)
     response = provider.complete(
         VisionRequest(
             prompt=prompt,
-            images=[ImagePart(path=f.path, label=f.label) for f in frames],
+            images=[ImagePart(data=f.data, mime="image/jpeg", label=f.label) for f in frames],
             system=SYSTEM_PROMPT,
             json_object=True,
             max_tokens=settings.vision_max_tokens_motion,
@@ -429,15 +452,19 @@ def _analyze_motion(provider, segment, frames, cancel_check, *, authorization=No
         cancel_check=cancel_check,
     )
 
+    segment["calls"] += max(0, response.attempts - 1)
+    segment["images_sent"] *= response.attempts
+    segment["request_usage"] = response.usage
     payload = extract_json_object(response.text)
     result = validate_motion(payload, [f.time_sec for f in frames])
     return result, response.usage
 
 
-def _store(project_id, segment, result, frames, *, provider_name, model_id, usage):
+def _store(project_id, segment, result, frames, *, provider_name, model_id, usage, job_id):
     """Persist a motion reading, preserving any human verdict already recorded."""
     with session_scope() as s:
         begin_write(s)
+        validate_publication(s, job_id, project_id, segment, "motion_review")
         frame_hash = _frames_hash(frames)
         s.execute(
             update(SegmentMotionReview)
@@ -488,8 +515,11 @@ def _frames_hash(frames: list[MotionFrame]) -> str:
 
     items = []
     for frame in frames:
-        with safe_open(frame.path, "rb") as stream:
-            fingerprint = hashlib.sha256(stream.read()).hexdigest()
+        if frame.data is not None:
+            fingerprint = hashlib.sha256(frame.data).hexdigest()
+        else:
+            with safe_open(frame.path, "rb") as stream:
+                fingerprint = hashlib.sha256(stream.read()).hexdigest()
         items.append([frame.time_sec, fingerprint])
     payload = json.dumps(items, separators=(",", ":"))
     return hashlib.sha256(payload.encode()).hexdigest()[:64]

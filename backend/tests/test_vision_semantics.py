@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from app.database import session_scope
 from app.models import Asset, Frame, Job, Segment, SegmentSemanticResult
-from app.paths import frames_dir, rel_to_data
+from app.paths import frames_dir, rel_to_data, project_cache_dir
 from app.services.vision import semantic
 from app.services.vision.errors import ModelError, MODEL_NOT_CONFIGURED
 from app.services.vision.providers.base import VisionResponse
@@ -46,12 +46,15 @@ def _seed(project_id: str, layout: list[tuple[str, int, str]]) -> dict:
     for name, count, rating in layout:
         asset_id = str(uuid.uuid4())
         assets[name] = asset_id
+        source = project_cache_dir(project_id) / 'test-sources' / name
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(b'synthetic source for semantics unit tests')
         with session_scope() as s:
             s.add(
                 Asset(
                     id=asset_id,
                     project_id=project_id,
-                    source_path=f"C:/footage/{name}",
+                    source_path=str(source),
                     display_name=name,
                     file_size_bytes=1000,
                     mtime_ns=1,
@@ -310,7 +313,8 @@ def test_uploaded_bytes_carry_no_local_path(project, stubbed):
     prompt = stubbed.calls[0].prompt
     assert "C:/footage" not in prompt and "C:\\" not in prompt
     for image in stubbed.calls[0].images:
-        assert Path(image.path).is_absolute()
+        assert image.data and image.data.startswith(b"\xff\xd8")
+        assert image.path == ""
         assert image.label.startswith("frame_")
 
 

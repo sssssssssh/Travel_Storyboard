@@ -3,7 +3,7 @@ FFF                                                                      [100%]
 _________ test_same_evidence_rerun_keeps_current_api_verdict[confirm] __________
 
 client = <starlette.testclient.TestClient object at 0x105167950>
-shot = ('a93f464a-d438-4daf-b575-5779cbbb9630', {'segment_id': 'adde475f-e968-4d8f-9bf6-d2ad183fe508', 'asset_id': '656d6bfc-.../var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-4/test_same_evidence_rerun_keeps0/source.mp4'))
+shot = ('a93f464a-d438-4daf-b575-5779cbbb9630', {'segment_id': 'adde475f-e968-4d8f-9bf6-d2ad183fe508', 'asset_id': '656d6bfc-...<temp>'))
 verdict = 'confirm'
 
     @pytest.mark.parametrize('verdict', ['confirm', 'reject', 'unclear'])
@@ -23,7 +23,7 @@ backend/tests/test_motion_verdict_continuity.py:63: AssertionError
 __________ test_same_evidence_rerun_keeps_current_api_verdict[reject] __________
 
 client = <starlette.testclient.TestClient object at 0x105459a00>
-shot = ('b9071aeb-b7ad-4d66-ae1b-957920ed1bc4', {'segment_id': '13d7a461-2a55-4e1e-8553-6b9b83be0922', 'asset_id': '27908c9e-.../var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-4/test_same_evidence_rerun_keeps1/source.mp4'))
+shot = ('b9071aeb-b7ad-4d66-ae1b-957920ed1bc4', {'segment_id': '13d7a461-2a55-4e1e-8553-6b9b83be0922', 'asset_id': '27908c9e-...<temp>'))
 verdict = 'reject'
 
     @pytest.mark.parametrize('verdict', ['confirm', 'reject', 'unclear'])
@@ -43,7 +43,7 @@ backend/tests/test_motion_verdict_continuity.py:63: AssertionError
 _________ test_same_evidence_rerun_keeps_current_api_verdict[unclear] __________
 
 client = <starlette.testclient.TestClient object at 0x10f0e5670>
-shot = ('af25842d-91d6-4d6d-b7fb-86226a5dd255', {'segment_id': '7733afdb-e666-4159-8cdc-52ac2b00720a', 'asset_id': '7ab78abc-.../var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-4/test_same_evidence_rerun_keeps2/source.mp4'))
+shot = ('af25842d-91d6-4d6d-b7fb-86226a5dd255', {'segment_id': '7733afdb-e666-4159-8cdc-52ac2b00720a', 'asset_id': '7ab78abc-...<temp>'))
 verdict = 'unclear'
 
     @pytest.mark.parametrize('verdict', ['confirm', 'reject', 'unclear'])

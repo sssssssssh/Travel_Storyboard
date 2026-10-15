@@ -197,7 +197,9 @@ function JobProgress({ job }: { job: JobOut }) {
       </div>
       {coverage && (
         <div className="text-slate-400">
-          覆盖：可分析 {coverage.eligible} 个，本次分析 {coverage.considered} 个，
+          覆盖：可分析 {coverage.eligible} 个，计划分析 {coverage.planned ?? coverage.considered} 个，
+          实际成功理解 {coverage.analyzed ?? stats.analyzed ?? 0} 个，
+          有效缓存 {coverage.cached_valid ?? stats.skipped ?? 0} 个，
           未覆盖 {coverage.not_covered} 个（库内共 {coverage.library_segments} 个）。
         </div>
       )}

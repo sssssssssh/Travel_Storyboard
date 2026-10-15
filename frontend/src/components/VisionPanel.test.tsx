@@ -426,3 +426,25 @@ test('verdict sends the displayed evidence version and human note, and shows con
     verdict: 'confirm', note: 'checked source', motion_review_id: 'm1', input_signature: 'input-v1',
   })
 })
+
+test('coverage distinguishes planned, successful and cached shots', async () => {
+  mockApi({
+    '/api/vision/status': configuredStatus,
+    '/api/projects/p/vision/preview': preview,
+    '/api/projects/p/vision-results': { count: 0, items: [] },
+    '/api/projects/p/vision-candidates': [],
+    '/api/projects/p/motion-reviews': [],
+    '/api/projects/p/jobs/vision_analyze': { id: 'coverage-job', status: 'pending', stats: {} },
+    '/api/jobs/coverage-job': { id: 'coverage-job', status: 'partial_failed', stats: {
+      analyzed: 8, skipped: 2, failed: 1,
+      coverage: { ...preview.coverage, eligible: 99, considered: 11, planned: 11,
+        analyzed: 8, cached_valid: 2, not_covered: 89 },
+    } },
+  })
+  setup()
+  fireEvent.click(await screen.findByRole('checkbox'))
+  fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
+  await screen.findByText(/实际成功理解 8 个/)
+  expect(screen.getByText(/有效缓存 2 个/)).toBeTruthy()
+  expect(screen.getByText(/计划分析 11 个/)).toBeTruthy()
+})

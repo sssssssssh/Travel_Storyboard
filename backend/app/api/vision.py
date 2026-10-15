@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
-from ..models import Asset, Job, Project, Segment, SegmentMotionReview, SegmentSemanticResult
+from ..models import Asset, Job, Project, Segment, SegmentMotionReview, SegmentSemanticResult, SegmentSemanticAttempt
 from ..schemas import (
     JobOut,
     MotionCandidateOut,
@@ -205,6 +205,21 @@ def list_motion_candidates(project_id: str, db: Session = Depends(get_db)):
     from ..services.vision.review_candidates import build_candidates
 
     return build_candidates(db, project_id)
+
+
+@router.get("/segments/{segment_id}/vision-result/attempts")
+def semantic_attempt_history(segment_id: str, limit: int = Query(20, ge=1, le=100),
+                             offset: int = Query(0, ge=0), db: Session = Depends(get_db)):
+    if db.get(Segment, segment_id) is None:
+        raise HTTPException(404, "Segment not found")
+    rows = db.scalars(select(SegmentSemanticAttempt).where(
+        SegmentSemanticAttempt.segment_id == segment_id,
+    ).order_by(SegmentSemanticAttempt.created_at.desc()).limit(limit).offset(offset)).all()
+    items = [{"id": r.id, "job_id": r.job_id, "result_id": r.result_id,
+              "source_signature": r.source_signature, "frame_manifest_hash": r.frame_manifest_hash,
+              "analysis": r.analysis_json, "evidence": r.evidence_json,
+              "usage": r.request_usage, "created_at": r.created_at} for r in rows]
+    return {"limit": limit, "offset": offset, "count": len(items), "items": items}
 
 
 # --- TSB-307: timestamped multi-frame motion review -----------------------

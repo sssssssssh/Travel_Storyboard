@@ -255,6 +255,9 @@ export interface CoverageOut {
   excluded: number
   invalid: number
   considered: number
+  planned?: number
+  analyzed?: number
+  cached_valid?: number
   not_covered: number
   images_sent: number
 }

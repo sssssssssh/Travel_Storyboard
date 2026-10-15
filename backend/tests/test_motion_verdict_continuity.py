@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app import database
 from app.database import session_scope
-from app.models import Asset, Project, Segment, SegmentMotionReview
+from app.models import Asset, Job, Project, Segment, SegmentMotionReview
 from app.services.vision import motion
 
 
@@ -43,7 +43,14 @@ def store(shot, **changes):
     result.update(changes)
     # Snapshot production selection, rather than inventing source identity.
     snap = motion._select_targets(pid, [target['segment_id']], 1)[0]
-    motion._store(pid, snap, result, frames, provider_name='stub', model_id='stub', usage={})
+    with session_scope() as s:
+        job = Job(project_id=pid, job_type='motion_review', status='running')
+        s.add(job); s.flush(); jid = job.id
+    try:
+        motion._store(pid, snap, result, frames, provider_name='stub', model_id='stub', usage={}, job_id=jid)
+    finally:
+        with session_scope() as s:
+            s.get(Job, jid).status = 'succeeded'
 
 
 def detail(client, shot):

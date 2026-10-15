@@ -190,6 +190,8 @@ jobs:
           tests/test_vision_candidates.py
           tests/test_vision_motion.py
           tests/test_motion_verdict_continuity.py
+          tests/test_vision_cache_versions.py
+          tests/test_vision_commit_races.py
           tests/test_vision_compat.py
       - name: Record exact commit and platform evidence
         if: always()

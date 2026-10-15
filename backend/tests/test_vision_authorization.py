@@ -23,7 +23,7 @@ from sqlalchemy import select
 
 from app.database import session_scope
 from app.models import Asset, Frame, Job, Segment, SegmentSemanticResult
-from app.paths import frames_dir, rel_to_data
+from app.paths import frames_dir, rel_to_data, project_cache_dir
 from app.services.vision import semantic
 from app.services.vision.authorization import (
     AuthorizedModelContext,
@@ -49,12 +49,15 @@ def _seed(project_id: str, count: int = 1) -> list[str]:
     """One asset with ``count`` shots that each have a readable frame."""
     asset_id = str(uuid.uuid4())
     seg_ids: list[str] = []
+    source = project_cache_dir(project_id) / 'synthetic-source.mp4'
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b'synthetic source for authorization unit tests')
     with session_scope() as s:
         s.add(
             Asset(
                 id=asset_id,
                 project_id=project_id,
-                source_path="C:/footage/a.mp4",
+                source_path=str(source),
                 display_name="a.mp4",
                 file_size_bytes=1000,
             )
