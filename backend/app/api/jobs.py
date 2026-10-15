@@ -57,6 +57,16 @@ def _job_config(project: Project, request: JobRequest) -> dict:
         }
     if job_type == "proxies":
         return {"max_total_mb": options.get("max_total_mb", 300)}
+    if job_type == "vision_analyze":
+        # Kept identical to the dedicated router's builder so both entry points
+        # produce the same consent/config snapshot.
+        return {
+            "limit": int(options.get("limit") or settings.vision_max_segments_per_job),
+            "segment_ids": list(options.get("segment_ids") or []),
+            "force": force,
+            "upload_acknowledged": bool(options.get("upload_acknowledged")),
+            "prompt_version": settings.vision_prompt_version,
+        }
     # roughcut
     return {}
 

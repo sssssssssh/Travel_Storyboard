@@ -258,3 +258,59 @@ class EditPlanShot(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     review_status: Mapped[str] = mapped_column(String(32), default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SegmentSemanticResult(Base):
+    """M5.1 (TSB-304) — a model's image-semantics reading of one shot.
+
+    Deliberately a **separate table** from ``segments``: AI inference must never
+    be written into the human-marked columns (``user_rating``, ``story_role``,
+    ``start_sec``/``end_sec``). Keeping it apart is what makes "the model cannot
+    overwrite a person" structurally true rather than merely intended.
+
+    Rows are versioned rather than overwritten: ``is_current`` marks the live
+    reading and older rows are retained, so a re-run with a new prompt or model
+    stays auditable.
+    """
+
+    __tablename__ = "segment_semantic_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "segment_id",
+            "source_signature",
+            "frame_manifest_hash",
+            "model_id",
+            "prompt_version",
+            name="uq_semantic_version_key",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    asset_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+    segment_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+    status: Mapped[str] = mapped_column(String(32), default="succeeded")
+
+    model_provider: Mapped[str] = mapped_column(String(64), default="")
+    model_id: Mapped[str] = mapped_column(String(128), default="")
+    prompt_version: Mapped[str] = mapped_column(String(32), default="")
+    schema_version: Mapped[str] = mapped_column(String(32), default="")
+
+    #: Identity of the *inputs*; changing any of these makes the row stale.
+    source_signature: Mapped[str] = mapped_column(String(128), default="")
+    frame_manifest_hash: Mapped[str] = mapped_column(String(128), default="")
+
+    analysis_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    evidence_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    request_usage: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True)
+    error_code: Mapped[str] = mapped_column(String(64), default="")
+    error_message: Mapped[str] = mapped_column(Text, default="")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )

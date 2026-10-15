@@ -336,3 +336,82 @@ class EditPlanShotOut(ORMModel):
     evidence: str
     confidence: float
     review_status: str
+
+
+# --- Vision semantics (M5 / TSB-304, TSB-306) ----------------------------
+
+class VisionAnalyzeRequest(BaseModel):
+    """Options for a semantic-analysis job or its dry-run preview."""
+
+    limit: int | None = Field(default=None, ge=1, le=2000)
+    segment_ids: list[str] = Field(default_factory=list)
+    force: bool = False
+    #: Explicit consent that privacy-rendered frames may leave this machine.
+    upload_acknowledged: bool = False
+
+
+class VisionStatusOut(BaseModel):
+    """Capability summary. Booleans and limits only — never a URL or a key."""
+
+    configured: bool
+    mode: str
+    model_name: str
+    prompt_version: str
+    schema_version: str
+    supports_images: bool
+    supports_multi_image: bool
+    supports_json_schema: bool
+    supports_native_video: bool
+    max_images: int
+    max_calls_per_job: int
+    allow_insecure_http: bool
+
+
+class VisionPreviewOut(BaseModel):
+    """What an upload would send, computed without calling the model."""
+
+    model_name: str
+    configured: bool
+    segments_to_analyze: int
+    estimated_images: int
+    estimated_requests: int
+    coverage: dict
+    sends_source_video: bool
+    strips_metadata: bool
+
+
+class VisionResultOut(ORMModel):
+    id: str
+    segment_id: str
+    asset_id: str
+    status: str
+    model_provider: str
+    model_id: str
+    prompt_version: str
+    schema_version: str
+    source_signature: str
+    visual: dict
+    evidence: dict
+    request_usage: dict
+    is_current: bool
+    error_code: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class MotionCandidateOut(BaseModel):
+    """One shot suggested for multi-frame review (TSB-306).
+
+    ``sources`` names where the suggestion came from so a rule-based hint is
+    never mistaken for a model judgement.
+    """
+
+    segment_id: str
+    asset_id: str
+    start_sec: float
+    end_sec: float
+    frame_count: int
+    sources: list[str]
+    reasons: list[str]
+    temporal_coverage_insufficient: bool
+    suggested_priority: str

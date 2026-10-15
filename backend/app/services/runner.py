@@ -64,7 +64,9 @@ EXCLUSIVE_STATUSES = (STATUS_PENDING, STATUS_RUNNING, STATUS_CANCELLING)
 TERMINAL_STATUSES = (STATUS_SUCCEEDED, STATUS_PARTIAL, STATUS_FAILED, STATUS_CANCELLED)
 
 # Jobs that mutate a project's cache must not run concurrently within a project.
-EXCLUSIVE_JOB_TYPES = {"scan", "detect", "package", "roughcut", "proxies"}
+# `vision_analyze` joins them: it writes semantic rows for the same shots and
+# would otherwise race a re-detection (TSB-304).
+EXCLUSIVE_JOB_TYPES = {"scan", "detect", "package", "roughcut", "proxies", "vision_analyze"}
 _PROJECT_LOCKS: dict[str, RLock] = {}
 _LOCKS_GUARD = Lock()
 

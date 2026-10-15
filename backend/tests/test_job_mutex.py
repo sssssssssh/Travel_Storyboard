@@ -28,7 +28,10 @@ from app.services.job_service import (
 )
 from app.services.runner import ACTIVE_STATUSES, TASK_REGISTRY, JobRunner
 
-HEAVY = ("scan", "detect", "package", "proxies", "roughcut")
+#: Job types that mutate a project's cache and therefore must be mutually
+#: exclusive. `vision_analyze` (TSB-304) joined this set: it writes semantic rows
+#: for the same shots and would otherwise race a re-detection.
+HEAVY = ("scan", "detect", "package", "proxies", "roughcut", "vision_analyze")
 
 
 @pytest.fixture()

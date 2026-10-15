@@ -12,7 +12,18 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
-from .api import assets, export, jobs, media, packages, projects, segments, story, system
+from .api import (
+    assets,
+    export,
+    jobs,
+    media,
+    packages,
+    projects,
+    segments,
+    story,
+    system,
+    vision,
+)
 from .config import get_settings
 from .database import init_db
 from .security import check_request_origin, extract_token, get_token, token_matches
@@ -23,7 +34,12 @@ from .services import (  # noqa: F401 - registers job tasks
     roughcut,
     story_planner,
 )
+from .services.vision.semantic import register_vision_tasks
 from .services.runner import converge_pending_cancellations, runner, resume_interrupted_jobs
+
+# M5 job types are registered explicitly rather than by import side effect, so
+# `vision_analyze` cannot be silently missing from TASK_REGISTRY.
+register_vision_tasks()
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +114,7 @@ app.include_router(jobs.router, prefix="/api")
 app.include_router(media.router, prefix="/api")
 app.include_router(packages.router, prefix="/api")
 app.include_router(story.router, prefix="/api")
+app.include_router(vision.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
 
 
