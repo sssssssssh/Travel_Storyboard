@@ -56,6 +56,30 @@ class Settings(BaseSettings):
     model_api_key: str = ""
     model_name: str = ""
 
+    # --- Vision model guard rails (M5, TSB-302) ---
+    # All optional; defaults are deliberately conservative.
+    model_timeout_sec: float = 120.0
+    model_max_images: int = 4
+    model_max_request_bytes: int = 8_000_000
+    model_max_calls_per_job: int = 200
+    model_max_retries: int = 2
+    # Capability declarations. `native_video` is opted into, never assumed.
+    model_supports_json_schema: bool = False
+    model_supports_native_video: bool = False
+    # A plain-`http://` endpoint is refused for non-loopback hosts unless the
+    # operator explicitly accepts cleartext for a known endpoint.
+    model_allow_insecure_http: bool = False
+
+    # --- Vision semantics (M5, TSB-303/304) ---
+    # Master switch: sending images off-box requires an explicit opt-in.
+    model_mode: str = "off"  # off | on
+    vision_prompt_version: str = "1.0"
+    vision_schema_version: str = "1.0"
+    vision_max_segments_per_job: int = 200
+    vision_target_width: int = 768
+    # Motion review (M5.2, TSB-307): frames sampled inside the valid interval.
+    motion_frame_count: int = 5
+
     # --- Logging ---
     log_level: str = "INFO"
 

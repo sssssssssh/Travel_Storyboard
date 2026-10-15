@@ -14,6 +14,9 @@ env/
 .ruff_cache/
 .coverage
 htmlcov/
+# pytest junitxml output (AGENTS.md §4.2 counting recipe)
+tsb.xml
+junit*.xml
 
 # --- Environment / secrets ---
 .env
