@@ -98,11 +98,39 @@ cd backend
 
 见 [`acceptance-report.json`](acceptance-report.json)（含逐步状态、耗时、统计与样本）。
 
-### 扫描
+| 阶段 | 状态 | 统计 |
+| --- | --- | --- |
+| scan | `succeeded` | 6/6，`skipped_unchanged=6`（素材未变，正确跳过） |
+| detect | `succeeded` | 6/6，**99 个候选片段**（首次全量 1579.5s） |
+| **vision_analyze** | `succeeded` | **8/8**，12 张图，17,760 tokens，59.7s |
+| **motion_review** | `succeeded` | **4/4**，采样 20 帧，`method=multiframe`，133.1s |
+| **C1 原片** | **通过** | `c1_originals_unchanged: true`，`c1_problems: []` |
+| **C6 无静默失败** | **通过** | `c6_no_quiet_failures: true` |
 
-| 阶段 | 结果 |
-| --- | --- |
-| scan | `succeeded`，6/6，`skipped_unchanged=6`（素材未变，正确跳过） |
+### 覆盖度如实报告
+
+```
+coverage: {library_segments: 99, eligible: 99, excluded: 0, invalid: 0,
+           considered: 8, not_covered: 91, images_sent: 12}
+```
+
+库内 99 个镜头、本次分析 8 个——**没有把"分析 8 个"说成"理解全库"**。
+
+### 图片语义理解（TSB-303/304）
+
+模型对真实画面的描述经人工核对**准确**，举两例：
+
+```
+['nature','water','sky','transport'] | daylight
+  ['lake with many small boats', 'long wooden walkway/pier over water',
+   'waterfowl perched on railing']
+
+['architecture','indoor','religious'] | indoor_artificial
+  ['domed ceiling', 'stained glass windows', 'hanging lamps strung on cables',
+   'large painted columns and arches']
+```
+
+未见杜撰地点名或人物身份。
 
 ### M5.2 多帧抽样路径（`extract_frame`）—— 逐个实测通过
 
@@ -113,29 +141,53 @@ cd backend
 | 0008（10.8s / 147 MB） | 1.0s / 5.0s / 9.0s | ✅ 57 KB / 78 KB / 52 KB，6.8–7.9s |
 | 0007（140.8s / 1.9 GB） | 25s / 60s / 120s | ✅ 68 KB / 58 KB / 52 KB，6.7–7.0s |
 
-**6/6 成功**，且大文件与小文件耗时相近（约 7s/帧），说明 `-ss` 定位不受文件长度影响。
-M5.2 的多帧动态理解因此在本机可正常执行。
+**6/6 成功**，大文件与小文件耗时相近（约 7s/帧），说明 `-ss` 定位不受文件长度影响。
 
-### 图片语义理解（TSB-303/304）
+### 多帧动态理解（TSB-307）
 
-对真实代表帧调用真实模型，结果落 `segment_semantic_results`。
-每条记录均带 `model_id` / `prompt_version` / `schema_version` / `source_signature` /
-`frame_manifest_hash` 与 token 用量，可追溯到具体输入。
+```
+6f1ace17 method=multiframe pan             risk=medium at=[5.17, 6.33, 7.5, 8.67, 9.83]
+6f6a7226 method=multiframe pan             risk=medium at=[2.67, 5.33, 8.0, 10.67, 13.33]
+838ec03a method=multiframe tracking        risk=medium at=[53.5, 56.0, 58.5, 61.0, 63.5]
+bcda9841 method=multiframe subject_action  risk=medium at=[122.0, 125.0, 128.0, 131.0, 134.0]
+```
+
+每个结论都带**实际采样时间戳**，且 `evidence.audio_analyzed=false`、
+`video_analyzed=false`。模型的措辞也守住了边界，例如
+"…suggesting possible panning or handheld movement that stills cannot confirm"。
 
 ### 动态复核候选（TSB-306）
 
-候选来自已存数据，**不额外调用模型**。规则来源的理由串固定表述为
+98 个候选，来源分别标注 `semantic` / `rule`。规则来源的理由串固定为
 「疑似画面变化，需核验；帧差本身不能证明抖动或甩镜」，
 单帧镜头标记为无法判断运动而非排除。
 
-### 多帧动态复核（TSB-307）
+---
 
-对候选镜头在**有效区间内**采样带时间戳的多帧，`method=multiframe`，
-`evidence.audio_analyzed=false`、`video_analyzed=false`。
+## 五、验收过程中发现并修复的两处产品问题
+
+### 5.1 任务未注册（驱动脚本接线缺口）
+
+首轮 `vision_analyze` 报 `Unknown job type: vision_analyze`。
+原因是任务注册是 `app.main` 里的**显式调用**，而验收脚本没有 import `app.main`。
+REST 路径不受影响。修复：脚本显式调用 `register_*_tasks()` 并在开跑前校验
+四个类型都在 `TASK_REGISTRY` 中；另加两个回归用例断言类型同时存在于
+`VALID_JOB_TYPES` / `TASK_REGISTRY` / `EXCLUSIVE_JOB_TYPES`。
+
+### 5.2 推理模型的输出预算过小
+
+`GLM-5.3-Flash` 把 1500 token 的预算耗在独立的 `reasoning` 字段上，
+使 `content` 返回 `null`，报
+`[MODEL_INVALID_OUTPUT] model returned reasoning without content (raise max_tokens)`。
+
+**适配器没有把它当成成功**——否则会持久化一条空观察。
+修复：预算改为可配置（默认 4000），并新增两个接线用例断言任务把**配置值**
+传给 provider 而非硬编码。修复后 motion_review 由 `partial_failed` 转为
+`succeeded` 4/4。
 
 ---
 
-## 五、C1 原片只读
+## 六、C1 原片只读
 
 全部 6 个原片在完整流程（扫描 → 检测 → 语义分析 → 多帧复核）前后，
 SHA-256 / 大小 / mtime_ns **完全一致**：
@@ -147,14 +199,18 @@ c1_problems: []
 
 ---
 
-## 六、诚实边界
+## 七、诚实边界
 
 1. **本记录是 Windows，不是 macOS**。任务书假设 macOS 为主测平台；
    本次在 Windows 上执行，两者环境不同（AGENTS.md 4.1 与 macOS 记录第一节的差异）。
 2. **素材维度不全**：无竖屏、无无音轨、无 HDR，6 段少于门禁要求的 8～10 段。
 3. **原生视频理解未实现**：本轮按任务书只做"时间戳多帧"，
    `supports_native_video` 默认 `false`，多帧推断**不等于**连续视频分析。
-4. **音频语义完全未分析**，`audio_analyzed` 恒为 `false`。
-5. **60+ 段 / 200GB 全量性能未测**，不依据本轮耗时外推。
+4. **音频语义完全未分析**，`audio_analyzed` 恒为 `false`（即使素材带音轨）。
+5. **60+ 段 / 200GB 全量性能未测**。本机 4K120 HEVC 解码仅约 1/7 实时速度，
+   这些文件的全量 detect 已需 26 分钟，200GB 在本机**不具可行性**，
+   必须换更强算力或降低采样率；不依据样本耗时外推结论。
 6. **模型端点为明文 `http://`**，令牌与图片在网络上不加密。
 7. **人脸/车牌未脱敏**：EXIF/GPS 去除是强制的，但不遮蔽画面内容。
+8. 本轮的 `vision_analyze` 只覆盖 **8 / 99** 个镜头，其余 91 个
+   `not_covered` 是**如实报告**的覆盖缺口，不是已完成项。

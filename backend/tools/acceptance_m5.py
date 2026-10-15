@@ -78,13 +78,22 @@ def main() -> int:
     )
     from app.services.analyzer import detect_task
     from app.services.indexer import scan_task
-    from app.services.runner import runner
-    from app.services.vision.motion import motion_review_task
-    from app.services.vision.semantic import vision_analyze_task
+    from app.services.runner import TASK_REGISTRY, runner
+    from app.services.vision.motion import register_motion_tasks
+    from app.services.vision.semantic import register_vision_tasks
 
-    # The task functions are imported for their registration side effect; every
-    # job is dispatched by type through the runner, never called directly.
-    _ = (scan_task, detect_task, vision_analyze_task, motion_review_task)
+    # Registration happens in `app.main` as an explicit call, so importing the
+    # task modules is NOT enough: without this the runner answers
+    # "Unknown job type: vision_analyze", which reads like a product failure but
+    # is really this harness's own wiring gap.
+    register_vision_tasks()
+    register_motion_tasks()
+    _ = (scan_task, detect_task)
+    missing = [t for t in ("scan", "detect", "vision_analyze", "motion_review")
+               if t not in TASK_REGISTRY]
+    if missing:
+        print(f"refusing to run: tasks not registered: {missing}", file=sys.stderr)
+        return 2
 
     settings = get_settings()
     source_root = Path(args.source).resolve()
@@ -118,7 +127,15 @@ def main() -> int:
     print(f"model  : {settings.model_name}")
     print(f"secure : http allowed = {settings.model_allow_insecure_http}")
     before = snapshot(videos)
-    report: dict = {"source": str(source_root), "model": settings.model_name, "steps": {}}
+    # The report is meant to be committed as evidence, so it records the
+    # *shape* of the library, not the operator's directory layout (C5: evidence
+    # artifacts must not leak real filesystem paths).
+    report: dict = {
+        "source_dir_name": source_root.name,
+        "source_file_count": len(videos),
+        "model": settings.model_name,
+        "steps": {},
+    }
 
     init_db()
 
@@ -308,13 +325,31 @@ def main() -> int:
     print(f"c6_no_quiet_failures: {not quiet_failures}  {quiet_failures}")
 
     if args.out:
-        Path(args.out).write_text(
-            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        # Scrub any filesystem path that leaked into job stats or error strings
+        # (e.g. `current_file`) before the report becomes a committed artifact.
+        payload = json.dumps(_scrub(report, source_root), ensure_ascii=False, indent=2)
+        Path(args.out).write_text(payload, encoding="utf-8")
         print(f"\nreport written to {args.out}")
 
     ok = report["c1_originals_unchanged"] and scan_status != "failed" and detect_status != "failed"
     return 0 if ok else 1
+
+
+def _scrub(value, source_root: Path):
+    """Recursively replace absolute paths with a placeholder in report values."""
+    if isinstance(value, dict):
+        return {k: _scrub(v, source_root) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub(v, source_root) for v in value]
+    if isinstance(value, str):
+        text = value.replace(str(source_root), "<source_dir>")
+        # Any remaining drive-letter or POSIX absolute path is reduced to a name.
+        import re as _re
+
+        text = _re.sub(r"[A-Za-z]:\\[^\s\"']*", "<local_path>", text)
+        text = _re.sub(r"/(?:Users|home|mnt|var)/[^\s\"']*", "<local_path>", text)
+        return text
+    return value
 
 
 if __name__ == "__main__":

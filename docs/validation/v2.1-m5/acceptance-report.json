@@ -1,0 +1,464 @@
+{
+  "source_dir_name": "video",
+  "source_file_count": 6,
+  "model": "GLM-5.3-Flash",
+  "steps": {
+    "scan": {
+      "status": "succeeded",
+      "seconds": 0.1,
+      "stats": {
+        "total": 6,
+        "done": 6,
+        "failed": 0,
+        "skipped": 6,
+        "source_changed": 0,
+        "needs_review": 0,
+        "forced_reprobe": 0,
+        "skipped_unchanged": 6,
+        "signature_mode": "quick",
+        "phase": "complete",
+        "current_file": "DJI_20261003165009_0008_D.MP4",
+        "processed_files": 6,
+        "total_files": 6,
+        "bytes_read": 0,
+        "strict_extra_bytes": 0,
+        "hash_passes": 0,
+        "hash_restarts": 0,
+        "total_bytes": 0
+      },
+      "failures": {
+        "count": 0,
+        "items": []
+      },
+      "error": ""
+    },
+    "detect": {
+      "status": "succeeded",
+      "seconds": 0.1,
+      "stats": {
+        "total": 6,
+        "done": 6,
+        "failed": 0,
+        "skipped": 6,
+        "source_changed": 0,
+        "needs_review": 0,
+        "forced_reprobe": 0,
+        "skipped_unchanged": 6,
+        "signature_mode": "quick",
+        "phase": "complete",
+        "current_file": "DJI_20261003164352_0007_D.MP4",
+        "processed_files": 6,
+        "total_files": 6,
+        "bytes_read": 0,
+        "strict_extra_bytes": 0,
+        "hash_passes": 0,
+        "hash_restarts": 0,
+        "total_bytes": 0
+      },
+      "failures": {
+        "count": 0,
+        "items": []
+      },
+      "error": ""
+    },
+    "vision_analyze": {
+      "status": "succeeded",
+      "seconds": 0.0,
+      "stats": {
+        "total": 8,
+        "done": 8,
+        "failed": 0,
+        "analyzed": 0,
+        "skipped": 8,
+        "images_sent": 0,
+        "calls": 0,
+        "usage": {},
+        "coverage": {
+          "library_segments": 99,
+          "eligible": 99,
+          "excluded": 0,
+          "invalid": 0,
+          "considered": 8,
+          "not_covered": 91,
+          "images_sent": 0
+        },
+        "phase": "done"
+      },
+      "failures": {
+        "count": 0,
+        "items": []
+      },
+      "error": ""
+    },
+    "motion_review": {
+      "status": "succeeded",
+      "seconds": 143.3,
+      "stats": {
+        "total": 4,
+        "done": 4,
+        "failed": 0,
+        "analyzed": 4,
+        "frames_sampled": 20,
+        "method": "multiframe",
+        "phase": "done"
+      },
+      "failures": {
+        "count": 0,
+        "items": []
+      },
+      "error": ""
+    }
+  },
+  "assets": 6,
+  "segments": 99,
+  "semantic_results": 8,
+  "semantic_samples": [
+    {
+      "segment_id": "f05b21df-f5c7-4616-872e-75b369c7acd3",
+      "scene_tags": [
+        "nature",
+        "water",
+        "sky",
+        "transport"
+      ],
+      "subjects": [
+        "lake with many small boats",
+        "stone waterfront edge in foreground",
+        "long wooden walkway/pier over water",
+        "waterfowl perched on railing"
+      ],
+      "lighting": "daylight",
+      "composition": "wide",
+      "state": "observed",
+      "confidence": 0.9,
+      "model": "GLM-5.3-Flash",
+      "prompt_version": "1.0",
+      "tokens": 1767
+    },
+    {
+      "segment_id": "4af9f722-9eb7-40eb-9c48-ca1ae14e1c4f",
+      "scene_tags": [
+        "indoor",
+        "transport",
+        "architecture",
+        "urban"
+      ],
+      "subjects": [
+        "woman in blue denim jacket and dark trousers walking toward came",
+        "travelers with rolling suitcases",
+        "group of people seated on the floor along the right wall",
+        "large cylindrical support columns"
+      ],
+      "lighting": "indoor_artificial",
+      "composition": "wide",
+      "state": "observed",
+      "confidence": 0.85,
+      "model": "GLM-5.3-Flash",
+      "prompt_version": "1.0",
+      "tokens": 1673
+    },
+    {
+      "segment_id": "4b482acf-a27f-4dc5-a705-c9761bbf2aa6",
+      "scene_tags": [
+        "transport",
+        "street",
+        "urban",
+        "sky"
+      ],
+      "subjects": [
+        "vehicle window frame",
+        "white van on street",
+        "blue vehicle",
+        "road"
+      ],
+      "lighting": "daylight",
+      "composition": "medium",
+      "state": "observed",
+      "confidence": 0.65,
+      "model": "GLM-5.3-Flash",
+      "prompt_version": "1.0",
+      "tokens": 1633
+    },
+    {
+      "segment_id": "b9a4242b-8004-49a8-b552-b42d2f469a4b",
+      "scene_tags": [
+        "street",
+        "urban",
+        "architecture"
+      ],
+      "subjects": [
+        "woman in denim jacket holding a phone",
+        "crowd of pedestrians",
+        "large historic stone building with arched windows",
+        "person in pink headscarf"
+      ],
+      "lighting": "daylight",
+      "composition": "medium",
+      "state": "observed",
+      "confidence": 0.85,
+      "model": "GLM-5.3-Flash",
+      "prompt_version": "1.0",
+      "tokens": 1667
+    },
+    {
+      "segment_id": "6f6a7226-c081-4539-9cd1-b763ddb36d73",
+      "scene_tags": [
+        "architecture",
+        "indoor",
+        "religious"
+      ],
+      "subjects": [
+        "domed ceiling",
+        "stained glass windows",
+        "hanging lamps strung on cables",
+        "large painted columns and arches"
+      ],
+      "lighting": "indoor_artificial",
+      "composition": "wide",
+      "state": "observed",
+      "confidence": 0.85,
+      "model": "GLM-5.3-Flash",
+      "prompt_version": "1.0",
+      "tokens": 2997
+    },
+    {
+      "segment_id": "6b46d94d-9b13-4d05-ada6-611cc88a4621",
+      "scene_tags": [
+        "indoor",
+        "religious",
+        "other"
+      ],
+      "subjects": [
+        "crowd of people standing indoors",
+        "child in navy jacket and teal trousers",
+        "pairs of shoes on a white marble floor",
+        "person holding a smartphone"
+      ],
+      "lighting": "daylight",
+      "composition": "high_angle",
+      "state": "observed",
+      "confidence": 0.7,
+      "model": "GLM-5.3-Flash",
+      "prompt_version": "1.0",
+      "tokens": 2714
+    },
+    {
+      "segment_id": "6f1ace17-da91-4795-9e88-6364d1cedfcc",
+      "scene_tags": [
+        "nature",
+        "water",
+        "sky",
+        "transport",
+        "monument"
+      ],
+      "subjects": [
+        "lake with many small boats",
+        "wooden walkway/pier over water",
+        "green-painted dock platform",
+        "covered boat with seated people"
+      ],
+      "lighting": "daylight",
+      "composition": "wide",
+      "state": "observed",
+      "confidence": 0.85,
+      "model": "GLM-5.3-Flash",
+      "prompt_version": "1.0",
+      "tokens": 2535
+    },
+    {
+      "segment_id": "8d950a05-54ec-4cc8-9a98-1a6562d2d597",
+      "scene_tags": [
+        "indoor",
+        "transport",
+        "architecture"
+      ],
+      "subjects": [
+        "travelers with rolling suitcases",
+        "woman in blue denim jacket in foreground (partially cropped)",
+        "woman talking on a mobile phone",
+        "man in dark clothing beside a luggage cart"
+      ],
+      "lighting": "daylight",
+      "composition": "wide",
+      "state": "observed",
+      "confidence": 0.85,
+      "model": "GLM-5.3-Flash",
+      "prompt_version": "1.0",
+      "tokens": 2774
+    }
+  ],
+  "motion_candidates": 98,
+  "motion_candidate_samples": [
+    {
+      "segment_id": "6f6a7226-c081-4539-9cd1-b763ddb36d73",
+      "asset_id": "e4aae02b-024c-4eb2-a095-62a22685a55f",
+      "start_sec": 0.0,
+      "end_sec": 16.0,
+      "frame_count": 3,
+      "sources": [
+        "semantic",
+        "rule"
+      ],
+      "reasons": [
+        "模型建议：frames progress from floor-level wide views to an upward view of the central dome, suggesting a tilt or pan that needs multi-frame confirmation",
+        "模型建议：motion blur in the dome frame could indicate rapid camera movement or handheld shake",
+        "模型建议：people are seen walking and lying down; a motion review would clarify their actions across the shot",
+        "规则提示：代表帧平均像素差 0.210（阈值 0.12/0.2），疑似画面变化，需核验；帧差本身不能证明抖动或甩镜"
+      ],
+      "temporal_coverage_insufficient": false,
+      "suggested_priority": "high"
+    },
+    {
+      "segment_id": "838ec03a-2169-4ede-ba84-85875bf6582d",
+      "asset_id": "e4aae02b-024c-4eb2-a095-62a22685a55f",
+      "start_sec": 51.0,
+      "end_sec": 66.0,
+      "frame_count": 3,
+      "sources": [
+        "rule"
+      ],
+      "reasons": [
+        "规则提示：代表帧平均像素差 0.215（阈值 0.12/0.2），疑似画面变化，需核验；帧差本身不能证明抖动或甩镜"
+      ],
+      "temporal_coverage_insufficient": false,
+      "suggested_priority": "high"
+    },
+    {
+      "segment_id": "bcda9841-449d-44a3-a46f-5fa6d865985e",
+      "asset_id": "e4aae02b-024c-4eb2-a095-62a22685a55f",
+      "start_sec": 119.0,
+      "end_sec": 137.0,
+      "frame_count": 3,
+      "sources": [
+        "rule"
+      ],
+      "reasons": [
+        "规则提示：代表帧平均像素差 0.340（阈值 0.12/0.2），疑似画面变化，需核验；帧差本身不能证明抖动或甩镜"
+      ],
+      "temporal_coverage_insufficient": false,
+      "suggested_priority": "high"
+    },
+    {
+      "segment_id": "6f1ace17-da91-4795-9e88-6364d1cedfcc",
+      "asset_id": "8daaa617-ee07-4f44-a1f9-e0eb771ba079",
+      "start_sec": 4.0,
+      "end_sec": 11.0,
+      "frame_count": 2,
+      "sources": [
+        "semantic"
+      ],
+      "reasons": [
+        "模型建议：the two frames show a shifted framing of the same lakeside scene, suggesting possible panning or handheld movement that stills cannot confirm",
+        "模型建议：multi-frame check would clarify boat movement across the water and whether the shot tracks or pans"
+      ],
+      "temporal_coverage_insufficient": false,
+      "suggested_priority": "high"
+    },
+    {
+      "segment_id": "20846fea-32ea-4ffb-a869-add996e6fd53",
+      "asset_id": "8daaa617-ee07-4f44-a1f9-e0eb771ba079",
+      "start_sec": 15.0,
+      "end_sec": 20.503817,
+      "frame_count": 2,
+      "sources": [
+        "rule"
+      ],
+      "reasons": [
+        "规则提示：代表帧平均像素差 0.297（阈值 0.12/0.2），疑似画面变化，需核验；帧差本身不能证明抖动或甩镜"
+      ],
+      "temporal_coverage_insufficient": false,
+      "suggested_priority": "high"
+    }
+  ],
+  "motion_reviews": 4,
+  "motion_samples": [
+    {
+      "segment_id": "6f1ace17-da91-4795-9e88-6364d1cedfcc",
+      "method": "multiframe",
+      "motion_type": "pan",
+      "stability_risk": "low",
+      "action_summary": "Scenic lakeside shot with paddle boats. Across the frames the camera steadily pans left: the white pagoda on the right drifts rightward in frame (t=5.17s to t=8.67s) and exits by t=9.83s, while willow",
+      "timestamps": [
+        5.17,
+        6.33,
+        7.5,
+        8.67,
+        9.83
+      ],
+      "limitations": [
+        "Frames are ~1.2s apart, so smoothness of motion and any cut between t=8.67s and t=9.83s cannot be verified",
+        "Camera shake cannot be assessed from stills",
+        "Audio present but not analysed; not used in this judgment"
+      ],
+      "needs_human_review": true,
+      "audio_analyzed": false
+    },
+    {
+      "segment_id": "6f6a7226-c081-4539-9cd1-b763ddb36d73",
+      "method": "multiframe",
+      "motion_type": "pan",
+      "stability_risk": "medium",
+      "action_summary": "The camera sweeps across the interior of a large mosque (chandeliers, stained-glass windows, red carpet, visitors). At t=2.67s the view is centered on the chandelier and window wall; by t=5.33s the fr",
+      "timestamps": [
+        2.67,
+        5.33,
+        8.0,
+        10.67,
+        13.33
+      ],
+      "limitations": [
+        "Frames are ~2.67s apart, so continuity of motion between frames cannot be confirmed",
+        "Rotation (pan/tilt) versus physical camera translation (tracking) cannot be fully distinguished from stills alone",
+        "The final upward reframe could be a tilt or a combined pan-tilt; exact path between frames is unknown",
+        "Audio was not analysed"
+      ],
+      "needs_human_review": false,
+      "audio_analyzed": false
+    },
+    {
+      "segment_id": "838ec03a-2169-4ede-ba84-85875bf6582d",
+      "method": "multiframe",
+      "motion_type": "tracking",
+      "stability_risk": "medium",
+      "action_summary": "Handheld camera moves through a crowded mosque interior (red carpet, hanging lamps, domed ceilings). A woman in a beige headscarf remains in/near the foreground across all frames while the surrounding",
+      "timestamps": [
+        53.5,
+        56.0,
+        58.5,
+        61.0,
+        63.5
+      ],
+      "limitations": [
+        "Frames are 2.5s apart, so continuous motion between frames cannot be verified",
+        "Exact camera path (following vs. moving alongside the subject) cannot be confirmed from stills",
+        "Audio present but not analysed; no audio-based judgments made"
+      ],
+      "needs_human_review": false,
+      "audio_analyzed": false
+    },
+    {
+      "segment_id": "bcda9841-449d-44a3-a46f-5fa6d865985e",
+      "method": "multiframe",
+      "motion_type": "subject_action",
+      "stability_risk": "medium",
+      "action_summary": "Low upward-facing handheld view inside an ornately decorated mosque interior. From t=122s to t=131s the person in the foreground keeps one arm raised, gripping a rope with a yellow knob (likely a hang",
+      "timestamps": [
+        122.0,
+        125.0,
+        128.0,
+        131.0,
+        134.0
+      ],
+      "limitations": [
+        "Frames are 3 seconds apart; the exact path of the arm movement between t=131s and t=134s cannot be verified",
+        "Camera motion (pan/tilt/tracking) cannot be distinguished from handheld repositioning with only stills",
+        "Audio was not analysed, so no conclusions about sound or speech are possible"
+      ],
+      "needs_human_review": false,
+      "audio_analyzed": false
+    }
+  ],
+  "c1_originals_unchanged": true,
+  "c1_problems": [],
+  "c6_clean": true
+}

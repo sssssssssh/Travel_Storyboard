@@ -554,3 +554,50 @@ def test_job_never_modifies_human_fields(project, stubbed):
     assert seg.story_role == "opening"
     assert (seg.start_sec, seg.end_sec) == (1.0, 4.0)
     assert seg.is_trimmed is True
+
+
+# --------------------------------------------------------------------------
+# wiring (AGENTS.md §3.2)
+# --------------------------------------------------------------------------
+
+
+def test_m5_job_types_are_registered_and_valid():
+    """A job type must be dispatchable, not merely present in a set.
+
+    The M5 acceptance harness hit exactly this: importing the task modules does
+    not register them, because registration is an explicit call in `app.main`.
+    The runner then answered ``Unknown job type: vision_analyze`` — which reads
+    like a product failure while actually being a wiring gap. Asserting
+    membership in both the valid set *and* the task registry keeps the two in
+    step.
+    """
+    from app.services.job_service import VALID_JOB_TYPES
+    from app.services.runner import EXCLUSIVE_JOB_TYPES, TASK_REGISTRY
+
+    for job_type in ("vision_analyze", "motion_review"):
+        assert job_type in VALID_JOB_TYPES, f"{job_type} not accepted by the API"
+        assert job_type in TASK_REGISTRY, f"{job_type} has no registered task function"
+        assert job_type in EXCLUSIVE_JOB_TYPES, f"{job_type} must hold the project lock"
+
+
+def test_vision_task_callable_is_registered_by_its_own_register_function():
+    """`register_vision_tasks()` is what `app.main` calls; it must be idempotent."""
+    from app.services.runner import TASK_REGISTRY
+
+    before = TASK_REGISTRY.get("vision_analyze")
+    semantic.register_vision_tasks()
+    assert TASK_REGISTRY["vision_analyze"] is before
+    assert TASK_REGISTRY["vision_analyze"] is semantic.vision_analyze_task
+
+
+def test_semantic_token_budget_comes_from_config(project, stubbed):
+    """Reasoning models need a ceiling that covers reasoning plus the JSON answer."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    assert settings.vision_max_tokens >= 2000
+
+    _seed(project["id"], [("a.mp4", 1, "pending")])
+    semantic.vision_analyze_task(_make_job(project["id"]))
+    assert stubbed.calls, "provider should have been called"
+    assert stubbed.calls[0].max_tokens == settings.vision_max_tokens

@@ -433,6 +433,37 @@ def test_invalid_model_output_is_a_visible_failure(project, stubbed, source_vide
     assert _row(job_id).status == "partial_failed"
 
 
+def test_token_budget_comes_from_config_and_is_not_a_small_literal(project, stubbed, source_video):
+    """Reasoning models need headroom before the JSON answer.
+
+    Seen on the live endpoint: with a 1200-token ceiling the model spent the
+    whole budget on its separate `reasoning` field and returned `content: null`,
+    which the adapter correctly reported as MODEL_INVALID_OUTPUT. The ceiling is
+    therefore configurable, and it must be generous enough to cover reasoning
+    *and* the answer.
+    """
+    from app.config import get_settings
+
+    settings = get_settings()
+    assert settings.vision_max_tokens_motion >= 2000
+    assert settings.vision_max_tokens >= 2000
+
+    _seed(project["id"], source_video)
+    motion.motion_review_task(_job(project["id"], frame_count=2))
+    assert stubbed.calls, "provider should have been called"
+    assert stubbed.calls[0].max_tokens == settings.vision_max_tokens_motion
+
+
+def test_configured_token_ceiling_is_honoured(project, stubbed, source_video, monkeypatch):
+    """Wiring check: the task must pass the *configured* value, not a literal."""
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "vision_max_tokens_motion", 6000, raising=False)
+    _seed(project["id"], source_video)
+    motion.motion_review_task(_job(project["id"], frame_count=2))
+    assert stubbed.calls[0].max_tokens == 6000
+
+
 def test_unknown_verdict_is_recorded_as_needing_human_review(project, stubbed, source_video, monkeypatch):
     seg_id = _seed(project["id"], source_video)
     monkeypatch.setattr(

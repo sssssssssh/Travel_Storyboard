@@ -407,13 +407,14 @@ def _analyze_motion(provider, segment, frames, cancel_check):
         f"audio_present={segment['has_audio']} (audio content NOT analysed)."
     )
 
+    settings = get_settings()
     response = provider.complete(
         VisionRequest(
             prompt=prompt,
             images=[ImagePart(path=f.path, label=f.label) for f in frames],
             system=SYSTEM_PROMPT,
             json_object=True,
-            max_tokens=1200,
+            max_tokens=settings.vision_max_tokens_motion,
         ),
         cancel_check=cancel_check,
     )

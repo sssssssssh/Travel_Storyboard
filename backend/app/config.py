@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     vision_schema_version: str = "1.0"
     vision_max_segments_per_job: int = 200
     vision_target_width: int = 768
+    # Output-token ceilings. Reasoning models (e.g. GLM-5.3-Flash) spend part of
+    # this budget on a separate `reasoning` field and leave `content` null when it
+    # runs out, so these must be generous enough to cover reasoning AND the JSON
+    # answer. A too-small value is reported as MODEL_INVALID_OUTPUT, never as a
+    # silent empty success.
+    vision_max_tokens: int = 4000
+    vision_max_tokens_motion: int = 4000
     # Motion review (M5.2, TSB-307): frames sampled inside the valid interval.
     motion_frame_count: int = 5
 

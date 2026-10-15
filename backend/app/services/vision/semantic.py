@@ -586,7 +586,7 @@ def _analyze_one(
             images=[ImagePart(path=r.path, label=r.label) for r in rendered],
             system=schema_mod.SYSTEM_PROMPT,
             json_object=True,
-            max_tokens=1500,
+            max_tokens=settings.vision_max_tokens,
         ),
         cancel_check=cancel_check,
     )

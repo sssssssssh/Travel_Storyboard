@@ -71,6 +71,33 @@ PARSED JSON keys: ['scene', 'subjects', 'camera_motion', 'limitations']
    `\\?\F:\...\backend\projects\...` 这种不存在的路径，被 `except` 吞掉后
    **所有运动镜头都被判为静止**。修复为经 `resolve_in_project` 解析并做项目边界校验。
 
+### 真机验收中发现并修复的第四处：任务未注册
+
+`backend/tools/acceptance_m5.py` 首轮运行报
+`Unknown job type: vision_analyze`。原因：任务注册是 `app.main` 里的**显式调用**
+（`register_vision_tasks()`），而验收脚本只 import 了任务模块、没有 import `app.main`，
+因此 `TASK_REGISTRY` 里没有这两个类型。**这是驱动脚本的接线缺口，不是产品缺陷**
+（REST 路径正常，`app.main` 已注册）。
+
+修复：脚本显式调用两个 `register_*_tasks()` 并**在开跑前校验四个类型都在
+`TASK_REGISTRY` 里**，否则拒绝运行。同时新增两个回归用例
+（`test_m5_job_types_are_registered_and_valid`、
+`test_vision_task_callable_is_registered_by_its_own_register_function`），
+断言这两个类型同时存在于 `VALID_JOB_TYPES`、`TASK_REGISTRY` 与
+`EXCLUSIVE_JOB_TYPES`——只有三者同步，任务才真的可派发。
+
+### 真机验收中发现并修复的第五处：推理模型的 token 预算过小
+
+真机运行时一个镜头报
+`[MODEL_INVALID_OUTPUT] model returned reasoning without content (raise max_tokens)`。
+原因是 `GLM-5.3-Flash` 是推理型模型：1200/1500 的输出预算会被它写在**独立的
+`reasoning` 字段**里耗尽，导致 `content` 返回 `null`。
+
+**值得肯定的是适配器没有把它当成成功**——否则会持久化一条空观察。
+处理方式是把预算改为可配置（`TRAVELSB_VISION_MAX_TOKENS` /
+`TRAVELSB_VISION_MAX_TOKENS_MOTION`，默认 4000），并新增两个接线用例断言
+任务确实把**配置值**传给了 provider，而不是硬编码字面量。
+
 ### 一处接口契约修正（非缺陷）
 
 `test_job_mutex.py::test_all_documented_types_are_valid` 断言
@@ -90,16 +117,37 @@ PARSED JSON keys: ['scene', 'subjects', 'camera_motion', 'limitations']
 | A04 | 429 / 5xx / timeout | ✅ 有界重试、尊重 Retry-After、不泄露凭据 | `test_retry_is_bounded`、`test_retry_after_is_honoured`、`test_error_message_redacts_the_api_key` |
 | A05 | 伪造 segment_id 和越界时间 | ✅ 拒绝且不改写 DB | `test_fabricated_segment_id_is_rejected` |
 | A06 | 多图上限、请求体上限、任务预算 | ✅ 超限拒绝并显示覆盖缺口 | `test_multi_image_beyond_limit_is_refused`、`test_oversize_request_body_is_refused`、`test_budget_is_enforced` |
-| A07 | 5～10 个真实镜头批量分析 | ✅ 见第五节 | `acceptance-report.json` |
+| A07 | 5～10 个真实镜头批量分析 | ✅ **8/8 成功**，12 张图，17,760 tokens，59.7s | `acceptance-report.json` |
 | A08 | 重试与重启恢复 | ✅ 幂等跳过硬编码键；参数变更可重分析 | `test_rerun_skips_unchanged_shots`、`test_retrim_makes_the_result_stale_and_reanalyzed` |
 | A09 | 取消与竞争任务 | ✅ `cancelling`→`cancelled`、409 互斥、无无效发布 | `test_cancel_stops_the_loop`、`test_job_mutex.py`（新类型已纳入参数化） |
 | A10 | 单帧镜头 + 多帧镜头 | ✅ 单帧显示"运动不可判定"；补采样才做动态判断 | `test_single_frame_shot_is_flagged_not_dropped` |
-| A11 | 静止/平移/快速变化真实样本 | ✅ 有时间戳证据，不把帧差当抖动 | 第六节 + `test_rule_reason_never_asserts_a_shake` |
+| A11 | 静止/平移/快速变化真实样本 | ✅ **4/4 成功**，20 帧采样，输出 pan/tracking/subject_action + 时间戳 | `acceptance-report.json` 的 `motion_samples` |
 | A12 | 人工收藏/裁剪/备注、复核请求 | ✅ AI 重跑与强制 detect 后保留 | `test_job_never_modifies_human_fields`、`test_human_verdict_is_stored_and_survives_a_rerun` |
 | A13 | 断网 / 限流 / 畸形 JSON | ✅ 逐项失败可见；已完成结果可用 | `test_invalid_model_output_is_a_visible_failure`（含上述缺陷 1 的回归） |
 | A14 | 同意/拒绝上传及隐私检查 | ✅ 拒绝不发送；包内无绝对路径 | `test_job_refuses_without_upload_acknowledgement`、`test_uploaded_bytes_carry_no_local_path` |
 | A15 | 真实 Mac + FFmpeg + 6 段 4K | ⚠️ **本机为 Windows**，见第七节 | `acceptance-report.json` |
 | A16 | 无模型回退 + Windows/Ubuntu CI | ⚠️ 本地已验证；CI 待本轮 HEAD 的运行结论 | 第七节 |
+
+### 真机端到端结果（Windows，真实模型，真实 4K 素材）
+
+| 阶段 | 状态 | 统计 |
+| --- | --- | --- |
+| scan | `succeeded` | 6/6 |
+| detect | `succeeded` | 6/6，**99 个候选片段** |
+| **vision_analyze** | `succeeded` | **8/8**，12 张图，17,760 tokens，59.7s |
+| **motion_review** | `succeeded` | **4/4**，采样 20 帧，`method=multiframe` |
+| **C1 原片** | **通过** | `c1_originals_unchanged: true` |
+| **C6 无静默失败** | **通过** | `c6_no_quiet_failures: true` |
+
+覆盖度如实报告：库内 99 个镜头，本次分析 8 个，**`not_covered: 91`**——没有把
+"分析 8 个"说成"理解全库"。
+
+模型对真实画面的描述经人工核对**准确**，例如：
+`['nature','water','sky','transport'] | daylight | ['lake with many small boats',
+'long wooden walkway/pier over water', 'waterfowl perched on railing']`。
+
+多帧动态复核输出带时间戳的结论，例如
+`pan | risk=medium | at=[53.5, 56.0, 58.5, 61.0, 63.5]`。
 
 ---
 
@@ -107,16 +155,16 @@ PARSED JSON keys: ['scene', 'subjects', 'camera_motion', 'limitations']
 
 | 检查 | 命令 | 结果 |
 | --- | --- | --- |
-| 后端全量 | `pytest -q` | **654 collected / 0 failed / 0 errors / 1 skipped** |
-| M5 强制媒体模式 | `TSB_REQUIRE_FFMPEG=1 pytest <5 个视觉套件> test_ci_skip_guard.py` | **139 passed**，无误判 skip |
+| 后端全量 | `pytest -q` | **659 collected / 0 failed / 0 errors / 1 skipped** |
+| M5 强制媒体模式 | `TSB_REQUIRE_FFMPEG=1 pytest <5 个视觉套件> test_ci_skip_guard.py` | **144 passed**，无误判 skip |
 | 前端 typecheck | `tsc --noEmit` | 通过 |
 | 前端 lint | `eslint .` | 通过 |
 | 前端 test | `vitest run` | **33 passed** |
 | 前端 build | `vite build` | 通过 |
 
-> **口径说明**（沿用 v2.0.7 的更正）：`654` 是 pytest 的"收集数"口径。
+> **口径说明**（沿用 v2.0.7 的更正）：`659` 是 pytest 的"收集数"口径。
 > 本机 Windows 上 1 个 skip 是平台事实类（`MAX_PATH only constrains Windows` 系列在
-> Windows 上反而会真跑，故比 macOS 的 44 少）。**不得**把 654 写成 "654 passed"。
+> Windows 上反而会真跑，故比 macOS 的 44 少）。**不得**把 659 写成 "659 passed"。
 
 本轮新增用例分布（均为新增文件，未修改既有断言语义）：
 
@@ -124,9 +172,9 @@ PARSED JSON keys: ['scene', 'subjects', 'camera_motion', 'limitations']
 | --- | --- | --- |
 | `test_vision_provider.py` | 41 | 失败分类、有界重试、能力校验、取消、脱敏 |
 | `test_vision_schema.py` | 30 | ID 防伪、闭集归一、未知语义、身份断言过滤、单帧诚实性 |
-| `test_vision_semantics.py` | 21 | 抽样、覆盖度、幂等、强制重跑、预算、人工字段不可写 |
+| `test_vision_semantics.py` | 24 | 抽样、覆盖度、幂等、强制重跑、预算、人工字段不可写、任务接线 |
 | `test_vision_candidates.py` | 10 | 候选来源标注、帧差措辞、单帧不排除 |
-| `test_vision_motion.py` | 37 | 采样边界、时间戳防伪、提示词诚实性、真实抽帧、人工判定保留 |
+| `test_vision_motion.py` | 39 | 采样边界、时间戳防伪、提示词诚实性、真实抽帧、人工判定保留、token 预算接线 |
 
 **反向验证**：临时移除适配器的重试守卫（`if True:` 取代可重试判定）后，
 `test_transient_500_is_retried_then_succeeds`、`test_retry_is_bounded`、
