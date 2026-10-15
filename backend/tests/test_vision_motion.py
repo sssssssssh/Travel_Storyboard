@@ -7,6 +7,20 @@ Two things are under test and they matter equally:
 * the *truthfulness contract* — the result is labelled ``multiframe`` (not video
   understanding), the sample count is recorded, an unsupported conclusion is
   forced to ``unknown``, and a human verdict survives a re-run.
+
+**Layering (TSB-311).** This file deliberately mixes two tiers:
+
+* the pure-function tests at the top (sampling maths, response validation, prompt
+  wording) need no media toolchain and always run;
+* every test that takes the ``source_video`` fixture is marked
+  ``@pytest.mark.needs_ffmpeg`` and encodes real video, so it needs ffmpeg AND
+  ffprobe.
+
+The marker plus the fixture guard means a runner without FFmpeg reports a clean
+skip instead of an ``Executable not found`` error, while the mandatory-media job
+(``TSB_REQUIRE_FFMPEG=1``) turns the same absence into a hard failure. Adding a
+new media-dependent case without the fixture cannot drift silently into a
+tool-less runner — ``test_media_layering_is_explicit`` below enforces that.
 """
 
 from __future__ import annotations
@@ -246,12 +260,25 @@ def stubbed(monkeypatch):
 
 @pytest.fixture()
 def source_video(tmp_path):
-    """A tiny real video so frame extraction genuinely runs (FFmpeg required)."""
-    from app.ffmpeg import locate_ffmpeg, run
+    """A tiny real video so frame extraction genuinely runs.
 
+    TSB-311: this fixture encodes with FFmpeg, so the regular ``backend`` CI job
+    (which historically had no FFmpeg) must get a clean *skip* rather than an
+    ``Executable not found`` ERROR. Under ``TSB_REQUIRE_FFMPEG=1`` — the
+    mandatory-media job — the same absence is a hard failure, so the toolchain
+    can never go missing unnoticed.
+    """
+    from app.ffmpeg import run
+
+    # `tests/` is not a package (no __init__.py), so this is an absolute import
+    # resolved via pytest's rootdir insertion — the same style the other suites
+    # use for cross-file helpers.
+    from _media import require_ffmpeg
+
+    exe = require_ffmpeg()
     path = tmp_path / "clip.mp4"
     run([
-        locate_ffmpeg(), "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=10:duration=6",
+        exe, "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=10:duration=6",
         "-pix_fmt", "yuv420p", str(path),
     ], expect_output=path)
     return path
@@ -312,6 +339,7 @@ def _row(job_id: str) -> Job:
         return s.get(Job, job_id)
 
 
+@pytest.mark.needs_ffmpeg
 def test_job_samples_multiple_frames_and_stores_a_multiframe_result(project, stubbed, source_video):
     seg_id = _seed(project["id"], source_video)
     job_id = _job(project["id"], frame_count=3)
@@ -334,6 +362,7 @@ def test_job_samples_multiple_frames_and_stores_a_multiframe_result(project, stu
     assert len(stored.evidence_json["frames"]) == 3
 
 
+@pytest.mark.needs_ffmpeg
 def test_sampled_timestamps_lie_inside_the_valid_interval(project, stubbed, source_video):
     seg_id = _seed(project["id"], source_video, start=1.0, end=5.0)
     motion.motion_review_task(_job(project["id"], frame_count=4))
@@ -347,6 +376,7 @@ def test_sampled_timestamps_lie_inside_the_valid_interval(project, stubbed, sour
     assert all(1.0 < t < 5.0 for t in times), f"outside the editable interval: {times}"
 
 
+@pytest.mark.needs_ffmpeg
 def test_frames_are_removed_after_the_job(project, stubbed, source_video):
     _seed(project["id"], source_video)
     job_id = _job(project["id"], frame_count=3)
@@ -354,6 +384,7 @@ def test_frames_are_removed_after_the_job(project, stubbed, source_video):
     assert not motion.stage_dir(project["id"], job_id).exists()
 
 
+@pytest.mark.needs_ffmpeg
 def test_uploaded_frames_never_carry_the_source_path(project, stubbed, source_video):
     _seed(project["id"], source_video)
     motion.motion_review_task(_job(project["id"], frame_count=3))
@@ -364,6 +395,7 @@ def test_uploaded_frames_never_carry_the_source_path(project, stubbed, source_vi
     assert all(img.label.startswith("t=") for img in request.images)
 
 
+@pytest.mark.needs_ffmpeg
 def test_audio_is_never_claimed_to_be_analyzed(project, stubbed, source_video):
     _seed(project["id"], source_video)
     motion.motion_review_task(_job(project["id"], frame_count=2))
@@ -372,6 +404,7 @@ def test_audio_is_never_claimed_to_be_analyzed(project, stubbed, source_video):
     assert "audio_present=" in prompt
 
 
+@pytest.mark.needs_ffmpeg
 def test_short_interval_that_cannot_yield_two_frames_is_a_visible_failure(project, stubbed, source_video):
     """Too-short shots must be reported, not silently counted as success."""
     seg_id = _seed(project["id"], source_video, start=2.0, end=2.0, duration=6.0)
@@ -388,6 +421,7 @@ def test_short_interval_that_cannot_yield_two_frames_is_a_visible_failure(projec
         ).all() == []
 
 
+@pytest.mark.needs_ffmpeg
 def test_source_longer_than_reported_duration_cannot_seek_past_the_end(project, stubbed, source_video):
     """A stale duration must not make the sampler seek beyond the file."""
     _seed(project["id"], source_video, start=5.0, end=999.0, duration=6.0)
@@ -399,6 +433,7 @@ def test_source_longer_than_reported_duration_cannot_seek_past_the_end(project, 
     assert row.status in ("succeeded", "partial_failed")
 
 
+@pytest.mark.needs_ffmpeg
 def test_consent_gate_blocks_extraction(project, stubbed, source_video):
     _seed(project["id"], source_video)
     job_id = _job(project["id"], upload_acknowledged=False, frame_count=3)
@@ -409,6 +444,7 @@ def test_consent_gate_blocks_extraction(project, stubbed, source_video):
     assert stubbed.calls == []
 
 
+@pytest.mark.needs_ffmpeg
 def test_model_failure_is_recorded_per_item(project, stubbed, source_video, monkeypatch):
     _seed(project["id"], source_video)
     monkeypatch.setattr(
@@ -422,6 +458,7 @@ def test_model_failure_is_recorded_per_item(project, stubbed, source_video, monk
     assert row.failures["items"][0]["error_code"] == "MODEL_TIMEOUT"
 
 
+@pytest.mark.needs_ffmpeg
 def test_invalid_model_output_is_a_visible_failure(project, stubbed, source_video, monkeypatch):
     _seed(project["id"], source_video)
     monkeypatch.setattr(
@@ -433,6 +470,7 @@ def test_invalid_model_output_is_a_visible_failure(project, stubbed, source_vide
     assert _row(job_id).status == "partial_failed"
 
 
+@pytest.mark.needs_ffmpeg
 def test_token_budget_comes_from_config_and_is_not_a_small_literal(project, stubbed, source_video):
     """Reasoning models need headroom before the JSON answer.
 
@@ -454,6 +492,7 @@ def test_token_budget_comes_from_config_and_is_not_a_small_literal(project, stub
     assert stubbed.calls[0].max_tokens == settings.vision_max_tokens_motion
 
 
+@pytest.mark.needs_ffmpeg
 def test_configured_token_ceiling_is_honoured(project, stubbed, source_video, monkeypatch):
     """Wiring check: the task must pass the *configured* value, not a literal."""
     from app.config import get_settings
@@ -464,6 +503,7 @@ def test_configured_token_ceiling_is_honoured(project, stubbed, source_video, mo
     assert stubbed.calls[0].max_tokens == 6000
 
 
+@pytest.mark.needs_ffmpeg
 def test_unknown_verdict_is_recorded_as_needing_human_review(project, stubbed, source_video, monkeypatch):
     seg_id = _seed(project["id"], source_video)
     monkeypatch.setattr(
@@ -496,6 +536,7 @@ def test_unknown_verdict_is_recorded_as_needing_human_review(project, stubbed, s
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.needs_ffmpeg
 def test_human_verdict_is_stored_and_survives_a_rerun(project, stubbed, source_video):
     """The model may be re-run; a person's judgement must not be erased."""
     seg_id = _seed(project["id"], source_video)
@@ -518,6 +559,7 @@ def test_human_verdict_is_stored_and_survives_a_rerun(project, stubbed, source_v
     assert current[0].human_verdict != "confirm" or historical
 
 
+@pytest.mark.needs_ffmpeg
 def test_invalid_human_verdict_is_rejected(project, stubbed, source_video):
     seg_id = _seed(project["id"], source_video)
     motion.motion_review_task(_job(project["id"], frame_count=2))
@@ -527,3 +569,48 @@ def test_invalid_human_verdict_is_rejected(project, stubbed, source_video):
 
 def test_human_verdict_on_unknown_segment_returns_false(project):
     assert motion.record_human_verdict(str(uuid.uuid4()), "confirm") is False
+
+
+# --------------------------------------------------------------------------
+# layering guard (TSB-311)
+# --------------------------------------------------------------------------
+
+
+def test_media_layering_is_explicit():
+    """Every source_video user must be marked; every marked test must use it.
+
+    This is the mechanism that stops the TSB-311 regression from coming back:
+    a future case that encodes media without the marker would land in the
+    tool-less regular CI job and error there instead of skipping. Asserting both
+    directions also catches a stale marker left behind after a test is rewritten
+    to use a synthetic fixture.
+    """
+    import inspect
+
+    module = inspect.getmodule(test_media_layering_is_explicit)
+    source = inspect.getsource(module)
+    assert "@pytest.mark.needs_ffmpeg" in source
+
+    unmarked: list[str] = []
+    overmarked: list[str] = []
+    pending_marker = False
+    for line in source.splitlines():
+        stripped = line.strip()
+        if stripped == "@pytest.mark.needs_ffmpeg":
+            pending_marker = True
+            continue
+        if stripped.startswith("def test_"):
+            name = stripped[4:].split("(")[0]
+            uses_fixture = "source_video" in stripped
+            if uses_fixture and not pending_marker:
+                unmarked.append(name)
+            if pending_marker and not uses_fixture:
+                overmarked.append(name)
+            pending_marker = False
+        elif stripped.startswith("def ") or stripped.startswith("@"):
+            # Any other decorator/def resets the association.
+            if not stripped.startswith("@pytest.mark"):
+                pending_marker = False
+
+    assert not unmarked, f"media-dependent tests missing @pytest.mark.needs_ffmpeg: {unmarked}"
+    assert not overmarked, f"marked tests that do not use source_video: {overmarked}"

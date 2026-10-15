@@ -44,9 +44,55 @@ jobs:
         continue-on-error: true
         run: pip install "opentimelineio>=0.17"
 
+      # TSB-311: this job runs the whole suite, and several suites encode real
+      # media in their fixtures (e.g. test_vision_motion.py's source_video).
+      # Without a toolchain they used to ERROR with "Executable not found:
+      # ffmpeg" rather than report a clean skip. Install FFmpeg here so those
+      # tests genuinely run, and keep the mandatory-media job as the place where
+      # a missing toolchain is a hard failure.
+      - name: Install FFmpeg on Ubuntu
+        if: runner.os == 'Linux'
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y ffmpeg
+          else
+            echo "Using preinstalled FFmpeg/FFprobe."
+          fi
+      - name: Install FFmpeg on Windows
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --yes --no-progress
+
+      # Verify the *binaries*, not just a Python package: TSB-311 explicitly
+      # requires `ffmpeg -version` / `ffprobe -version` before pytest runs.
+      - name: Verify FFmpeg and FFprobe versions
+        shell: bash
+        run: |
+          set -e
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+
       - name: Run tests
         working-directory: backend
         run: python -m pytest -q --junitxml=backend-results.xml --ignore=tests/test_ffmpeg_integration.py --ignore=tests/test_cache_recovery.py
+
+      # TSB-311: report collected/passed/skipped per job so "0 skipped" in the
+      # mandatory-media job is provable from the log, not just asserted.
+      - name: Report test counts
+        if: always()
+        working-directory: backend
+        shell: python
+        run: |
+          import xml.etree.ElementTree as ET, pathlib, sys
+          p = pathlib.Path("backend-results.xml")
+          if not p.exists():
+              print("no junit xml produced; pytest did not reach reporting")
+              sys.exit(0)
+          suite = ET.parse(p).getroot().find("testsuite") or ET.parse(p).getroot()
+          total, failures, errors = (int(suite.get(k, 0)) for k in ("tests", "failures", "errors"))
+          skipped = int(suite.get("skipped", 0))
+          print(f"backend job: collected={total} passed={total - failures - errors - skipped} "
+                f"failures={failures} errors={errors} skipped={skipped}")
 
       - uses: actions/upload-artifact@v4
         if: always()
