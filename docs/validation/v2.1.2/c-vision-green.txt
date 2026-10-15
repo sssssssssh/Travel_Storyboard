@@ -1,0 +1,17 @@
+
+> travel-storyboard-frontend@2.1.2 test
+> vitest run --run src/components/VisionPanel.test.tsx
+
+
+ RUN  v2.1.9 [repo]/frontend
+
+stderr | src/components/VisionPanel.test.tsx > unconfigured model shows guidance and sends no request
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/components/VisionPanel.test.tsx (21 tests) 284ms
+
+ Test Files  1 passed (1)
+      Tests  21 passed (21)
+   Start at  02:14:52
+   Duration  1.17s (transform 80ms, setup 0ms, collect 205ms, tests 284ms, environment 284ms, prepare 49ms)

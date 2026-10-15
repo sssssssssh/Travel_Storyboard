@@ -1,0 +1,32 @@
+{
+  "checks": [
+    {
+      "case": "authorized",
+      "expected": 200,
+      "actual": 200
+    },
+    {
+      "case": "missing-token",
+      "expected": 401,
+      "actual": 401
+    },
+    {
+      "case": "non-loopback-host",
+      "expected": 403,
+      "actual": 403
+    },
+    {
+      "case": "non-loopback-origin",
+      "expected": 403,
+      "actual": 403
+    },
+    {
+      "case": "non-loopback-referer",
+      "expected": 403,
+      "actual": 403
+    }
+  ],
+  "ui_token_removed_from_address_bar": true,
+  "mode_off_analysis_disabled_even_when_acknowledged": true,
+  "credential_or_endpoint_in_report": false
+}

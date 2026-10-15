@@ -1,0 +1,175 @@
+{
+  "method": "actual browser UI; isolated owned directory chmod 0555 after four JPEG writes; restore original mode before scoped UI retry",
+  "job_id": "bf2858f4-e356-49da-99b8-a134e1ed7f19",
+  "before_retry": {
+    "status": "partial_failed",
+    "stats": {
+      "total": 1,
+      "done": 1,
+      "failed": 0,
+      "analyzed": 1,
+      "frames_sampled": 4,
+      "method": "multiframe",
+      "calls": 1,
+      "images_sent": 4,
+      "usage": {
+        "prompt_tokens": 1393,
+        "completion_tokens": 280,
+        "total_tokens": 1673
+      },
+      "phase": "done",
+      "cleanup": {
+        "ok": false,
+        "items": {
+          "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19": {
+            "path": "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19",
+            "ok": false,
+            "error_code": "CLEANUP_FAILED",
+            "message": "暂存回收失败，需安全重试",
+            "removed_files": 0,
+            "removed_bytes": 0,
+            "residual_paths": [
+              "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-01.jpg",
+              "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-00.jpg",
+              "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-02.jpg",
+              "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-03.jpg"
+            ],
+            "retryable": true,
+            "residual_bytes": 166241,
+            "residual_count": 4,
+            "first_failure": {
+              "path": "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19",
+              "ok": false,
+              "error_code": "CLEANUP_FAILED",
+              "message": "暂存回收失败，需安全重试",
+              "removed_files": 0,
+              "removed_bytes": 0,
+              "residual_paths": [
+                "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-01.jpg",
+                "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-00.jpg",
+                "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-02.jpg",
+                "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-03.jpg"
+              ],
+              "retryable": true,
+              "residual_bytes": 166241,
+              "residual_count": 4,
+              "recorded_at": "2026-10-15T18:18:50.150341+00:00"
+            }
+          }
+        },
+        "had_failure": true,
+        "remediated": false,
+        "error_code": "CLEANUP_FAILED",
+        "retryable": true,
+        "removed_files": 0,
+        "removed_bytes": 0,
+        "residual_count": 4,
+        "residual_bytes": 166241,
+        "residual_paths": [
+          "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-01.jpg",
+          "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-00.jpg",
+          "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-02.jpg",
+          "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-03.jpg"
+        ]
+      }
+    },
+    "finished_at": "2026-10-15 18:18:50.153384",
+    "failures": {
+      "count": 1,
+      "items": [
+        {
+          "kind": "cleanup",
+          "ref": "bf2858f4-e356-49da-99b8-a134e1ed7f19",
+          "cleanup_audit": true,
+          "error_code": "CLEANUP_FAILED",
+          "message": "暂存清理异常；详见 stats.cleanup",
+          "recorded_at": "2026-10-15T18:18:50.150417+00:00"
+        }
+      ]
+    }
+  },
+  "after_retry": {
+    "status": "partial_failed",
+    "stats": {
+      "total": 1,
+      "done": 1,
+      "failed": 0,
+      "analyzed": 1,
+      "frames_sampled": 4,
+      "method": "multiframe",
+      "calls": 1,
+      "images_sent": 4,
+      "usage": {
+        "prompt_tokens": 1393,
+        "completion_tokens": 280,
+        "total_tokens": 1673
+      },
+      "phase": "done",
+      "cleanup": {
+        "ok": true,
+        "items": {
+          "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19": {
+            "path": "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19",
+            "ok": true,
+            "error_code": "",
+            "message": "已清理本任务暂存目录",
+            "removed_files": 4,
+            "removed_bytes": 166241,
+            "residual_paths": [],
+            "retryable": false,
+            "residual_bytes": 0,
+            "residual_count": 0,
+            "first_failure": {
+              "path": "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19",
+              "ok": false,
+              "error_code": "CLEANUP_FAILED",
+              "message": "暂存回收失败，需安全重试",
+              "removed_files": 0,
+              "removed_bytes": 0,
+              "residual_paths": [
+                "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-01.jpg",
+                "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-00.jpg",
+                "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-02.jpg",
+                "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-03.jpg"
+              ],
+              "retryable": true,
+              "residual_bytes": 166241,
+              "residual_count": 4,
+              "recorded_at": "2026-10-15T18:18:50.150341+00:00"
+            },
+            "resolved_at": "2026-10-15T18:19:16.413003+00:00",
+            "resolution": "safe_cleanup_retry"
+          }
+        },
+        "had_failure": true,
+        "remediated": true,
+        "error_code": "",
+        "retryable": false,
+        "removed_files": 4,
+        "removed_bytes": 166241,
+        "residual_count": 0,
+        "residual_bytes": 0,
+        "residual_paths": []
+      }
+    },
+    "finished_at": "2026-10-15 18:18:50.153384",
+    "failures": {
+      "count": 1,
+      "items": [
+        {
+          "kind": "cleanup",
+          "ref": "bf2858f4-e356-49da-99b8-a134e1ed7f19",
+          "cleanup_audit": true,
+          "error_code": "CLEANUP_FAILED",
+          "message": "暂存清理异常；详见 stats.cleanup",
+          "recorded_at": "2026-10-15T18:18:50.150417+00:00",
+          "resolved_at": "2026-10-15T18:19:16.413038+00:00",
+          "resolution": "safe_cleanup_retry"
+        }
+      ]
+    }
+  },
+  "no_new_model_calls": true,
+  "terminal_and_finished_at_unchanged": true,
+  "stage_removed": true
+}

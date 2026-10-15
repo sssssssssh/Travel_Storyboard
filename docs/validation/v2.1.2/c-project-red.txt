@@ -1,0 +1,1262 @@
+
+> travel-storyboard-frontend@2.1.2 test
+> vitest run --run src/pages/Project.test.tsx
+
+
+ RUN  v2.1.9 [repo]/frontend
+
+stderr | src/pages/Project.test.tsx > shows background hashing file, bytes and signature mode
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ❯ src/pages/Project.test.tsx (8 tests | 2 failed) 2334ms
+   × refreshes project and assets when scan finishes (active poll seen=false) 1024ms
+     → Unable to find an element with the text: 素材 2 段. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"mx-auto max-w-6xl px-6 py-8"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-6 flex flex-wrap items-center justify-between gap-4"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"text-2xl font-semibold text-white"[39m
+          [36m>[39m
+            [0mfast scan[0m
+          [36m</h1>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"mt-1 flex flex-wrap gap-4 text-sm text-slate-400"[39m
+          [36m>[39m
+            [36m<span>[39m
+              [0m素材 [0m
+              [0m0[0m
+              [0m 段[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m片段 [0m
+              [0m0[0m
+              [0m 个[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m时长 [0m
+              [0m0:03[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m体积 [0m
+              [0m3 B[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/review"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0m分镜审阅[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/ai"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0mAI 导演[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/export"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0m导出[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "[39m
+          [36m>[39m
+            [0m扫描建库[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "[39m
+            [33mdisabled[39m=[32m""[39m
+          [36m>[39m
+            [0m检测片段[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-4 flex gap-4 text-xs text-slate-400"[39m
+      [36m>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 强制重新探测 / 重分析[0m
+        [36m</label>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 后台完整校验（每文件完整读取一遍）[0m
+        [36m</label>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 严格复核（处理后再完整读取一遍）[0m
+        [36m</label>[39m
+        [36m<span>[39m
+          [0m默认头/中/尾快速校验，极端碰撞仍可能漏检；扫描强制选项重新 FFprobe，检测强制选项重新抽帧。[0m
+        [36m</span>[39m
+      [36m</div>[39m
+      [36m<p[39m
+        [33mclass[39m=[32m"mb-4 text-xs text-amber-300"[39m
+      [36m>[39m
+        [0m完整哈希按每个任务计算读取成本：200GB 素材分别运行完整哈希扫描和检测，可能额外读取约 400GB；严格二次复核继续增加读取量。中断重读与 FFmpeg 解码 I/O 另计，不承诺固定完成时间。[0m
+      [36m</p>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"rounded-lg border border-ink-700 bg-ink-900 p-4 mb-6"[39m
+      [36m>[39m
+        [36m<h2[39m
+          [33mclass[39m=[32m"mb-2 text-sm font-semibold text-slate-200"[39m
+        [36m>[39m
+          [0m任务[0m
+        [36m</h2>[39m
+        [36m<ul[39m
+          [33mclass[39m=[32m"flex flex-col gap-2"[39m
+        [36m>[39m
+          [36m<li[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-3 text-sm"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-900/60 text-emerald-300"[39m
+            [36m>[39m
+              [0m已完成[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-slate-300"[39m
+            [36m>[39m
+              [0m素材建库[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-xs text-slate-500"[39m
+              [33mtitle[39m=[32m"scan"[39m
+            [36m>[39m
+              [0m编号 [0m
+              [0mscan[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-slate-500"[39m
+            [36m>[39m
+              [0m2[0m
+              [0m/[0m
+              [0m2[0m
+            [36m</span>[39m
+          [36m</li>[39m
+        [36m</ul>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-4 flex flex-wrap items-center gap-3"[39m
+      [36m>[39m
+        [36m<input[39m
+          [33mclass[39m=[32m"w-full rounded-md border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-slate-200 outline-none focus:border-accent max-w-xs"[39m
+          [33mplaceholder[39m=[32m"搜索素材名…"[39m
+          [33mvalue[39m=[32m""[39m
+        [36m/>[39m
+        [36m<select[39m
+          [33mclass[39m=[32m"w-full rounded-md border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-slate-200 outline-none focus:border-accent max-w-[160px]"[39m
+        [36m>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m""[39m
+          [36m>[39m
+            [0m全部状态[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"succeeded"[39m
+          [36m>[39m
+            [0m成功[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"failed"[39m
+          [36m>[39m
+            [0m失败[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"pending"[39m
+          [36m>[39m
+            [0m待处理[0m
+          [36m</option>[39m
+        [36m</select>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col items-center justify-center gap-2 py-16 text-center"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-slate-300"[39m
+        [36m>[39m
+          [0m暂无素材[0m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-sm text-slate-500"[39m
+        [36m>[39m
+          [0m点击「扫描建库」开始扫描素材根目录，或先确认根目录路径正确[0m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"mx-auto max-w-6xl px-6 py-8"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-6 flex flex-wrap items-center justify-between gap-4"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"text-2xl font-semibold text-white"[39m
+          [36m>[39m
+            [0mfast scan[0m
+          [36m</h1>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"mt-1 flex flex-wrap gap-4 text-sm text-slate-400"[39m
+          [36m>[39m
+            [36m<span>[39m
+              [0m素材 [0m
+              [0m0[0m
+              [0m 段[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m片段 [0m
+              [0m0[0m
+              [0m 个[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m时长 [0m
+              [0m0:03[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m体积 [0m
+              [0m3 B[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/review"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0m分镜审阅[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/ai"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0mAI 导演[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/export"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0m导出[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "[39m
+          [36m>[39m
+            [0m扫描建库[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "[39m
+            [33mdisabled[39m=[32m""[39m
+          [36m>[39m
+            [0m检测片段[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-4 flex gap-4 text-xs text-slate-400"[39m
+      [36m>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 强制重新探测 / 重分析[0m
+        [36m</label>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 后台完整校验（每文件完整读取一遍）[0m
+        [36m</label>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 严格复核（处理后再完整读取一遍）[0m
+        [36m</label>[39m
+        [36m<span>[39m
+          [0m默认头/中/尾快速校验，极端碰撞仍可能漏检；扫描强制选项重新 FFprobe，检测强制选项重新抽帧。[0m
+        [36m</span>[39m
+      [36m</div>[39m
+      [36m<p[39m
+        [33mclass[39m=[32m"mb-4 text-xs text-amber-300"[39m
+      [36m>[39m
+        [0m完整哈希按每个任务计算读取成本：200GB 素材分别运行完整哈希扫描和检测，可能额外读取约 400GB；严格二次复核继续增加读取量。中断重读与 FFmpeg 解码 I/O 另计，不承诺固定完成时间。[0m
+      [36m</p>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"rounded-lg border border-ink-700 bg-ink-900 p-4 mb-6"[39m
+      [36m>[39m
+        [36m<h2[39m
+          [33mclass[39m=[32m"mb-2 text-sm font-semibold text-slate-200"[39m
+        [36m>[39m
+          [0m任务[0m
+        [36m</h2>[39m
+        [36m<ul[39m
+          [33mclass[39m=[32m"flex flex-col gap-2"[39m
+        [36m>[39m
+          [36m<li[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-3 text-sm"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-900/60 text-emerald-300"[39m
+            [36m>[39m
+              [0m已完成[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-slate-300"[39m
+            [36m>[39m
+              [0m素材建库[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-xs text-slate-500"[39m
+              [33mtitle[39m=[32m"scan"[39m
+            [36m>[39m
+              [0m编号 [0m
+              [0mscan[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-slate-500"[39m
+            [36m>[39m
+              [0m2[0m
+              [0m/[0m
+              [0m2[0m
+            [36m</span>[39m
+          [36m</li>[39m
+        [36m</ul>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-4 flex flex-wrap items-center gap-3"[39m
+      [36m>[39m
+        [36m<input[39m
+          [33mclass[39m=[32m"w-full rounded-md border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-slate-200 outline-none focus:border-accent max-w-xs"[39m
+          [33mplaceholder[39m=[32m"搜索素材名…"[39m
+          [33mvalue[39m=[32m""[39m
+        [36m/>[39m
+        [36m<select[39m
+          [33mclass[39m=[32m"w-full rounded-md border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-slate-200 outline-none focus:border-accent max-w-[160px]"[39m
+        [36m>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m""[39m
+          [36m>[39m
+            [0m全部状态[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"succeeded"[39m
+          [36m>[39m
+            [0m成功[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"failed"[39m
+          [36m>[39m
+            [0m失败[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"pending"[39m
+          [36m>[39m
+            [0m待处理[0m
+          [36m</option>[39m
+        [36m</select>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col items-center justify-center gap-2 py-16 text-center"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-slate-300"[39m
+        [36m>[39m
+          [0m暂无素材[0m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-sm text-slate-500"[39m
+        [36m>[39m
+          [0m点击「扫描建库」开始扫描素材根目录，或先确认根目录路径正确[0m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+   × refreshes project and assets when scan finishes (active poll seen=true) 1029ms
+     → Unable to find an element with the text: 素材 2 段. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"mx-auto max-w-6xl px-6 py-8"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-6 flex flex-wrap items-center justify-between gap-4"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"text-2xl font-semibold text-white"[39m
+          [36m>[39m
+            [0mfast scan[0m
+          [36m</h1>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"mt-1 flex flex-wrap gap-4 text-sm text-slate-400"[39m
+          [36m>[39m
+            [36m<span>[39m
+              [0m素材 [0m
+              [0m0[0m
+              [0m 段[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m片段 [0m
+              [0m0[0m
+              [0m 个[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m时长 [0m
+              [0m0:03[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m体积 [0m
+              [0m3 B[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/review"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0m分镜审阅[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/ai"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0mAI 导演[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/export"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0m导出[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "[39m
+          [36m>[39m
+            [0m扫描建库[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "[39m
+            [33mdisabled[39m=[32m""[39m
+          [36m>[39m
+            [0m检测片段[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-4 flex gap-4 text-xs text-slate-400"[39m
+      [36m>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 强制重新探测 / 重分析[0m
+        [36m</label>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 后台完整校验（每文件完整读取一遍）[0m
+        [36m</label>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 严格复核（处理后再完整读取一遍）[0m
+        [36m</label>[39m
+        [36m<span>[39m
+          [0m默认头/中/尾快速校验，极端碰撞仍可能漏检；扫描强制选项重新 FFprobe，检测强制选项重新抽帧。[0m
+        [36m</span>[39m
+      [36m</div>[39m
+      [36m<p[39m
+        [33mclass[39m=[32m"mb-4 text-xs text-amber-300"[39m
+      [36m>[39m
+        [0m完整哈希按每个任务计算读取成本：200GB 素材分别运行完整哈希扫描和检测，可能额外读取约 400GB；严格二次复核继续增加读取量。中断重读与 FFmpeg 解码 I/O 另计，不承诺固定完成时间。[0m
+      [36m</p>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"rounded-lg border border-ink-700 bg-ink-900 p-4 mb-6"[39m
+      [36m>[39m
+        [36m<h2[39m
+          [33mclass[39m=[32m"mb-2 text-sm font-semibold text-slate-200"[39m
+        [36m>[39m
+          [0m任务[0m
+        [36m</h2>[39m
+        [36m<ul[39m
+          [33mclass[39m=[32m"flex flex-col gap-2"[39m
+        [36m>[39m
+          [36m<li[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-3 text-sm"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-900/60 text-emerald-300"[39m
+            [36m>[39m
+              [0m已完成[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-slate-300"[39m
+            [36m>[39m
+              [0m素材建库[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-xs text-slate-500"[39m
+              [33mtitle[39m=[32m"scan"[39m
+            [36m>[39m
+              [0m编号 [0m
+              [0mscan[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-slate-500"[39m
+            [36m>[39m
+              [0m2[0m
+              [0m/[0m
+              [0m2[0m
+            [36m</span>[39m
+          [36m</li>[39m
+        [36m</ul>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-4 flex flex-wrap items-center gap-3"[39m
+      [36m>[39m
+        [36m<input[39m
+          [33mclass[39m=[32m"w-full rounded-md border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-slate-200 outline-none focus:border-accent max-w-xs"[39m
+          [33mplaceholder[39m=[32m"搜索素材名…"[39m
+          [33mvalue[39m=[32m""[39m
+        [36m/>[39m
+        [36m<select[39m
+          [33mclass[39m=[32m"w-full rounded-md border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-slate-200 outline-none focus:border-accent max-w-[160px]"[39m
+        [36m>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m""[39m
+          [36m>[39m
+            [0m全部状态[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"succeeded"[39m
+          [36m>[39m
+            [0m成功[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"failed"[39m
+          [36m>[39m
+            [0m失败[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"pending"[39m
+          [36m>[39m
+            [0m待处理[0m
+          [36m</option>[39m
+        [36m</select>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col items-center justify-center gap-2 py-16 text-center"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-slate-300"[39m
+        [36m>[39m
+          [0m暂无素材[0m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-sm text-slate-500"[39m
+        [36m>[39m
+          [0m点击「扫描建库」开始扫描素材根目录，或先确认根目录路径正确[0m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"mx-auto max-w-6xl px-6 py-8"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-6 flex flex-wrap items-center justify-between gap-4"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"text-2xl font-semibold text-white"[39m
+          [36m>[39m
+            [0mfast scan[0m
+          [36m</h1>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"mt-1 flex flex-wrap gap-4 text-sm text-slate-400"[39m
+          [36m>[39m
+            [36m<span>[39m
+              [0m素材 [0m
+              [0m0[0m
+              [0m 段[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m片段 [0m
+              [0m0[0m
+              [0m 个[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m时长 [0m
+              [0m0:03[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m体积 [0m
+              [0m3 B[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/review"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0m分镜审阅[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/ai"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0mAI 导演[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/export"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0m导出[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "[39m
+          [36m>[39m
+            [0m扫描建库[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "[39m
+            [33mdisabled[39m=[32m""[39m
+          [36m>[39m
+            [0m检测片段[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-4 flex gap-4 text-xs text-slate-400"[39m
+      [36m>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 强制重新探测 / 重分析[0m
+        [36m</label>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 后台完整校验（每文件完整读取一遍）[0m
+        [36m</label>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 严格复核（处理后再完整读取一遍）[0m
+        [36m</label>[39m
+        [36m<span>[39m
+          [0m默认头/中/尾快速校验，极端碰撞仍可能漏检；扫描强制选项重新 FFprobe，检测强制选项重新抽帧。[0m
+        [36m</span>[39m
+      [36m</div>[39m
+      [36m<p[39m
+        [33mclass[39m=[32m"mb-4 text-xs text-amber-300"[39m
+      [36m>[39m
+        [0m完整哈希按每个任务计算读取成本：200GB 素材分别运行完整哈希扫描和检测，可能额外读取约 400GB；严格二次复核继续增加读取量。中断重读与 FFmpeg 解码 I/O 另计，不承诺固定完成时间。[0m
+      [36m</p>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"rounded-lg border border-ink-700 bg-ink-900 p-4 mb-6"[39m
+      [36m>[39m
+        [36m<h2[39m
+          [33mclass[39m=[32m"mb-2 text-sm font-semibold text-slate-200"[39m
+        [36m>[39m
+          [0m任务[0m
+        [36m</h2>[39m
+        [36m<ul[39m
+          [33mclass[39m=[32m"flex flex-col gap-2"[39m
+        [36m>[39m
+          [36m<li[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-3 text-sm"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-900/60 text-emerald-300"[39m
+            [36m>[39m
+              [0m已完成[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-slate-300"[39m
+            [36m>[39m
+              [0m素材建库[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-xs text-slate-500"[39m
+              [33mtitle[39m=[32m"scan"[39m
+            [36m>[39m
+              [0m编号 [0m
+              [0mscan[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-slate-500"[39m
+            [36m>[39m
+              [0m2[0m
+              [0m/[0m
+              [0m2[0m
+            [36m</span>[39m
+          [36m</li>[39m
+        [36m</ul>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-4 flex flex-wrap items-center gap-3"[39m
+      [36m>[39m
+        [36m<input[39m
+          [33mclass[39m=[32m"w-full rounded-md border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-slate-200 outline-none focus:border-accent max-w-xs"[39m
+          [33mplaceholder[39m=[32m"搜索素材名…"[39m
+          [33mvalue[39m=[32m""[39m
+        [36m/>[39m
+        [36m<select[39m
+          [33mclass[39m=[32m"w-full rounded-md border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-slate-200 outline-none focus:border-accent max-w-[160px]"[39m
+        [36m>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m""[39m
+          [36m>[39m
+            [0m全部状态[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"succeeded"[39m
+          [36m>[39m
+            [0m成功[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"failed"[39m
+          [36m>[39m
+            [0m失败[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"pending"[39m
+          [36m>[39m
+            [0m待处理[0m
+          [36m</option>[39m
+        [36m</select>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col items-center justify-center gap-2 py-16 text-center"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-slate-300"[39m
+        [36m>[39m
+          [0m暂无素材[0m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-sm text-slate-500"[39m
+        [36m>[39m
+          [0m点击「扫描建库」开始扫描素材根目录，或先确认根目录路径正确[0m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/pages/Project.test.tsx > refreshes project and assets when scan finishes (active poll seen=false)
+ FAIL  src/pages/Project.test.tsx > refreshes project and assets when scan finishes (active poll seen=true)
+TestingLibraryElementError: Unable to find an element with the text: 素材 2 段. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"mx-auto max-w-6xl px-6 py-8"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-6 flex flex-wrap items-center justify-between gap-4"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"text-2xl font-semibold text-white"[39m
+          [36m>[39m
+            [0mfast scan[0m
+          [36m</h1>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"mt-1 flex flex-wrap gap-4 text-sm text-slate-400"[39m
+          [36m>[39m
+            [36m<span>[39m
+              [0m素材 [0m
+              [0m0[0m
+              [0m 段[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m片段 [0m
+              [0m0[0m
+              [0m 个[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m时长 [0m
+              [0m0:03[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m体积 [0m
+              [0m3 B[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/review"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0m分镜审阅[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/ai"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0mAI 导演[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/export"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0m导出[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "[39m
+          [36m>[39m
+            [0m扫描建库[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "[39m
+            [33mdisabled[39m=[32m""[39m
+          [36m>[39m
+            [0m检测片段[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-4 flex gap-4 text-xs text-slate-400"[39m
+      [36m>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 强制重新探测 / 重分析[0m
+        [36m</label>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 后台完整校验（每文件完整读取一遍）[0m
+        [36m</label>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 严格复核（处理后再完整读取一遍）[0m
+        [36m</label>[39m
+        [36m<span>[39m
+          [0m默认头/中/尾快速校验，极端碰撞仍可能漏检；扫描强制选项重新 FFprobe，检测强制选项重新抽帧。[0m
+        [36m</span>[39m
+      [36m</div>[39m
+      [36m<p[39m
+        [33mclass[39m=[32m"mb-4 text-xs text-amber-300"[39m
+      [36m>[39m
+        [0m完整哈希按每个任务计算读取成本：200GB 素材分别运行完整哈希扫描和检测，可能额外读取约 400GB；严格二次复核继续增加读取量。中断重读与 FFmpeg 解码 I/O 另计，不承诺固定完成时间。[0m
+      [36m</p>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"rounded-lg border border-ink-700 bg-ink-900 p-4 mb-6"[39m
+      [36m>[39m
+        [36m<h2[39m
+          [33mclass[39m=[32m"mb-2 text-sm font-semibold text-slate-200"[39m
+        [36m>[39m
+          [0m任务[0m
+        [36m</h2>[39m
+        [36m<ul[39m
+          [33mclass[39m=[32m"flex flex-col gap-2"[39m
+        [36m>[39m
+          [36m<li[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-3 text-sm"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-900/60 text-emerald-300"[39m
+            [36m>[39m
+              [0m已完成[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-slate-300"[39m
+            [36m>[39m
+              [0m素材建库[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-xs text-slate-500"[39m
+              [33mtitle[39m=[32m"scan"[39m
+            [36m>[39m
+              [0m编号 [0m
+              [0mscan[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-slate-500"[39m
+            [36m>[39m
+              [0m2[0m
+              [0m/[0m
+              [0m2[0m
+            [36m</span>[39m
+          [36m</li>[39m
+        [36m</ul>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-4 flex flex-wrap items-center gap-3"[39m
+      [36m>[39m
+        [36m<input[39m
+          [33mclass[39m=[32m"w-full rounded-md border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-slate-200 outline-none focus:border-accent max-w-xs"[39m
+          [33mplaceholder[39m=[32m"搜索素材名…"[39m
+          [33mvalue[39m=[32m""[39m
+        [36m/>[39m
+        [36m<select[39m
+          [33mclass[39m=[32m"w-full rounded-md border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-slate-200 outline-none focus:border-accent max-w-[160px]"[39m
+        [36m>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m""[39m
+          [36m>[39m
+            [0m全部状态[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"succeeded"[39m
+          [36m>[39m
+            [0m成功[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"failed"[39m
+          [36m>[39m
+            [0m失败[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"pending"[39m
+          [36m>[39m
+            [0m待处理[0m
+          [36m</option>[39m
+        [36m</select>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col items-center justify-center gap-2 py-16 text-center"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-slate-300"[39m
+        [36m>[39m
+          [0m暂无素材[0m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-sm text-slate-500"[39m
+        [36m>[39m
+          [0m点击「扫描建库」开始扫描素材根目录，或先确认根目录路径正确[0m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"mx-auto max-w-6xl px-6 py-8"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-6 flex flex-wrap items-center justify-between gap-4"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"text-2xl font-semibold text-white"[39m
+          [36m>[39m
+            [0mfast scan[0m
+          [36m</h1>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"mt-1 flex flex-wrap gap-4 text-sm text-slate-400"[39m
+          [36m>[39m
+            [36m<span>[39m
+              [0m素材 [0m
+              [0m0[0m
+              [0m 段[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m片段 [0m
+              [0m0[0m
+              [0m 个[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m时长 [0m
+              [0m0:03[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m体积 [0m
+              [0m3 B[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/review"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0m分镜审阅[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/ai"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0mAI 导演[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"/project/p/export"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-ink-800 text-slate-200 hover:bg-ink-700 border border-ink-700 disabled:opacity-50 "[39m
+            [36m>[39m
+              [0m导出[0m
+            [36m</button>[39m
+          [36m</a>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "[39m
+          [36m>[39m
+            [0m扫描建库[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "[39m
+            [33mdisabled[39m=[32m""[39m
+          [36m>[39m
+            [0m检测片段[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-4 flex gap-4 text-xs text-slate-400"[39m
+      [36m>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 强制重新探测 / 重分析[0m
+        [36m</label>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 后台完整校验（每文件完整读取一遍）[0m
+        [36m</label>[39m
+        [36m<label>[39m
+          [36m<input[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+          [0m 严格复核（处理后再完整读取一遍）[0m
+        [36m</label>[39m
+        [36m<span>[39m
+          [0m默认头/中/尾快速校验，极端碰撞仍可能漏检；扫描强制选项重新 FFprobe，检测强制选项重新抽帧。[0m
+        [36m</span>[39m
+      [36m</div>[39m
+      [36m<p[39m
+        [33mclass[39m=[32m"mb-4 text-xs text-amber-300"[39m
+      [36m>[39m
+        [0m完整哈希按每个任务计算读取成本：200GB 素材分别运行完整哈希扫描和检测，可能额外读取约 400GB；严格二次复核继续增加读取量。中断重读与 FFmpeg 解码 I/O 另计，不承诺固定完成时间。[0m
+      [36m</p>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"rounded-lg border border-ink-700 bg-ink-900 p-4 mb-6"[39m
+      [36m>[39m
+        [36m<h2[39m
+          [33mclass[39m=[32m"mb-2 text-sm font-semibold text-slate-200"[39m
+        [36m>[39m
+          [0m任务[0m
+        [36m</h2>[39m
+        [36m<ul[39m
+          [33mclass[39m=[32m"flex flex-col gap-2"[39m
+        [36m>[39m
+          [36m<li[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-3 text-sm"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-900/60 text-emerald-300"[39m
+            [36m>[39m
+              [0m已完成[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-slate-300"[39m
+            [36m>[39m
+              [0m素材建库[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-xs text-slate-500"[39m
+              [33mtitle[39m=[32m"scan"[39m
+            [36m>[39m
+              [0m编号 [0m
+              [0mscan[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-slate-500"[39m
+            [36m>[39m
+              [0m2[0m
+              [0m/[0m
+              [0m2[0m
+            [36m</span>[39m
+          [36m</li>[39m
+        [36m</ul>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mb-4 flex flex-wrap items-center gap-3"[39m
+      [36m>[39m
+        [36m<input[39m
+          [33mclass[39m=[32m"w-full rounded-md border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-slate-200 outline-none focus:border-accent max-w-xs"[39m
+          [33mplaceholder[39m=[32m"搜索素材名…"[39m
+          [33mvalue[39m=[32m""[39m
+        [36m/>[39m
+        [36m<select[39m
+          [33mclass[39m=[32m"w-full rounded-md border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-slate-200 outline-none focus:border-accent max-w-[160px]"[39m
+        [36m>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m""[39m
+          [36m>[39m
+            [0m全部状态[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"succeeded"[39m
+          [36m>[39m
+            [0m成功[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"failed"[39m
+          [36m>[39m
+            [0m失败[0m
+          [36m</option>[39m
+          [36m<option[39m
+            [33mvalue[39m=[32m"pending"[39m
+          [36m>[39m
+            [0m待处理[0m
+          [36m</option>[39m
+        [36m</select>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col items-center justify-center gap-2 py-16 text-center"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-slate-300"[39m
+        [36m>[39m
+          [0m暂无素材[0m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-sm text-slate-500"[39m
+        [36m>[39m
+          [0m点击「扫描建库」开始扫描素材根目录，或先确认根目录路径正确[0m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ waitForWrapper node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/pages/Project.test.tsx:99:16
+     97|   completed = true
+     98|   qc.setQueryData(['jobs', 'p'], [{ id: 'scan', job_type: 'scan', stat…
+     99|   await screen.findByText('素材 2 段')
+       |                ^
+    100|   await waitFor(() => expect((screen.getByRole('button', { name: '检测…
+    101|   expect(vi.mocked(api).mock.calls.filter(([path]) => path.includes('/…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 6 passed (8)
+   Start at  02:11:08
+   Duration  3.29s (transform 69ms, setup 0ms, collect 187ms, tests 2.33s, environment 349ms, prepare 50ms)

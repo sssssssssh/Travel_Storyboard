@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, endpoints } from '../lib/api'
 import type {
@@ -30,6 +30,16 @@ export default function VisionPanel({ projectId }: { projectId: string }) {
   const [acknowledged, setAcknowledged] = useState(false)
 
   const job = useJob(jobId)
+
+  // A final poll may be the first observed state of a fast job. Publish all
+  // evidence lists only after completion, including candidates and motion data.
+  useEffect(() => {
+    if (job.data && ['succeeded', 'partial_failed', 'failed', 'cancelled'].includes(job.data.status)) {
+      for (const key of ['vision-results', 'vision-candidates', 'vision-preview', 'motion-reviews']) {
+        qc.invalidateQueries({ queryKey: [key, projectId] })
+      }
+    }
+  }, [job.data, projectId, qc])
 
   const status = useQuery({
     queryKey: ['vision-status'],

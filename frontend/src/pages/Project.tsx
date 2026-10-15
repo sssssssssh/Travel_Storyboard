@@ -68,12 +68,14 @@ export default function Project() {
   // stay disabled until the worker has actually stopped and cleaned up.
   const hasActive = jobs?.some((j) => OCCUPYING_STATUSES.includes(j.status))
 
+  // Refresh on the final poll too, including jobs that finish before the
+  // first active poll. React Query preserves identical job data between polls.
   useEffect(() => {
-    if (hasActive) {
+    if (jobs?.length) {
       qc.invalidateQueries({ queryKey: ['project', id] })
       qc.invalidateQueries({ queryKey: ['assets', id] })
     }
-  }, [jobs, hasActive, id, qc])
+  }, [jobs, id, qc])
 
   const startJob = useMutation({
     mutationFn: (type: 'scan' | 'detect') =>

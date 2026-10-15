@@ -1,0 +1,17 @@
+
+> travel-storyboard-frontend@2.1.2 test
+> vitest run --run src/pages/Project.test.tsx
+
+
+ RUN  v2.1.9 [repo]/frontend
+
+stderr | src/pages/Project.test.tsx > shows background hashing file, bytes and signature mode
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/pages/Project.test.tsx (8 tests) 359ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  02:12:03
+   Duration  1.21s (transform 65ms, setup 0ms, collect 185ms, tests 359ms, environment 311ms, prepare 148ms)

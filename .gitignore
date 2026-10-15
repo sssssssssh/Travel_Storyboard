@@ -57,3 +57,6 @@ logs/
 docs/validation/**/_run.log*
 # Generated after the final commit's CI; committing it would change that SHA.
 docs/validation/v2.1.1/FINAL_HEAD_CI.local.json
+
+# Same-HEAD CI evidence generated after the final v2.1.2 commit.
+docs/validation/v2.1.2/CI_FINAL_HEAD.local.json

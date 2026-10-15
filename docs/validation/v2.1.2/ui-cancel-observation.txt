@@ -1,0 +1,29 @@
+任务
+已取消
+已清理：13 个文件，594469 字节
+vision_analyze
+编号 07ee9c70
+12/17
+[CANCELLED] provider cancelled
+已完成
+已清理：4 个文件，224556 字节
+motion_review
+编号 2fe801c2
+1/1
+部分失败
+清理已补救（原异常审计保留）：4 个文件，166241 字节
+motion_review
+编号 bf2858f4
+1/1
+1 item(s) failed; see job.failures
+暂存清理异常；详见 stats.cleanup
+已完成
+已清理：4 个文件，224556 字节
+motion_review
+编号 4f276283
+1/1
+已完成
+已清理：8 个文件，357817 字节
+vision_analyze
+编号 264d14bb
+8/8

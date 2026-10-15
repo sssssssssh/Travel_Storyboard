@@ -653,3 +653,12 @@ T23 手动扩展：视觉业务成功但清理失败必须醒目警示；仅安�
 | 既有 test_deep_media_http/deep_path_cleanup/deep_scan_api/vision_staging_ownership | M322-09 | Windows 默认长路径策略 + 真媒体 + 任务所有权安全回收；本地 Mac 平台 skip 不能代替 Windows CI |
 
 T01/T04 手动增加：应用/帮助/API/发布包版本一致；旧库启动不因仅产品版本变化全量重新检测。T15/T17/T19 增加混合格式、竖屏/旋转、无音轨静音策略、实际可播放产物与时长核验。HDR 色彩准确性和 L2 额外实片未验收，不能由上述 L1 自动化替代。
+
+
+| 用例 | 任务 | 守护行为 |
+|---|---|---|
+| Project::refreshes project and assets when scan finishes (2) | TSB-323 | 真实 UI 扫描完成后刷新统计/素材列表、启用检测；覆盖 running→succeeded 及首次轮询已终态，反向断开失效 |
+| VisionPanel::refreshes published evidence on final poll (2) | U323-03/05 | 语义/动态任务完成后刷新语义、候选、预估和多帧结果；快任务不依赖运行中定时器，反向断开失效 |
+| v2.1.2 MAC_UI_E2E / UI_JOB_AUDIT / UI_CLEANUP_RETRY / UI_TRIM_CONFLICT / UI_EXPORT_PROBE | TSB-323/324 | 实际产品界面扫描/检测/HTTPS 模型/缓存/取消/清理故障与补救/旧页 409/代理/导出；API/SQLite/ffprobe 仅核验产物，不冒充界面操作 |
+
+T01/T04/T15/T17/T19/T23/T25 本轮补充记录见 `validation/v2.1.2/MAC_UI_E2E.md` 与 `RELEASE_GATE.md`：本轮 UI 使用现有 6 段中的 2 段、17 镜头；8 个镜头不等于 8 个视频。确认/拒绝自动化点选不冒充真人审阅。真人播放/判定尚待用户完成，浏览器安全策略拒绝鉴权媒体导航；ffprobe/完整解码不能替代实际播放。新增独立多类型实片、HDR 人工色彩对比及 200GB 性能未完成。

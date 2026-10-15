@@ -17,3 +17,9 @@ cleanup 汇总和结构化 cleanup failure 在同一 SQLite 写事务持久化�
 UI：旧 succeeded + cleanup.ok=false/未知也必须黄色强提示；可重试仅调用原有 cleanup-retry。清理已补救后保留历史终态，并明确显示补救状态。统计里的模型 failed 不混入清理失败镜头数。
 
 红绿、反向验证与最终计数在本批验证完成后追加。本文件未宣称真机故障注入通过。
+
+## C 批真实浏览器验证
+
+UI_JOB_AUDIT.json / UI_CLEANUP_RETRY.json：真实 HTTPS motion_review 的模型与发布成功后，对本 Job 已登记目录的四张 JPEG 注入目录权限 0555。后端 partial_failed、cleanup.ok=false、CLEANUP_FAILED、4 项/166241 字节，UI 黄色警示及安全重试入口；恢复该目录原权限后点安全重试，目录消失、cleanup.ok=true/remediated=true，原审计带 resolved_at。模型调用仍为 1、usage/finished_at/partial_failed 不变。截图 ui-cleanup-failed.jpg / ui-cleanup-remediated.jpg 均只含产品状态文字，无原片图像。
+
+取消另实测 UI cancelling→cancelled，13 个文件/594469 字节清理完成，随后新扫描成功。没有为方便故障注入改生产清理实现，也没有接管重启后未知目录。真人点选和实际播放的剩余门禁见 MAC_UI_E2E.md，不把自动化浏览器点选称作真人验收。

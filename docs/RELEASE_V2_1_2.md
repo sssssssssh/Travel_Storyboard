@@ -17,11 +17,11 @@ UI：旧 succeeded+失败/未知清理也显示黄色强警示；未知残留数
 | macOS arm64 / Python 3.12.14，TSB_REQUIRE_FFMPEG=1 | collected 807 / passed 763 / skipped 44 / failed 0 / errors 0 |
 | 前端 typecheck/lint/test/build | 全部通过；43 tests passed（npm 等价脚本，CI 仍 pnpm） |
 
-Windows 专属跳过逐项见 validation/v2.1.2/A_LOCAL.json；JUnit 及原始脱敏红绿/反向证据同目录。状态设计见 [CLEANUP_STATUS.md](validation/v2.1.2/CLEANUP_STATUS.md)。本批同 SHA CI 待提交后核对。
+Windows 专属跳过逐项见 validation/v2.1.2/A_LOCAL.json；JUnit 及原始脱敏红绿/反向证据同目录。状态设计见 [CLEANUP_STATUS.md](validation/v2.1.2/CLEANUP_STATUS.md)。本批同 SHA CI 结果见下方 A 记录。
 
 范围：不删除/改写原片、旧数据库/模型结果/人工字段/历史代理/粗剪；只在隔离测试数据库与暂存中注入故障。未放宽 skip 守卫、所有权/链接/重启未知目录边界，未重做 TSB-311～317，未开发 M6 或原生视频/音频模型。
 
-尚未完成：B/C 批待执行；真实素材仍只有 6 段同类型 HEVC MP4，用户确认暂无额外素材，缺少 8～10 段及 H.264/MOV/竖屏/无音轨/HDR 实片。完整浏览器及真人工验收、真实导出/播放和最终 HEAD CI 另行记录，不以本批组件/合成测试替代。阶段性结论：代码级整改通过，正式发布门禁未完成。
+A 批提交时的未完成项（后续进展见 B/C）：B/C 批待执行；真实素材仍只有 6 段同类型 HEVC MP4，用户确认暂无额外素材，缺少 8～10 段及 H.264/MOV/竖屏/无音轨/HDR 实片。完整浏览器及真人工验收、真实导出/播放和最终 HEAD CI 另行记录，不以本批组件/合成测试替代。阶段性结论：代码级整改通过，正式发布门禁未完成。
 
 ## A 同 SHA CI
 
@@ -44,8 +44,35 @@ TSB-322：新增 16 个强制媒体用例，以真实正式 API → Runner → F
 | macOS arm64 / Python 3.12.14，TSB_REQUIRE_FFMPEG=1 | collected 828 / passed 784 / skipped 44 / failed 0 / errors 0 |
 | 前端 typecheck/lint/test/build | 全部通过；44 tests passed（npm 等价脚本） |
 
-逐项矩阵见 `validation/v2.1.2/FORMAT_MATRIX.json`，L1/现有 L2 缺口分开；版本/媒体错误码/CI 接线原始红绿与反向证据为 b-*.txt，JUnit 和平台 skip 解释见 B_LOCAL.json。本批同 SHA CI 推送后核对。
+逐项矩阵见 `validation/v2.1.2/FORMAT_MATRIX.json`，L1/现有 L2 缺口分开；版本/媒体错误码/CI 接线原始红绿与反向证据为 b-*.txt，JUnit 和平台 skip 解释见 B_LOCAL.json。本批首次 Windows 编码失败后，44acadc 的同 SHA CI 7/7；见 B_CI.json 和 B_WINDOWS_ENCODING.md。
 
 范围：不变更原片、正式 SQLite、人工状态、检测算法/边界或模型授权/TLS/清理安全边界；兼容测试仅生成小型隔离文件。没有新增版权来源不明的旅行视频、没有复制同一实片充数、没有开发 M6/音频/原生视频模型。C 批浏览器/真人工 UI 及真实产物验收待执行；8～10 段多类型实片和 HDR 色彩准确性、200GB 性能仍未完成。
 
 B 批首次 CI 的 Windows 编码失败与补救见 [B_WINDOWS_ENCODING.md](validation/v2.1.2/B_WINDOWS_ENCODING.md)。UTF-8 修正后重新执行全量与同 SHA CI；首次失败未记作通过。
+
+
+## C / TSB-323、TSB-324
+
+问题 → 修复：真实 UI 扫描 2/2 已结束，但统计/素材列表仍是 0，检测按钮未启用；原刷新只在 hasActive 时触发。Project 现在也在最终任务数据到达时刷新，覆盖首次轮询已终态的快任务。语义/动态面板同样漏终态刷新，候选和多帧结果只在开始时加载；VisionPanel 在终态使语义、候选、预估、动态四个查询更新，不触发额外模型推理。
+
+红绿与接线：Project 两项先 2 failed/6 passed，再 8 passed；VisionPanel 两项先 2 failed/19 passed，再 21 passed。反向恢复旧判断/断开终态刷新后分别重新 2 failed，已恢复。原始脱敏日志见 c-project-* / c-vision-*。本轮 C 未改后端实现，未改变任务互斥、状态机或人工判定规则。
+
+验收：实际浏览器 UI 新建隔离项目、扫描、检测 17 镜头、显示 10 张可解码缩略图、8 镜头 HTTPS 分析、同输入 8 缓存/0 调用、多帧复核、自动化确认/拒绝及历史、重跑后输出变化失效、另一页面裁剪后旧提交 409、取消与清理、后续新任务、两代理/6 秒粗剪、CSV/JSON/OTIO 下载。清理故障用真实目录权限 0555 注入，不改生产清理；partial_failed 与残留强警示、单独安全重试、0 新调用及审计保留均实测。详见 MAC_UI_E2E.md 与各 UI_*.json、局部状态截图。
+
+| C 本地检查 | 实际结果 |
+|---|---|
+| 普通后端全量 | 828 collected / 784 passed / 44 Windows 平台 skips / 0 failed / 0 errors |
+| TSB_REQUIRE_FFMPEG=1 后端全量 | 828 collected / 784 passed / 44 Windows 平台 skips / 0 failed / 0 errors |
+| 前端 typecheck / lint / test / build | 四项通过，48 tests passed；npm 等价脚本 |
+| 真实成品 ffprobe / 完整解码 | 两代理 3.003s、480×270；粗剪视频轨 6.000s、容器 6.021354s、1280×720；H.264/AAC，容差内 |
+| 原片与历史保全 | 6 原片和副本 SHA/大小/mtime 全同；正式 SQLite 字节全同、13 表 269 行；正式/副本各 282 历史文件 SHA 全同 |
+
+同 HEAD CI：包含本节的 C 提交推送后验证七个作业，最终答复给确切 SHA/Run URL/数字；CI_FINAL_HEAD.md 说明同 SHA 取证方式，避免再次证据提交改变被验证 SHA。A/B 绿灯不替代 C。
+
+本轮真实资源：现有 6 个不同 HEVC MP4 横屏/带音轨/bt709；UI 仅使用其中 2 个视频、17 镜头，初始语义分析 8 镜头。总 17 次模型请求、29 图片（包含取消在途请求），已记录返回用量 19563 tokens，不把未返回用量推算为免费。完成后服务恢复 off。真实端点/Key/token、原片路径、图片、视频、SQLite 只在被忽略的本地数据目录，不入库；提交截图只有界面状态文字。
+
+范围声明：只增加终态数据刷新、回归与脱敏证据；不删除/覆盖/移动/改名原片，不改正式 SQLite/人工字段/模型结果/旧代理/旧粗剪。隔离旧副本只有明确的名称/路径重定位，其余 269 行旧 ID 和字段逐项相同。未降级 HTTPS、未放宽来源/所有权/链接/终态 CAS/取消安全边界，未接管未知目录，未全局杀进程、未自动清扫系统临时目录。未改检测/Prompt/ANALYSIS_VERSION，不开发 M6 或音视频原生模型。
+
+尚未完成：真人实际播放和点选审阅待用户反馈；浏览器 URL 安全策略拒绝鉴权媒体导航，未绕过，ffprobe/完整解码不等于播放。自动化点选确认/拒绝不冒充真人结论。用户暂无额外素材，缺 ≥8～10 个不同实片及 MOV/H.264/竖屏/无音轨/HDR；HDR 人工色彩对比/准确色彩管理、Windows 真机旅行片全链路、60+ 段/200GB 性能未完成。
+
+最终门禁见 RELEASE_GATE.md：C 同 SHA CI 通过后结论为 **代码级整改通过，正式发布门禁未完成**。不声明正式发布、全面交付或 M6 验收完成。

@@ -489,3 +489,30 @@ test('visual job cleanup residuals stay visible after model success', async () =
   await screen.findByText(/清理已补救/)
   expect(vi.mocked(api).mock.calls.filter(([url]) => String(url).endsWith('/jobs/vision_analyze'))).toHaveLength(1)
 })
+
+// TSB-323: final results must be visible even if the job finishes between polls.
+test.each(['vision_analyze', 'motion_review'])('refreshes published evidence on final %s poll', async (kind) => {
+  let published = false
+  vi.mocked(api).mockImplementation(async (url, options) => {
+    const path = String(url).split('?')[0]
+    if (path === '/api/vision/status') return configuredStatus as never
+    if (path.endsWith('/vision/preview')) return preview as never
+    if (path.endsWith('/vision-results')) return { count: published ? 1 : 0, items: published ? [result] : [] } as never
+    if (path.endsWith('/vision-candidates')) return [candidate] as never
+    if (path.endsWith('/motion-reviews')) return (published && kind === 'motion_review' ? [motionReview] : []) as never
+    if (path.endsWith(`/jobs/${kind}`) && options?.method === 'POST') return { id: 'quick-job', status: 'pending' } as never
+    if (path === '/api/jobs/quick-job') {
+      published = true
+      return { id: 'quick-job', status: 'succeeded', stats: { analyzed: 1, cleanup: { ok: true } }, failures: { items: [] } } as never
+    }
+    return {} as never
+  })
+  setup()
+  await screen.findByText('还没有语义结果。分析完成后，每条结果都会带上模型/提示词版本与证据。')
+  fireEvent.click(screen.getByRole('checkbox'))
+  fireEvent.click(screen.getByRole('button', { name: kind === 'vision_analyze' ? '开始分析' : '多帧复核' }))
+  await screen.findByText('succeeded')
+  await screen.findByText('wooden pier')
+  if (kind === 'motion_review') await screen.findByText(motionReview.action_summary)
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path.includes('/vision-candidates')).length).toBeGreaterThan(1)
+})

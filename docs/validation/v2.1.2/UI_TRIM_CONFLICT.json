@@ -1,0 +1,28 @@
+{
+  "segment_id": "0e67397d-376b-4189-bddf-0d8001db6cff",
+  "asset_id": "42754534-1895-42f5-9007-729d5baf38b0",
+  "detected_before_after": [
+    [
+      0.0,
+      2.0
+    ],
+    [
+      0.0,
+      2.0
+    ]
+  ],
+  "editable_before_after": [
+    [
+      0.0,
+      2.0
+    ],
+    [
+      0.2,
+      2.0
+    ]
+  ],
+  "human_history_count_after_stale_submit": 1,
+  "old_verdict_note_preserved": "自动化 UI 验收：确认接线测试，不代表真人审片结论",
+  "stale_submit_http_status": 409,
+  "ui_error": "证据已更新或无法验证，请刷新并重新复核"
+}

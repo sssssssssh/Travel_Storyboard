@@ -1,0 +1,152 @@
+{
+  "provenance": "actual browser UI save/generation; CSV/JSON/OTIO downloaded through product links; ffprobe on resulting local files",
+  "roughcut_job": "abe3edac-f109-4a44-8a09-5e4c759503d8",
+  "products": [
+    {
+      "alias": "roughcut",
+      "relative_path": "browser-workspace/a45eb3c4-c491-466f-8bf1-30bb10ef828c/roughcut/roughcut-8a1395a6fa5e4f88.mp4",
+      "size": 3395967,
+      "sha256": "276d58641f785267b25dc97cdea9a692231cf47d6638b743386c6cbd1cd8d077",
+      "duration": 6.021354,
+      "requested_duration": 6,
+      "tolerance": 0.6000000000000001,
+      "streams": [
+        {
+          "codec_type": "video",
+          "codec_name": "h264",
+          "width": 1280,
+          "height": 720,
+          "duration": "6.000000",
+          "sample_rate": null,
+          "channels": null,
+          "color_transfer": "bt709"
+        },
+        {
+          "codec_type": "audio",
+          "codec_name": "aac",
+          "width": null,
+          "height": null,
+          "duration": "6.021333",
+          "sample_rate": "48000",
+          "channels": 2,
+          "color_transfer": null
+        },
+        {
+          "codec_type": "data",
+          "codec_name": null,
+          "width": null,
+          "height": null,
+          "duration": "6.000000",
+          "sample_rate": null,
+          "channels": null,
+          "color_transfer": null
+        }
+      ],
+      "ffprobe_readable": true,
+      "browser_actual_playback": "not_completed_browser_security_policy_rejected_navigation"
+    },
+    {
+      "alias": "proxy_929b7809",
+      "relative_path": "browser-workspace/a45eb3c4-c491-466f-8bf1-30bb10ef828c/proxies/ff160b0ebdf34a81.mp4",
+      "size": 197246,
+      "sha256": "6e7019d5cf04c99380b8f6b887e926ffe512fce764349dd40da6846ed5418cae",
+      "duration": 3.003,
+      "requested_duration": 3,
+      "tolerance": 0.30000000000000004,
+      "streams": [
+        {
+          "codec_type": "video",
+          "codec_name": "h264",
+          "width": 480,
+          "height": 270,
+          "duration": "3.003000",
+          "sample_rate": null,
+          "channels": null,
+          "color_transfer": "bt709"
+        },
+        {
+          "codec_type": "audio",
+          "codec_name": "aac",
+          "width": null,
+          "height": null,
+          "duration": "3.000000",
+          "sample_rate": "48000",
+          "channels": 2,
+          "color_transfer": null
+        },
+        {
+          "codec_type": "data",
+          "codec_name": null,
+          "width": null,
+          "height": null,
+          "duration": "3.003000",
+          "sample_rate": null,
+          "channels": null,
+          "color_transfer": null
+        }
+      ],
+      "ffprobe_readable": true,
+      "browser_actual_playback": "not_completed_browser_security_policy_rejected_navigation"
+    },
+    {
+      "alias": "proxy_08160007",
+      "relative_path": "browser-workspace/a45eb3c4-c491-466f-8bf1-30bb10ef828c/proxies/9d6a578963364283.mp4",
+      "size": 192181,
+      "sha256": "b52cbcb950a761e60d779225b4cd7c4f1f95eb409d4b94e845238c2837cdca07",
+      "duration": 3.003,
+      "requested_duration": 3,
+      "tolerance": 0.30000000000000004,
+      "streams": [
+        {
+          "codec_type": "video",
+          "codec_name": "h264",
+          "width": 480,
+          "height": 270,
+          "duration": "3.003000",
+          "sample_rate": null,
+          "channels": null,
+          "color_transfer": "bt709"
+        },
+        {
+          "codec_type": "audio",
+          "codec_name": "aac",
+          "width": null,
+          "height": null,
+          "duration": "3.000000",
+          "sample_rate": "48000",
+          "channels": 2,
+          "color_transfer": null
+        },
+        {
+          "codec_type": "data",
+          "codec_name": null,
+          "width": null,
+          "height": null,
+          "duration": "3.003000",
+          "sample_rate": null,
+          "channels": null,
+          "color_transfer": null
+        }
+      ],
+      "ffprobe_readable": true,
+      "browser_actual_playback": "not_completed_browser_security_policy_rejected_navigation"
+    }
+  ],
+  "downloads": [
+    {
+      "name": "timeline.csv",
+      "sha256": "f93472dee6c3024876a31cd711da998d7586ee401390522568379c7652b91355",
+      "size": 277
+    },
+    {
+      "name": "edit_plan.json",
+      "sha256": "e3b251c39f1f2cd48477aa6c65ff50ea082969986070ab03302c65c2bd61f299",
+      "size": 1213
+    },
+    {
+      "name": "edit.otio",
+      "sha256": "b10925c01fbad4d9c9dae68e3529c2052a9f7ed783b737286014b8a35f2e07b8",
+      "size": 2750
+    }
+  ]
+}

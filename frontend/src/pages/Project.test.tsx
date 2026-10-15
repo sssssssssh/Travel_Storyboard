@@ -73,3 +73,31 @@ test('cancelling jobs cannot offer cleanup retry or claim cleanup completed', as
   expect(screen.queryByText('安全重试清理')).toBeNull()
   expect(screen.queryByText(/已清理：/)).toBeNull()
 })
+
+// TSB-323: a real fast scan completed between polls; the empty list and disabled
+// detect button stayed stale because only active jobs invalidated their data.
+test.each([false, true])('refreshes project and assets when scan finishes (active poll seen=%s)', async (seenActive) => {
+  let completed = false
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path.endsWith('/jobs')) return [] as never
+    if (path.includes('/assets')) return { items: [], total: completed ? 2 : 0 } as never
+    return { id: 'p', name: 'fast scan', stats: { asset_count: completed ? 2 : 0,
+      asset_succeeded: completed ? 2 : 0, asset_failed: 0, segment_count: 0,
+      total_duration_sec: 3, total_size_bytes: 3 } } as never
+  })
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={qc}><MemoryRouter initialEntries={['/p/p']}><Routes><Route path="/p/:id" element={<Project />} /></Routes></MemoryRouter></QueryClientProvider>)
+  await screen.findByText('素材 0 段')
+  expect((screen.getByRole('button', { name: '检测片段' }) as HTMLButtonElement).disabled).toBe(true)
+  if (seenActive) {
+    qc.setQueryData(['jobs', 'p'], [{ id: 'scan', job_type: 'scan', status: 'running', stats: {}, resume_token: {} }])
+    await screen.findByText('运行中')
+  }
+  const assetReads = vi.mocked(api).mock.calls.filter(([path]) => path.includes('/assets')).length
+  completed = true
+  qc.setQueryData(['jobs', 'p'], [{ id: 'scan', job_type: 'scan', status: 'succeeded', stats: { done: 2, total: 2 }, resume_token: {} }])
+  await screen.findByText('素材 2 段')
+  await waitFor(() => expect((screen.getByRole('button', { name: '检测片段' }) as HTMLButtonElement).disabled).toBe(false))
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path.includes('/assets')).length).toBeGreaterThan(assetReads)
+  qc.clear()
+})

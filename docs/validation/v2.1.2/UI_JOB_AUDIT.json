@@ -1,0 +1,670 @@
+{
+  "project_alias": "isolated-browser-project",
+  "project_id": "a45eb3c4-c491-466f-8bf1-30bb10ef828c",
+  "source_files_in_ui": 2,
+  "distinct_real_files_available": 6,
+  "detected_segments": 17,
+  "model_transport": "HTTPS with certificate validation; no insecure HTTP exception",
+  "mode_after_acceptance": "off",
+  "human_verdict_test_note": "automated browser confirm/reject actions are interface tests, not a human review",
+  "model_usage": {
+    "calls_including_cancelled_inflight": 17,
+    "images_sent_including_cancelled_inflight": 29,
+    "usage_recorded": {
+      "prompt_tokens": 15376,
+      "completion_tokens": 4187,
+      "total_tokens": 19563
+    },
+    "note": "Local request counters include the cancelled in-flight request; missing provider usage is not inferred as zero billed tokens."
+  },
+  "jobs": [
+    {
+      "id": "12a13f65-b09e-4c5c-8910-70ce7f995a40",
+      "type": "scan",
+      "status": "succeeded",
+      "started_at_utc": "2026-10-15 16:06:24.476897",
+      "finished_at_utc": "2026-10-15 16:06:24.613514",
+      "stats": {
+        "done": 2,
+        "total": 2,
+        "skipped": 0,
+        "failed": 0
+      },
+      "upload_options": {
+        "force": false
+      },
+      "failures": {
+        "count": 0,
+        "items": []
+      }
+    },
+    {
+      "id": "7e1422d7-6955-4091-9b1d-fb69fa4998c0",
+      "type": "detect",
+      "status": "succeeded",
+      "started_at_utc": "2026-10-15 18:12:33.369582",
+      "finished_at_utc": "2026-10-15 18:14:38.241342",
+      "stats": {
+        "done": 2,
+        "total": 2,
+        "skipped": 0,
+        "failed": 0,
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "staging/42754534-1895-42f5-9007-729d5baf38b0/17686daae907": {
+              "path": "staging/42754534-1895-42f5-9007-729d5baf38b0/17686daae907",
+              "ok": true,
+              "error_code": "",
+              "message": "已清理本任务暂存目录",
+              "removed_files": 0,
+              "removed_bytes": 0,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            },
+            "staging/a5fbac37-3ece-48b9-938f-0083ab2dd161/d02c108ac8bd": {
+              "path": "staging/a5fbac37-3ece-48b9-938f-0083ab2dd161/d02c108ac8bd",
+              "ok": true,
+              "error_code": "",
+              "message": "已清理本任务暂存目录",
+              "removed_files": 0,
+              "removed_bytes": 0,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "had_failure": false,
+          "remediated": false,
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 0,
+          "removed_bytes": 0,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "upload_options": {
+        "force": false
+      },
+      "failures": {
+        "count": 0,
+        "items": []
+      }
+    },
+    {
+      "id": "e091fe49-8d33-4143-a0bb-2b883b8ab0e0",
+      "type": "vision_analyze",
+      "status": "succeeded",
+      "started_at_utc": "2026-10-15 18:16:51.868179",
+      "finished_at_utc": "2026-10-15 18:17:04.719755",
+      "stats": {
+        "done": 8,
+        "total": 8,
+        "analyzed": 8,
+        "skipped": 0,
+        "failed": 0,
+        "calls": 8,
+        "images_sent": 8,
+        "usage": {
+          "prompt_tokens": 6522,
+          "completion_tokens": 2198,
+          "total_tokens": 8720
+        },
+        "coverage": {
+          "library_segments": 17,
+          "eligible": 17,
+          "excluded": 0,
+          "invalid": 0,
+          "considered": 8,
+          "planned": 8,
+          "analyzed": 8,
+          "cached_valid": 0,
+          "not_covered": 9,
+          "images_sent": 8
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/staging/e091fe49-8d33-4143-a0bb-2b883b8ab0e0": {
+              "path": "vision/staging/e091fe49-8d33-4143-a0bb-2b883b8ab0e0",
+              "ok": true,
+              "error_code": "",
+              "message": "已清理本任务暂存目录",
+              "removed_files": 8,
+              "removed_bytes": 357817,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "had_failure": false,
+          "remediated": false,
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 8,
+          "removed_bytes": 357817,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "upload_options": {
+        "upload_acknowledged": true,
+        "limit": 8,
+        "force": false,
+        "segment_ids": [],
+        "prompt_version": "1.0"
+      },
+      "failures": {
+        "count": 0,
+        "items": []
+      }
+    },
+    {
+      "id": "264d14bb-fa48-40ec-b540-5a3271d3c6dd",
+      "type": "vision_analyze",
+      "status": "succeeded",
+      "started_at_utc": "2026-10-15 18:17:31.713783",
+      "finished_at_utc": "2026-10-15 18:17:31.768176",
+      "stats": {
+        "done": 8,
+        "total": 8,
+        "analyzed": 0,
+        "skipped": 8,
+        "failed": 0,
+        "calls": 0,
+        "images_sent": 0,
+        "usage": {},
+        "coverage": {
+          "library_segments": 17,
+          "eligible": 17,
+          "excluded": 0,
+          "invalid": 0,
+          "considered": 8,
+          "planned": 8,
+          "analyzed": 0,
+          "cached_valid": 8,
+          "not_covered": 9,
+          "images_sent": 0
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/staging/264d14bb-fa48-40ec-b540-5a3271d3c6dd": {
+              "path": "vision/staging/264d14bb-fa48-40ec-b540-5a3271d3c6dd",
+              "ok": true,
+              "error_code": "",
+              "message": "已清理本任务暂存目录",
+              "removed_files": 8,
+              "removed_bytes": 357817,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "had_failure": false,
+          "remediated": false,
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 8,
+          "removed_bytes": 357817,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "upload_options": {
+        "upload_acknowledged": true,
+        "limit": 8,
+        "force": false,
+        "segment_ids": [],
+        "prompt_version": "1.0"
+      },
+      "failures": {
+        "count": 0,
+        "items": []
+      }
+    },
+    {
+      "id": "4f276283-45b3-437d-ba4c-f7233262919d",
+      "type": "motion_review",
+      "status": "succeeded",
+      "started_at_utc": "2026-10-15 18:17:54.772983",
+      "finished_at_utc": "2026-10-15 18:18:04.545374",
+      "stats": {
+        "done": 1,
+        "total": 1,
+        "analyzed": 1,
+        "failed": 0,
+        "calls": 1,
+        "images_sent": 4,
+        "usage": {
+          "prompt_tokens": 1401,
+          "completion_tokens": 214,
+          "total_tokens": 1615
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/motion/4f276283-45b3-437d-ba4c-f7233262919d": {
+              "path": "vision/motion/4f276283-45b3-437d-ba4c-f7233262919d",
+              "ok": true,
+              "error_code": "",
+              "message": "已清理本任务暂存目录",
+              "removed_files": 4,
+              "removed_bytes": 224556,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "had_failure": false,
+          "remediated": false,
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 4,
+          "removed_bytes": 224556,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "upload_options": {
+        "upload_acknowledged": true,
+        "limit": 200,
+        "segment_ids": [
+          "0e67397d-376b-4189-bddf-0d8001db6cff"
+        ],
+        "frame_count": 4
+      },
+      "failures": {
+        "count": 0,
+        "items": []
+      }
+    },
+    {
+      "id": "bf2858f4-e356-49da-99b8-a134e1ed7f19",
+      "type": "motion_review",
+      "status": "partial_failed",
+      "started_at_utc": "2026-10-15 18:18:40.207231",
+      "finished_at_utc": "2026-10-15 18:18:50.153384",
+      "stats": {
+        "done": 1,
+        "total": 1,
+        "analyzed": 1,
+        "failed": 0,
+        "calls": 1,
+        "images_sent": 4,
+        "usage": {
+          "prompt_tokens": 1393,
+          "completion_tokens": 280,
+          "total_tokens": 1673
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19": {
+              "path": "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19",
+              "ok": true,
+              "error_code": "",
+              "message": "已清理本任务暂存目录",
+              "removed_files": 4,
+              "removed_bytes": 166241,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0,
+              "first_failure": {
+                "path": "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19",
+                "ok": false,
+                "error_code": "CLEANUP_FAILED",
+                "message": "暂存回收失败，需安全重试",
+                "removed_files": 0,
+                "removed_bytes": 0,
+                "residual_paths": [
+                  "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-01.jpg",
+                  "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-00.jpg",
+                  "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-02.jpg",
+                  "vision/motion/bf2858f4-e356-49da-99b8-a134e1ed7f19/76a09494-03.jpg"
+                ],
+                "retryable": true,
+                "residual_bytes": 166241,
+                "residual_count": 4,
+                "recorded_at": "2026-10-15T18:18:50.150341+00:00"
+              },
+              "resolved_at": "2026-10-15T18:19:16.413003+00:00",
+              "resolution": "safe_cleanup_retry"
+            }
+          },
+          "had_failure": true,
+          "remediated": true,
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 4,
+          "removed_bytes": 166241,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "upload_options": {
+        "upload_acknowledged": true,
+        "limit": 200,
+        "segment_ids": [
+          "76a09494-c101-44b4-a64f-a9e8cc28bbc6"
+        ],
+        "frame_count": 4
+      },
+      "failures": {
+        "count": 1,
+        "items": [
+          {
+            "kind": "cleanup",
+            "ref": "bf2858f4-e356-49da-99b8-a134e1ed7f19",
+            "cleanup_audit": true,
+            "error_code": "CLEANUP_FAILED",
+            "message": "暂存清理异常；详见 stats.cleanup",
+            "recorded_at": "2026-10-15T18:18:50.150417+00:00",
+            "resolved_at": "2026-10-15T18:19:16.413038+00:00",
+            "resolution": "safe_cleanup_retry"
+          }
+        ]
+      }
+    },
+    {
+      "id": "2fe801c2-85fe-410c-973c-3da81ef44abc",
+      "type": "motion_review",
+      "status": "succeeded",
+      "started_at_utc": "2026-10-15 18:19:50.893663",
+      "finished_at_utc": "2026-10-15 18:20:00.648034",
+      "stats": {
+        "done": 1,
+        "total": 1,
+        "analyzed": 1,
+        "failed": 0,
+        "calls": 1,
+        "images_sent": 4,
+        "usage": {
+          "prompt_tokens": 1401,
+          "completion_tokens": 228,
+          "total_tokens": 1629
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/motion/2fe801c2-85fe-410c-973c-3da81ef44abc": {
+              "path": "vision/motion/2fe801c2-85fe-410c-973c-3da81ef44abc",
+              "ok": true,
+              "error_code": "",
+              "message": "已清理本任务暂存目录",
+              "removed_files": 4,
+              "removed_bytes": 224556,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "had_failure": false,
+          "remediated": false,
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 4,
+          "removed_bytes": 224556,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "upload_options": {
+        "upload_acknowledged": true,
+        "limit": 200,
+        "segment_ids": [
+          "0e67397d-376b-4189-bddf-0d8001db6cff"
+        ],
+        "frame_count": 4
+      },
+      "failures": {
+        "count": 0,
+        "items": []
+      }
+    },
+    {
+      "id": "07ee9c70-fee9-4e5c-ba3f-aa32632ff3b1",
+      "type": "vision_analyze",
+      "status": "cancelled",
+      "started_at_utc": "2026-10-15 18:20:29.222620",
+      "finished_at_utc": "2026-10-15 18:20:37.443251",
+      "stats": {
+        "done": 12,
+        "total": 17,
+        "analyzed": 4,
+        "skipped": 8,
+        "failed": 0,
+        "calls": 5,
+        "images_sent": 5,
+        "usage": {
+          "prompt_tokens": 3258,
+          "completion_tokens": 1109,
+          "total_tokens": 4367
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/staging/07ee9c70-fee9-4e5c-ba3f-aa32632ff3b1": {
+              "path": "vision/staging/07ee9c70-fee9-4e5c-ba3f-aa32632ff3b1",
+              "ok": true,
+              "error_code": "",
+              "message": "已清理本任务暂存目录",
+              "removed_files": 13,
+              "removed_bytes": 594469,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "had_failure": false,
+          "remediated": false,
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 13,
+          "removed_bytes": 594469,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "upload_options": {
+        "upload_acknowledged": true,
+        "limit": 17,
+        "force": false,
+        "segment_ids": [],
+        "prompt_version": "1.0"
+      },
+      "failures": {
+        "count": 1,
+        "items": [
+          {
+            "kind": "vision",
+            "ref": "d355bfa0-8741-4bdd-96a5-a6d947d96e64",
+            "message": "[CANCELLED] provider cancelled",
+            "error_code": "CANCELLED"
+          }
+        ]
+      }
+    },
+    {
+      "id": "d34487ce-aa0b-41e2-923b-9bce128ae96f",
+      "type": "scan",
+      "status": "succeeded",
+      "started_at_utc": "2026-10-15 18:21:05.795618",
+      "finished_at_utc": "2026-10-15 18:21:05.818781",
+      "stats": {
+        "done": 2,
+        "total": 2,
+        "skipped": 2,
+        "failed": 0
+      },
+      "upload_options": {
+        "force": false
+      },
+      "failures": {
+        "count": 0,
+        "items": []
+      }
+    },
+    {
+      "id": "02a998be-c61d-4b40-b91f-d231f5ed48a0",
+      "type": "proxies",
+      "status": "succeeded",
+      "started_at_utc": "2026-10-15 18:24:01.891125",
+      "finished_at_utc": "2026-10-15 18:24:21.620728",
+      "stats": {
+        "done": 2,
+        "total": 2,
+        "failed": 0,
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "proxies/staging/7a4cf7fc3d2f": {
+              "path": "proxies/staging/7a4cf7fc3d2f",
+              "ok": true,
+              "error_code": "",
+              "message": "已清理本任务暂存目录",
+              "removed_files": 0,
+              "removed_bytes": 0,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "had_failure": false,
+          "remediated": false,
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 0,
+          "removed_bytes": 0,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "upload_options": {},
+      "failures": {
+        "count": 0,
+        "items": []
+      }
+    },
+    {
+      "id": "abe3edac-f109-4a44-8a09-5e4c759503d8",
+      "type": "roughcut",
+      "status": "succeeded",
+      "started_at_utc": "2026-10-15 18:26:29.937496",
+      "finished_at_utc": "2026-10-15 18:26:49.972855",
+      "stats": {
+        "done": 2,
+        "total": 2,
+        "failed": 0,
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "roughcut/staging-44377fa2-b09f-41f7-804b-d9f9c7ab6b72": {
+              "path": "roughcut/staging-44377fa2-b09f-41f7-804b-d9f9c7ab6b72",
+              "ok": true,
+              "error_code": "",
+              "message": "已清理本任务暂存目录",
+              "removed_files": 3,
+              "removed_bytes": 3398149,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "had_failure": false,
+          "remediated": false,
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 3,
+          "removed_bytes": 3398149,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "upload_options": {},
+      "failures": {
+        "count": 0,
+        "items": []
+      }
+    },
+    {
+      "id": "15dd2f8e-f545-4d4e-b188-070b9ceb747e",
+      "type": "motion_review",
+      "status": "succeeded",
+      "started_at_utc": "2026-10-15 18:29:13.833557",
+      "finished_at_utc": "2026-10-15 18:29:22.658593",
+      "stats": {
+        "done": 1,
+        "total": 1,
+        "analyzed": 1,
+        "failed": 0,
+        "calls": 1,
+        "images_sent": 4,
+        "usage": {
+          "prompt_tokens": 1401,
+          "completion_tokens": 158,
+          "total_tokens": 1559
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/motion/15dd2f8e-f545-4d4e-b188-070b9ceb747e": {
+              "path": "vision/motion/15dd2f8e-f545-4d4e-b188-070b9ceb747e",
+              "ok": true,
+              "error_code": "",
+              "message": "已清理本任务暂存目录",
+              "removed_files": 4,
+              "removed_bytes": 248278,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "had_failure": false,
+          "remediated": false,
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 4,
+          "removed_bytes": 248278,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "upload_options": {
+        "upload_acknowledged": true,
+        "limit": 200,
+        "segment_ids": [
+          "a4ab8e50-adf2-41ae-b1b3-23ba4b930b29"
+        ],
+        "frame_count": 4
+      },
+      "failures": {
+        "count": 0,
+        "items": []
+      }
+    }
+  ]
+}

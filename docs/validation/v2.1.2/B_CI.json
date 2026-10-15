@@ -1,0 +1,88 @@
+{
+  "head_sha": "44acadc6e7cae8b46d73f17349822740da182b1c",
+  "run_id": 38767070281,
+  "url": "https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38767070281",
+  "result": "7/7 success",
+  "jobs": [
+    {
+      "id": 116532952229,
+      "lines": [
+        "Image: ubuntu-24.04",
+        "[command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +44acadc6e7cae8b46d73f17349822740da182b1c:refs/remotes/origin/main",
+        " * [new ref]         44acadc6e7cae8b46d73f17349822740da182b1c -> origin/main",
+        "44acadc6e7cae8b46d73f17349822740da182b1c",
+        "      Tests  44 passed (44)"
+      ]
+    },
+    {
+      "id": 116532952582,
+      "lines": [
+        "Image: ubuntu-24.04",
+        "[command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +44acadc6e7cae8b46d73f17349822740da182b1c:refs/remotes/origin/main",
+        " * [new ref]         44acadc6e7cae8b46d73f17349822740da182b1c -> origin/main",
+        "44acadc6e7cae8b46d73f17349822740da182b1c",
+        "print(f\"backend job: collected={total} passed={total - failures - errors - skipped} \"",
+        "backend job: collected=807 passed=763 failures=0 errors=0 skipped=44"
+      ]
+    },
+    {
+      "id": 116532952895,
+      "lines": [
+        "Image: ubuntu-24.04",
+        "[command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +44acadc6e7cae8b46d73f17349822740da182b1c:refs/remotes/origin/main",
+        " * [new ref]         44acadc6e7cae8b46d73f17349822740da182b1c -> origin/main",
+        "44acadc6e7cae8b46d73f17349822740da182b1c",
+        "print(f\"backend job: collected={total} passed={total - failures - errors - skipped} \"",
+        "backend job: collected=807 passed=763 failures=0 errors=0 skipped=44"
+      ]
+    },
+    {
+      "id": 116532953027,
+      "lines": [
+        "Image: windows-2025-vs2026\r",
+        "[command]\"C:\\Program Files\\Git\\bin\\git.exe\" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +44acadc6e7cae8b46d73f17349822740da182b1c:refs/remotes/origin/main\r",
+        " * [new ref]         44acadc6e7cae8b46d73f17349822740da182b1c -> origin/main\r",
+        "44acadc6e7cae8b46d73f17349822740da182b1c\r",
+        "print(f\"backend job: collected={total} passed={total - failures - errors - skipped} \"\r",
+        "backend job: collected=807 passed=807 failures=0 errors=0 skipped=0\r"
+      ]
+    },
+    {
+      "id": 116532953047,
+      "lines": [
+        "Image: windows-2025-vs2026\r",
+        "[command]\"C:\\Program Files\\Git\\bin\\git.exe\" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +44acadc6e7cae8b46d73f17349822740da182b1c:refs/remotes/origin/main\r",
+        " * [new ref]         44acadc6e7cae8b46d73f17349822740da182b1c -> origin/main\r",
+        "44acadc6e7cae8b46d73f17349822740da182b1c\r",
+        "print(f\"backend job: collected={total} passed={total - failures - errors - skipped} \"\r",
+        "backend job: collected=807 passed=807 failures=0 errors=0 skipped=0\r"
+      ]
+    },
+    {
+      "id": 116532953087,
+      "lines": [
+        "Image: windows-2025-vs2026\r",
+        "[command]\"C:\\Program Files\\Git\\bin\\git.exe\" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +44acadc6e7cae8b46d73f17349822740da182b1c:refs/remotes/origin/main\r",
+        " * [new ref]         44acadc6e7cae8b46d73f17349822740da182b1c -> origin/main\r",
+        "44acadc6e7cae8b46d73f17349822740da182b1c\r",
+        "Write-Output \"LongPathsEnabled=$policy\"\r",
+        "LongPathsEnabled=0\r",
+        "collected 744 items\r",
+        "======================= 744 passed in 178.44s (0:02:58) =======================\r",
+        "evidence = {\"head_sha\": os.environ[\"GITHUB_SHA\"], \"run_id\": os.environ[\"GITHUB_RUN_ID\"], \"platform\": platform.platform(), \"python\": platform.python_version()}\r"
+      ]
+    },
+    {
+      "id": 116532953277,
+      "lines": [
+        "Image: ubuntu-24.04",
+        "[command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +44acadc6e7cae8b46d73f17349822740da182b1c:refs/remotes/origin/main",
+        " * [new ref]         44acadc6e7cae8b46d73f17349822740da182b1c -> origin/main",
+        "44acadc6e7cae8b46d73f17349822740da182b1c",
+        "collected 744 items",
+        "================= 700 passed, 44 skipped in 160.67s (0:02:40) ==================",
+        "evidence = {\"head_sha\": os.environ[\"GITHUB_SHA\"], \"run_id\": os.environ[\"GITHUB_RUN_ID\"], \"platform\": platform.platform(), \"python\": platform.python_version()}"
+      ]
+    }
+  ]
+}

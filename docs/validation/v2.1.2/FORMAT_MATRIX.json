@@ -413,7 +413,7 @@
     {
       "case_id": "M322-09",
       "original_or_synthetic": "synthetic",
-      "result": "Windows CI gate; not run on macOS",
+      "result": "passed on mandatory Windows CI; LongPathsEnabled=0; 744 passed / 0 skipped",
       "reference": "test_deep_media_http.py / test_deep_path_cleanup.py / test_deep_scan_api.py / test_vision_staging_ownership.py real deep Unicode motion",
       "codec": "see mandatory real-media CI fixtures",
       "container": "MP4",
@@ -428,14 +428,26 @@
       "export": "mandatory Windows suite",
       "error_code": null,
       "source_sha256_before_after": "asserted in mandatory tests",
-      "LongPathsEnabled": 0
+      "LongPathsEnabled": 0,
+      "ci_reference": "B_CI.json / run 38767070281; final C run must independently agree"
     }
   ],
   "real_footage_L2": {
     "distinct_files_available": 6,
     "extra_real_files_provided": 0,
     "status": "incomplete",
-    "types": "HEVC MP4 3840x2160 landscape/audio/bt709 only"
+    "types": "HEVC MP4 3840x2160 landscape/audio/bt709 only",
+    "user_response": "暂时没有，真实素材缺口单独记录",
+    "ui_this_round": {
+      "distinct_files": 2,
+      "aliases": [
+        "video-01",
+        "video-06"
+      ],
+      "detected_segments": 17,
+      "initial_semantic_segments": 8,
+      "do_not_count_copies_as_extra_files": true
+    }
   },
   "hdr_color_management": "PQ/HLG input transfer/primaries/10-bit verified; decoded previews readable. No claim of accurate HDR display or tone mapping.",
   "tool_version_source": "real FFmpeg/FFprobe on each test host; per-case version in JUnit/CI"
