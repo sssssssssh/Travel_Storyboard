@@ -1,0 +1,102 @@
+{
+  "schema_version": "2.0",
+  "project_id": "14913db3-cf6c-4252-b6c9-c9e1945899ce",
+  "requests": [
+    {
+      "asset_id": "9fcc5e88-17dc-4eb3-a738-4036f59a3540",
+      "segment_id": "abd7bfd5-715f-4c01-af01-bd4a47bbf86b",
+      "start_sec": 15.0,
+      "end_sec": 20.503817,
+      "priority": "high",
+      "reason": "帧间差异高(0.297)，疑似抖动或快速甩镜，需目视确认"
+    },
+    {
+      "asset_id": "06331e4d-9039-49ef-aca2-2d55b3fb6e1e",
+      "segment_id": "87af7120-824c-45fb-a66a-3518087786b6",
+      "start_sec": 15.0,
+      "end_sec": 23.0,
+      "priority": "high",
+      "reason": "帧间差异高(0.296)，疑似抖动或快速甩镜，需目视确认"
+    },
+    {
+      "asset_id": "99a386c4-db3d-4b2c-9ce1-75d8a779f39d",
+      "segment_id": "3c6e4174-7db4-4f4b-b7ce-b5afad1c09f0",
+      "start_sec": 93.0,
+      "end_sec": 101.0,
+      "priority": "high",
+      "reason": "帧间差异高(0.290)，疑似抖动或快速甩镜，需目视确认"
+    },
+    {
+      "asset_id": "99a386c4-db3d-4b2c-9ce1-75d8a779f39d",
+      "segment_id": "9711bdb1-c46d-4e50-91be-74c139024b3f",
+      "start_sec": 103.0,
+      "end_sec": 112.0,
+      "priority": "high",
+      "reason": "帧间差异高(0.274)，疑似抖动或快速甩镜，需目视确认"
+    },
+    {
+      "asset_id": "99a386c4-db3d-4b2c-9ce1-75d8a779f39d",
+      "segment_id": "99a2548d-d4c1-4077-9145-e4377cddb4a3",
+      "start_sec": 68.0,
+      "end_sec": 80.0,
+      "priority": "high",
+      "reason": "帧间差异高(0.252)，疑似抖动或快速甩镜，需目视确认"
+    },
+    {
+      "asset_id": "00d1813f-0628-4a66-b253-e7df03daea3d",
+      "segment_id": "4a8756fb-111c-4b0f-838b-327de76ecea5",
+      "start_sec": 3.0,
+      "end_sec": 9.0,
+      "priority": "high",
+      "reason": "帧间差异高(0.226)，疑似抖动或快速甩镜，需目视确认"
+    },
+    {
+      "asset_id": "99a386c4-db3d-4b2c-9ce1-75d8a779f39d",
+      "segment_id": "ca61d729-09bf-44c3-b33a-cd3fb58d1ea0",
+      "start_sec": 85.0,
+      "end_sec": 91.0,
+      "priority": "high",
+      "reason": "帧间差异高(0.218)，疑似抖动或快速甩镜，需目视确认"
+    },
+    {
+      "asset_id": "99a386c4-db3d-4b2c-9ce1-75d8a779f39d",
+      "segment_id": "eace945a-ef60-4f3a-94c1-008c328b4fb5",
+      "start_sec": 113.0,
+      "end_sec": 137.0,
+      "priority": "high",
+      "reason": "帧间差异高(0.213)，疑似抖动或快速甩镜，需目视确认"
+    },
+    {
+      "asset_id": "99a386c4-db3d-4b2c-9ce1-75d8a779f39d",
+      "segment_id": "70044b22-55b3-4b4a-8609-884144172f60",
+      "start_sec": 51.0,
+      "end_sec": 66.0,
+      "priority": "high",
+      "reason": "帧间差异高(0.212)，疑似抖动或快速甩镜，需目视确认"
+    },
+    {
+      "asset_id": "99a386c4-db3d-4b2c-9ce1-75d8a779f39d",
+      "segment_id": "3de558f3-88cf-4333-bf49-fc9bc8545b84",
+      "start_sec": 0.0,
+      "end_sec": 16.0,
+      "priority": "high",
+      "reason": "帧间差异高(0.202)，疑似抖动或快速甩镜，需目视确认"
+    },
+    {
+      "asset_id": "99a386c4-db3d-4b2c-9ce1-75d8a779f39d",
+      "segment_id": "f87edcae-d04f-40b3-bd3f-ca969b709b52",
+      "start_sec": 19.0,
+      "end_sec": 24.0,
+      "priority": "high",
+      "reason": "帧间差异高(0.201)，疑似抖动或快速甩镜，需目视确认"
+    },
+    {
+      "asset_id": "06331e4d-9039-49ef-aca2-2d55b3fb6e1e",
+      "segment_id": "68ad47e5-a67f-41e9-8df4-269bc07af853",
+      "start_sec": 44.0,
+      "end_sec": 51.810092,
+      "priority": "medium",
+      "reason": "帧间差异偏高(0.184)，运动幅度需确认"
+    }
+  ]
+}
