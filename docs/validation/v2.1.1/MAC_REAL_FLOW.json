@@ -1,0 +1,461 @@
+{
+  "platform": "macOS arm64 / Python 3.12.14",
+  "tested_code": "R2-C plus TSB-319 route wiring fix in this batch; exact final SHA is recorded by final CI evidence",
+  "model_name": "Deepal-DeepSeek-V4.1-Flash",
+  "transport": "https",
+  "certificate_verification_enabled": true,
+  "insecure_http_exception": false,
+  "user_upload_consent": true,
+  "real_video_files": 6,
+  "real_source_assets_selected": 6,
+  "semantic_shots": 8,
+  "motion_shots": 4,
+  "workflow": "production REST/Runner/provider/FFmpeg on an isolated restored copy; not a browser click-through",
+  "project_id": "14913db3-cf6c-4252-b6c9-c9e1945899ce",
+  "steps": {
+    "no_consent": {
+      "job_id": "f30ef466-a4d1-45de-a337-2e66c8516cf2",
+      "status": "failed",
+      "stats": {
+        "total": 0,
+        "done": 0,
+        "failed": 0
+      },
+      "failure_codes": []
+    },
+    "semantic_initial": {
+      "job_id": "43df5386-eb1c-4d9b-a958-90b5ee0f41ba",
+      "status": "succeeded",
+      "stats": {
+        "total": 8,
+        "done": 8,
+        "failed": 0,
+        "analyzed": 8,
+        "skipped": 0,
+        "calls": 8,
+        "images_sent": 13,
+        "usage": {
+          "prompt_tokens": 7642,
+          "completion_tokens": 2174,
+          "total_tokens": 9816
+        },
+        "coverage": {
+          "library_segments": 100,
+          "eligible": 100,
+          "excluded": 0,
+          "invalid": 0,
+          "considered": 8,
+          "planned": 8,
+          "analyzed": 8,
+          "cached_valid": 0,
+          "not_covered": 92,
+          "images_sent": 13
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/staging/43df5386-eb1c-4d9b-a958-90b5ee0f41ba": {
+              "path": "vision/staging/43df5386-eb1c-4d9b-a958-90b5ee0f41ba",
+              "ok": true,
+              "error_code": "",
+              "message": "\u5df2\u6e05\u7406\u672c\u4efb\u52a1\u6682\u5b58\u76ee\u5f55",
+              "removed_files": 13,
+              "removed_bytes": 593217,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 13,
+          "removed_bytes": 593217,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "failure_codes": []
+    },
+    "semantic_cached": {
+      "job_id": "01d617f0-3bd6-4185-a33c-bc015749384d",
+      "status": "succeeded",
+      "stats": {
+        "total": 8,
+        "done": 8,
+        "failed": 0,
+        "analyzed": 0,
+        "skipped": 8,
+        "calls": 0,
+        "images_sent": 0,
+        "usage": {},
+        "coverage": {
+          "library_segments": 100,
+          "eligible": 100,
+          "excluded": 0,
+          "invalid": 0,
+          "considered": 8,
+          "planned": 8,
+          "analyzed": 0,
+          "cached_valid": 8,
+          "not_covered": 92,
+          "images_sent": 0
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/staging/01d617f0-3bd6-4185-a33c-bc015749384d": {
+              "path": "vision/staging/01d617f0-3bd6-4185-a33c-bc015749384d",
+              "ok": true,
+              "error_code": "",
+              "message": "\u5df2\u6e05\u7406\u672c\u4efb\u52a1\u6682\u5b58\u76ee\u5f55",
+              "removed_files": 13,
+              "removed_bytes": 593217,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 13,
+          "removed_bytes": 593217,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "failure_codes": []
+    },
+    "motion_initial": {
+      "job_id": "4eb11bb8-76ec-4873-b156-428a82754889",
+      "status": "succeeded",
+      "stats": {
+        "total": 4,
+        "done": 4,
+        "failed": 0,
+        "analyzed": 4,
+        "calls": 4,
+        "images_sent": 12,
+        "usage": {
+          "prompt_tokens": 4560,
+          "completion_tokens": 647,
+          "total_tokens": 5207
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/motion/4eb11bb8-76ec-4873-b156-428a82754889": {
+              "path": "vision/motion/4eb11bb8-76ec-4873-b156-428a82754889",
+              "ok": true,
+              "error_code": "",
+              "message": "\u5df2\u6e05\u7406\u672c\u4efb\u52a1\u6682\u5b58\u76ee\u5f55",
+              "removed_files": 12,
+              "removed_bytes": 696726,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 12,
+          "removed_bytes": 696726,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "failure_codes": []
+    },
+    "motion_same_input": {
+      "job_id": "91cceada-5132-4f62-bb74-d062cf09faba",
+      "status": "succeeded",
+      "stats": {
+        "total": 2,
+        "done": 2,
+        "failed": 0,
+        "analyzed": 2,
+        "calls": 2,
+        "images_sent": 6,
+        "usage": {
+          "prompt_tokens": 2280,
+          "completion_tokens": 285,
+          "total_tokens": 2565
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/motion/91cceada-5132-4f62-bb74-d062cf09faba": {
+              "path": "vision/motion/91cceada-5132-4f62-bb74-d062cf09faba",
+              "ok": true,
+              "error_code": "",
+              "message": "\u5df2\u6e05\u7406\u672c\u4efb\u52a1\u6682\u5b58\u76ee\u5f55",
+              "removed_files": 6,
+              "removed_bytes": 326868,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 6,
+          "removed_bytes": 326868,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "failure_codes": []
+    },
+    "motion_trimmed": {
+      "job_id": "9356481a-558d-4e02-9bca-fda08e1a176e",
+      "status": "succeeded",
+      "stats": {
+        "total": 1,
+        "done": 1,
+        "failed": 0,
+        "analyzed": 1,
+        "calls": 1,
+        "images_sent": 3,
+        "usage": {
+          "prompt_tokens": 1137,
+          "completion_tokens": 153,
+          "total_tokens": 1290
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/motion/9356481a-558d-4e02-9bca-fda08e1a176e": {
+              "path": "vision/motion/9356481a-558d-4e02-9bca-fda08e1a176e",
+              "ok": true,
+              "error_code": "",
+              "message": "\u5df2\u6e05\u7406\u672c\u4efb\u52a1\u6682\u5b58\u76ee\u5f55",
+              "removed_files": 3,
+              "removed_bytes": 186674,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 3,
+          "removed_bytes": 186674,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "failure_codes": []
+    },
+    "model_cancel": {
+      "job_id": "21631e63-4d33-4785-b324-f3ad26d72eb3",
+      "status": "cancelled",
+      "cancel_latency_sec": 1.873,
+      "stats": {
+        "total": 8,
+        "done": 1,
+        "failed": 0,
+        "analyzed": 1,
+        "skipped": 0,
+        "images_sent": 2,
+        "phase": "analyzing",
+        "calls": 2,
+        "usage": {
+          "prompt_tokens": 815,
+          "completion_tokens": 287,
+          "total_tokens": 1102
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/staging/21631e63-4d33-4785-b324-f3ad26d72eb3": {
+              "path": "vision/staging/21631e63-4d33-4785-b324-f3ad26d72eb3",
+              "ok": true,
+              "error_code": "",
+              "message": "\u5df2\u6e05\u7406\u672c\u4efb\u52a1\u6682\u5b58\u76ee\u5f55",
+              "removed_files": 2,
+              "removed_bytes": 78826,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 2,
+          "removed_bytes": 78826,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "timing_scope": "cancel requested after at least one published shot; not a controlled after-provider-before-writer barrier"
+    },
+    "prompt_v2": {
+      "job_id": "95dbc4f4-d3a7-411c-a025-a34fc4527910",
+      "status": "succeeded",
+      "stats": {
+        "total": 1,
+        "done": 1,
+        "failed": 0,
+        "analyzed": 1,
+        "skipped": 0,
+        "calls": 1,
+        "images_sent": 1,
+        "usage": {
+          "prompt_tokens": 815,
+          "completion_tokens": 273,
+          "total_tokens": 1088
+        },
+        "coverage": {
+          "library_segments": 100,
+          "eligible": 100,
+          "excluded": 0,
+          "invalid": 0,
+          "considered": 1,
+          "planned": 1,
+          "analyzed": 1,
+          "cached_valid": 0,
+          "not_covered": 99,
+          "images_sent": 1
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/staging/95dbc4f4-d3a7-411c-a025-a34fc4527910": {
+              "path": "vision/staging/95dbc4f4-d3a7-411c-a025-a34fc4527910",
+              "ok": true,
+              "error_code": "",
+              "message": "\u5df2\u6e05\u7406\u672c\u4efb\u52a1\u6682\u5b58\u76ee\u5f55",
+              "removed_files": 1,
+              "removed_bytes": 33198,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 1,
+          "removed_bytes": 33198,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "failure_codes": []
+    },
+    "prompt_back_to_v1": {
+      "job_id": "56ce64f7-ed54-4420-8227-5e0b4711770c",
+      "status": "succeeded",
+      "stats": {
+        "total": 1,
+        "done": 1,
+        "failed": 0,
+        "analyzed": 1,
+        "skipped": 0,
+        "calls": 1,
+        "images_sent": 1,
+        "usage": {
+          "prompt_tokens": 815,
+          "completion_tokens": 261,
+          "total_tokens": 1076
+        },
+        "coverage": {
+          "library_segments": 100,
+          "eligible": 100,
+          "excluded": 0,
+          "invalid": 0,
+          "considered": 1,
+          "planned": 1,
+          "analyzed": 1,
+          "cached_valid": 0,
+          "not_covered": 99,
+          "images_sent": 1
+        },
+        "cleanup": {
+          "ok": true,
+          "items": {
+            "vision/staging/56ce64f7-ed54-4420-8227-5e0b4711770c": {
+              "path": "vision/staging/56ce64f7-ed54-4420-8227-5e0b4711770c",
+              "ok": true,
+              "error_code": "",
+              "message": "\u5df2\u6e05\u7406\u672c\u4efb\u52a1\u6682\u5b58\u76ee\u5f55",
+              "removed_files": 1,
+              "removed_bytes": 33198,
+              "residual_paths": [],
+              "retryable": false,
+              "residual_bytes": 0,
+              "residual_count": 0
+            }
+          },
+          "error_code": "",
+          "retryable": false,
+          "removed_files": 1,
+          "removed_bytes": 33198,
+          "residual_count": 0,
+          "residual_bytes": 0,
+          "residual_paths": []
+        }
+      },
+      "failure_codes": []
+    }
+  },
+  "verdicts": [
+    {
+      "segment_id": "f489c970-9dc9-4503-96e4-b5a2a91fe61b",
+      "verdict": "confirm",
+      "note_retained_in_history": true,
+      "input_signature_unchanged": true,
+      "model_description_changed": true,
+      "before_state": "confirmed_current",
+      "after_state": "needs_reconfirmation",
+      "history_count": 1
+    },
+    {
+      "segment_id": "fdc3b0a7-f8c3-45fd-9ab0-3009957b5ebc",
+      "verdict": "reject",
+      "note_retained_in_history": true,
+      "input_signature_unchanged": true,
+      "model_description_changed": true,
+      "before_state": "confirmed_current",
+      "after_state": "needs_reconfirmation",
+      "history_count": 1
+    }
+  ],
+  "trimmed_verdict_state": "needs_reconfirmation",
+  "trimmed_history_count": 1,
+  "prompt_version_sequence": [
+    "1.0",
+    "acceptance-r2-v2",
+    "1.0"
+  ],
+  "prompt_current_matches_last_requested": true,
+  "calls_in_recorded_jobs": 19,
+  "usage_scope": "only numeric token usage returned on parsed responses; failed/cancelled attempts may have unreported usage and must not be assumed free",
+  "unexecuted": [
+    "8-10 distinct real videos",
+    "H.264",
+    "MOV",
+    "portrait",
+    "no-audio footage",
+    "HDR",
+    "complete browser/manual UI acceptance",
+    "real rate-limit and connection-outage injection",
+    "controlled model-return/publication barrier on a real service",
+    "60+ videos / 200GB performance",
+    "native video understanding",
+    "audio semantics",
+    "M6 director decisions"
+  ]
+}

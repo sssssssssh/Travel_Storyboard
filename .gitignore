@@ -7,6 +7,7 @@ __pycache__/
 build/
 dist/
 .venv/
+.venv
 venv/
 env/
 .pytest_cache/
@@ -54,3 +55,5 @@ logs/
 
 # --- Acceptance-run scratch output (superseded by the JSON report) ---
 docs/validation/**/_run.log*
+# Generated after the final commit's CI; committing it would change that SHA.
+docs/validation/v2.1.1/FINAL_HEAD_CI.local.json

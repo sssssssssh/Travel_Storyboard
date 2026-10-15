@@ -194,6 +194,7 @@ jobs:
           tests/test_vision_commit_races.py
           tests/test_vision_transport_security.py
           tests/test_vision_staging_ownership.py
+          tests/test_vision_route_wiring.py
           tests/test_vision_compat.py
       - name: Record exact commit and platform evidence
         if: always()

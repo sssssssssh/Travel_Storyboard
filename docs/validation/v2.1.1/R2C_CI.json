@@ -1,0 +1,107 @@
+{
+  "commit": "9b6831765aaa0f6a083b8ab7a87b66f1529df9e5",
+  "run_id": 38746742154,
+  "url": "https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38746742154",
+  "successful_jobs": 7,
+  "results": [
+    {
+      "job_id": 116462262409,
+      "name": "Backend (Python 3.13)",
+      "conclusion": "success",
+      "summary": [
+        "2026-10-15T13:57:58.3304265Z backend job: collected=760 passed=760 failures=0 errors=0 skipped=0\r"
+      ],
+      "collected": 760,
+      "passed": 760,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "platform": "windows-latest"
+    },
+    {
+      "job_id": 116462262742,
+      "name": "Required FFmpeg (ubuntu-latest)",
+      "conclusion": "success",
+      "summary": [
+        "2026-10-15T13:55:27.6537987Z collected 697 items",
+        "2026-10-15T13:58:05.9860786Z ================= 653 passed, 44 skipped in 160.13s (0:02:40) =================="
+      ],
+      "collected": 697,
+      "passed": 653,
+      "skipped": 44,
+      "failures": 0,
+      "errors": 0,
+      "platform": "ubuntu-latest"
+    },
+    {
+      "job_id": 116462262915,
+      "name": "Backend (Python 3.11)",
+      "conclusion": "success",
+      "summary": [
+        "2026-10-15T13:57:56.6526048Z backend job: collected=760 passed=716 failures=0 errors=0 skipped=44"
+      ],
+      "collected": 760,
+      "passed": 716,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 44,
+      "platform": "ubuntu-latest"
+    },
+    {
+      "job_id": 116462262917,
+      "name": "Backend (Python 3.13)",
+      "conclusion": "success",
+      "summary": [
+        "2026-10-15T13:58:02.0620536Z backend job: collected=760 passed=716 failures=0 errors=0 skipped=44"
+      ],
+      "collected": 760,
+      "passed": 716,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 44,
+      "platform": "ubuntu-latest"
+    },
+    {
+      "job_id": 116462262950,
+      "name": "Backend (Python 3.11)",
+      "conclusion": "success",
+      "summary": [
+        "2026-10-15T13:58:41.0892323Z backend job: collected=760 passed=760 failures=0 errors=0 skipped=0\r"
+      ],
+      "collected": 760,
+      "passed": 760,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "platform": "windows-latest"
+    },
+    {
+      "job_id": 116462263050,
+      "name": "Required FFmpeg (windows-latest)",
+      "conclusion": "success",
+      "summary": [
+        "2026-10-15T13:55:02.6220272Z LongPathsEnabled=0\r",
+        "2026-10-15T13:55:55.3481130Z collected 697 items\r",
+        "2026-10-15T13:58:40.8995906Z ======================= 697 passed in 167.74s (0:02:47) =======================\r"
+      ],
+      "collected": 697,
+      "passed": 697,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "platform": "windows-latest"
+    },
+    {
+      "job_id": 116462263112,
+      "name": "Frontend",
+      "conclusion": "success",
+      "summary": [],
+      "platform": "ubuntu-latest",
+      "collected": 40,
+      "passed": 40,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0
+    }
+  ]
+}

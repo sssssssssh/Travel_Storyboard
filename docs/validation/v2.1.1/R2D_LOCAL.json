@@ -1,0 +1,18 @@
+{
+  "tests": 789,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 44,
+  "passed": 745,
+  "environment": "macOS arm64 / Python 3.12.14",
+  "required_ffmpeg": true,
+  "frontend_tests_passed": 40,
+  "frontend_checks": [
+    "typecheck",
+    "lint",
+    "test",
+    "build"
+  ],
+  "package_runner": "npm run; same package.json scripts as CI pnpm",
+  "skip_explanation": "44 Windows-only cases; no skip guard changes"
+}

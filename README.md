@@ -272,6 +272,14 @@ AI 导演与分镜审阅现在可查看旧区间、最新检测候选、收藏�
 
 实测：Windows（`LongPathsEnabled=0`）下 **456 passed / 0 failed / 0 skipped**（基线 398 + 新增 58），主线 CI **7/7 成功**（含 Ubuntu 与 Windows 的强制媒体作业）。详见 [v2.0.6 发布记录](docs/RELEASE_V2_0_6.md) 与 [测试记录](docs/validation/v2.0.6/backend-windows-py3.13.md)。
 
+### v2.1.1 / M5-R2 整改
+
+新增人工动态复核独立历史与有效性显示、单镜头证据缓存和重跑审计、事务内取消/源状态终检、HTTPS 传输诊断与视觉暂存所有权清理；真实路由保留前端的本次上传同意并兼容旧 options 请求。
+
+本轮本地 macOS arm64 / Python 3.12.14：强制媒体全量 **745 passed / 44 个 Windows 平台专属 skipped / 0 failed**（collected 789），前端四项检查通过、**40 tests passed**。已通过有效 HTTPS 在隔离副本分析 6 段真实素材中的 8 个镜头及 4 个多帧镜头，原片 SHA 不变；素材数量/类型及完整 UI 人工验收仍不足。**代码级整改通过，发布门禁未完成**。详见 [发布记录](docs/RELEASE_V2_1_1.md) 和 [Mac 实测及门禁](docs/validation/v2.1.1/MAC_REAL_FOOTAGE.md)。
+
+模型地址与凭据仅填写被忽略的 backend/.env，默认 MODEL_MODE=off；公网服务须有效 HTTPS 或认证加密隧道，开发明文例外不作为生产验收。Mac 启动前确保 Python 3.11+ 在 PATH，已有虚拟环境可先激活。
+
 **本轮未完成**：真实素材实机验收（TC-29/30）未执行。按任务书标准，本轮结论为**「代码级整改通过，发布门禁未完成」**。
 
 ## v2.0.7 取消竞态与暂存安全

@@ -1,0 +1,93 @@
+{
+  "ok": true,
+  "applied": true,
+  "backup_reference": "travel_storyboard.pre-migration-20261015-134731-570082.bak",
+  "backup_location": "beside the configured SQLite file; never uploaded",
+  "all_old_rows_and_columns_unchanged": true,
+  "restore_copy_matches_before": true,
+  "integrity_check": "ok",
+  "restore_integrity_check": "ok",
+  "added_tables": [
+    "segment_motion_reviews",
+    "segment_motion_verdicts",
+    "segment_semantic_attempts",
+    "segment_semantic_results"
+  ],
+  "before": {
+    "assets": {
+      "rows": 6,
+      "sha256": "15d67b66187f8ccc175a0bf9ca00918892693d62c1e20b803c45248bb7f0fa4a"
+    },
+    "edit_plan_shots": {
+      "rows": 12,
+      "sha256": "c990d1f08de7ec1f95f6f0052e810c88fa64a9b1d1ff384f6727f6630bc0771c"
+    },
+    "frames": {
+      "rows": 127,
+      "sha256": "53d5488169955e05b3cdc685ebcee4f59c4e219dfd125a2aaf720c0c1a2fecd0"
+    },
+    "jobs": {
+      "rows": 8,
+      "sha256": "4c5842d5014b459a7862f683201fffb39c29ec1fe7c51903c898923e653e67ce"
+    },
+    "projects": {
+      "rows": 1,
+      "sha256": "a72f77805ee17725e99f73bed7c929fedffdeb1c61bbe533303299ce473f3394"
+    },
+    "review_packages": {
+      "rows": 1,
+      "sha256": "b6e9743110ec8d7b2018c4bc4d98fa0050c607ef69ba9fba8605754eb2bce3cc"
+    },
+    "review_requests": {
+      "rows": 13,
+      "sha256": "71ca3bcfcfd791eab54230a2a29de3911f0d3e2d0fff38eb4cfa7acc817e819f"
+    },
+    "segments": {
+      "rows": 100,
+      "sha256": "064ba0aa2dd952e8e0865fe3b403c5ecb8ba7c065a2c35362405b80fa262a71e"
+    },
+    "user_annotations": {
+      "rows": 1,
+      "sha256": "89d72ee577edaff5e8507cc841041813b5ab92c1e6b4c247b1dd3c062c22a3f1"
+    }
+  },
+  "after_old_column_projection": {
+    "assets": {
+      "rows": 6,
+      "sha256": "15d67b66187f8ccc175a0bf9ca00918892693d62c1e20b803c45248bb7f0fa4a"
+    },
+    "edit_plan_shots": {
+      "rows": 12,
+      "sha256": "c990d1f08de7ec1f95f6f0052e810c88fa64a9b1d1ff384f6727f6630bc0771c"
+    },
+    "frames": {
+      "rows": 127,
+      "sha256": "53d5488169955e05b3cdc685ebcee4f59c4e219dfd125a2aaf720c0c1a2fecd0"
+    },
+    "jobs": {
+      "rows": 8,
+      "sha256": "4c5842d5014b459a7862f683201fffb39c29ec1fe7c51903c898923e653e67ce"
+    },
+    "projects": {
+      "rows": 1,
+      "sha256": "a72f77805ee17725e99f73bed7c929fedffdeb1c61bbe533303299ce473f3394"
+    },
+    "review_packages": {
+      "rows": 1,
+      "sha256": "b6e9743110ec8d7b2018c4bc4d98fa0050c607ef69ba9fba8605754eb2bce3cc"
+    },
+    "review_requests": {
+      "rows": 13,
+      "sha256": "71ca3bcfcfd791eab54230a2a29de3911f0d3e2d0fff38eb4cfa7acc817e819f"
+    },
+    "segments": {
+      "rows": 100,
+      "sha256": "064ba0aa2dd952e8e0865fe3b403c5ecb8ba7c065a2c35362405b80fa262a71e"
+    },
+    "user_annotations": {
+      "rows": 1,
+      "sha256": "89d72ee577edaff5e8507cc841041813b5ab92c1e6b4c247b1dd3c062c22a3f1"
+    }
+  },
+  "source_videos_read_or_written": false
+}

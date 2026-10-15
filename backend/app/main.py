@@ -112,11 +112,13 @@ app.include_router(system.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(assets.router, prefix="/api")
 app.include_router(segments.router, prefix="/api")
+# Specific visual job routes must precede /jobs/{job_type}; otherwise the UI's
+# flat consent/options are silently parsed as an empty generic JobCreate.
+app.include_router(vision.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(media.router, prefix="/api")
 app.include_router(packages.router, prefix="/api")
 app.include_router(story.router, prefix="/api")
-app.include_router(vision.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
 
 

@@ -1,0 +1,35 @@
+{
+  "job_id": "04e49fcc-a4bc-41d2-bc50-58a95d2e7db2",
+  "job_type": "detect",
+  "initial_cancel_state": "cancelling",
+  "terminal_status": "cancelled",
+  "request_to_terminal_sec": 0.661,
+  "model_mode": "off",
+  "real_footage_copy": true,
+  "cleanup": {
+    "ok": true,
+    "items": {
+      "staging/0023c4b8-cdee-404a-a8c1-90b3b5cf230b/c64b5b4f19e2": {
+        "path": "staging/0023c4b8-cdee-404a-a8c1-90b3b5cf230b/c64b5b4f19e2",
+        "ok": true,
+        "error_code": "",
+        "message": "\u5df2\u6e05\u7406\u672c\u4efb\u52a1\u6682\u5b58\u76ee\u5f55",
+        "removed_files": 0,
+        "removed_bytes": 0,
+        "residual_paths": [],
+        "retryable": false,
+        "residual_bytes": 0,
+        "residual_count": 0
+      }
+    },
+    "error_code": "",
+    "retryable": false,
+    "removed_files": 0,
+    "removed_bytes": 0,
+    "residual_count": 0,
+    "residual_bytes": 0,
+    "residual_paths": []
+  },
+  "source_count": 6,
+  "purpose": "exercise real media cancellation; M5 will use existing detected shots from an isolated restored copy"
+}

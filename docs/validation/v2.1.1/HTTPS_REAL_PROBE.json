@@ -1,0 +1,21 @@
+{
+  "configuration_checked": true,
+  "outbound_calls": 1,
+  "transport": "https",
+  "mode": "on",
+  "insecure_development_exception": false,
+  "real_footage_validated": false,
+  "images_in_probe": 2,
+  "structured_response": true,
+  "usage": {
+    "prompt_tokens": 395,
+    "total_tokens": 413,
+    "completion_tokens": 18
+  },
+  "model_name": "Deepal-DeepSeek-V4.1-Flash",
+  "tls_verification_enabled": true,
+  "credentials_from": "Git-ignored backend/.env",
+  "private_endpoint_published": false,
+  "source": "actual HTTPS generated-image probe; not Mock",
+  "code_commit": "9b6831765aaa0f6a083b8ab7a87b66f1529df9e5"
+}

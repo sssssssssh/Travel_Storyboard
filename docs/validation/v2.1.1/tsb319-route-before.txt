@@ -1,0 +1,129 @@
+FF..FFFF                                                                 [100%]
+=================================== FAILURES ===================================
+______ test_real_route_persists_all_visual_options[False-vision_analyze] _______
+
+client = <starlette.testclient.TestClient object at 0x107d23050>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11d8504d0>
+kind = 'vision_analyze', wrapped = False
+
+    @pytest.mark.parametrize('kind', ['vision_analyze', 'motion_review'])
+    @pytest.mark.parametrize('wrapped', [False, True])
+    def test_real_route_persists_all_visual_options(client, monkeypatch, kind, wrapped):
+        monkeypatch.setattr(runner, 'submit', lambda jid: None)
+        pid = client.post('/api/projects', json={'name': 'route-wiring'}).json()['id']
+        options = {'segment_ids': ['selected-shot'], 'limit': 2, 'upload_acknowledged': True}
+        if kind == 'motion_review':
+            options['frame_count'] = 3
+        else:
+            options['force'] = True
+        body = {'options': {k: v for k, v in options.items() if k != 'force'}, 'force': True} if wrapped else options
+        response = client.post(f'/api/projects/{pid}/jobs/{kind}', json=body)
+        assert response.status_code == 202
+        with session_scope() as s:
+            job = s.get(Job, response.json()['id'])
+>           assert job.config_snapshot['upload_acknowledged'] is True
+E           assert False is True
+
+backend/tests/test_vision_route_wiring.py:24: AssertionError
+_______ test_real_route_persists_all_visual_options[False-motion_review] _______
+
+client = <starlette.testclient.TestClient object at 0x11d8276b0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11d8e5130>
+kind = 'motion_review', wrapped = False
+
+    @pytest.mark.parametrize('kind', ['vision_analyze', 'motion_review'])
+    @pytest.mark.parametrize('wrapped', [False, True])
+    def test_real_route_persists_all_visual_options(client, monkeypatch, kind, wrapped):
+        monkeypatch.setattr(runner, 'submit', lambda jid: None)
+        pid = client.post('/api/projects', json={'name': 'route-wiring'}).json()['id']
+        options = {'segment_ids': ['selected-shot'], 'limit': 2, 'upload_acknowledged': True}
+        if kind == 'motion_review':
+            options['frame_count'] = 3
+        else:
+            options['force'] = True
+        body = {'options': {k: v for k, v in options.items() if k != 'force'}, 'force': True} if wrapped else options
+        response = client.post(f'/api/projects/{pid}/jobs/{kind}', json=body)
+        assert response.status_code == 202
+        with session_scope() as s:
+            job = s.get(Job, response.json()['id'])
+>           assert job.config_snapshot['upload_acknowledged'] is True
+E           assert False is True
+
+backend/tests/test_vision_route_wiring.py:24: AssertionError
+_________ test_visual_options_use_dedicated_validation[vision_analyze] _________
+
+client = <starlette.testclient.TestClient object at 0x11d853980>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11dbef980>
+kind = 'vision_analyze'
+
+    @pytest.mark.parametrize('kind', ['vision_analyze', 'motion_review'])
+    def test_visual_options_use_dedicated_validation(client, monkeypatch, kind):
+        submitted = []
+        monkeypatch.setattr(runner, 'submit', submitted.append)
+        pid = client.post('/api/projects', json={'name': 'route-validation'}).json()['id']
+        response = client.post(f'/api/projects/{pid}/jobs/{kind}', json={'limit': 0, 'upload_acknowledged': True})
+>       assert response.status_code == 422 and submitted == []
+E       assert (202 == 422)
+E        +  where 202 = <Response [202 Accepted]>.status_code
+
+backend/tests/test_vision_route_wiring.py:36: AssertionError
+_________ test_visual_options_use_dedicated_validation[motion_review] __________
+
+client = <starlette.testclient.TestClient object at 0x11dbeeb40>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11dbed280>
+kind = 'motion_review'
+
+    @pytest.mark.parametrize('kind', ['vision_analyze', 'motion_review'])
+    def test_visual_options_use_dedicated_validation(client, monkeypatch, kind):
+        submitted = []
+        monkeypatch.setattr(runner, 'submit', submitted.append)
+        pid = client.post('/api/projects', json={'name': 'route-validation'}).json()['id']
+        response = client.post(f'/api/projects/{pid}/jobs/{kind}', json={'limit': 0, 'upload_acknowledged': True})
+>       assert response.status_code == 422 and submitted == []
+E       assert (202 == 422)
+E        +  where 202 = <Response [202 Accepted]>.status_code
+
+backend/tests/test_vision_route_wiring.py:36: AssertionError
+______ test_ambiguous_consent_is_rejected_before_enqueue[vision_analyze] _______
+
+client = <starlette.testclient.TestClient object at 0x11dbed910>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11dbf9d00>
+kind = 'vision_analyze'
+
+    @pytest.mark.parametrize('kind', ['vision_analyze', 'motion_review'])
+    def test_ambiguous_consent_is_rejected_before_enqueue(client, monkeypatch, kind):
+        submitted = []
+        monkeypatch.setattr(runner, 'submit', submitted.append)
+        pid = client.post('/api/projects', json={'name': 'ambiguous-consent'}).json()['id']
+        response = client.post(f'/api/projects/{pid}/jobs/{kind}', json={
+            'upload_acknowledged': False, 'options': {'upload_acknowledged': True}})
+>       assert response.status_code == 422 and submitted == []
+E       assert (202 == 422)
+E        +  where 202 = <Response [202 Accepted]>.status_code
+
+backend/tests/test_vision_route_wiring.py:46: AssertionError
+_______ test_ambiguous_consent_is_rejected_before_enqueue[motion_review] _______
+
+client = <starlette.testclient.TestClient object at 0x11dbbb020>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11dbfbfb0>
+kind = 'motion_review'
+
+    @pytest.mark.parametrize('kind', ['vision_analyze', 'motion_review'])
+    def test_ambiguous_consent_is_rejected_before_enqueue(client, monkeypatch, kind):
+        submitted = []
+        monkeypatch.setattr(runner, 'submit', submitted.append)
+        pid = client.post('/api/projects', json={'name': 'ambiguous-consent'}).json()['id']
+        response = client.post(f'/api/projects/{pid}/jobs/{kind}', json={
+            'upload_acknowledged': False, 'options': {'upload_acknowledged': True}})
+>       assert response.status_code == 422 and submitted == []
+E       assert (202 == 422)
+E        +  where 202 = <Response [202 Accepted]>.status_code
+
+backend/tests/test_vision_route_wiring.py:46: AssertionError
+=========================== short test summary info ============================
+FAILED backend/tests/test_vision_route_wiring.py::test_real_route_persists_all_visual_options[False-vision_analyze]
+FAILED backend/tests/test_vision_route_wiring.py::test_real_route_persists_all_visual_options[False-motion_review]
+FAILED backend/tests/test_vision_route_wiring.py::test_visual_options_use_dedicated_validation[vision_analyze]
+FAILED backend/tests/test_vision_route_wiring.py::test_visual_options_use_dedicated_validation[motion_review]
+FAILED backend/tests/test_vision_route_wiring.py::test_ambiguous_consent_is_rejected_before_enqueue[vision_analyze]
+FAILED backend/tests/test_vision_route_wiring.py::test_ambiguous_consent_is_rejected_before_enqueue[motion_review]

@@ -7,7 +7,7 @@ from typing import Literal
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ORMModel(BaseModel):
@@ -340,7 +340,21 @@ class EditPlanShotOut(ORMModel):
 
 # --- Vision semantics (M5 / TSB-304, TSB-306) ----------------------------
 
-class VisionAnalyzeRequest(BaseModel):
+class _VisualJobRequest(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def unwrap_legacy_options(cls, value):
+        if not isinstance(value, dict) or "options" not in value:
+            return value
+        if set(value) - {"options", "force"}:
+            raise ValueError("use either flat visual options or the legacy options wrapper")
+        options = value["options"] if value["options"] is not None else {}
+        if not isinstance(options, dict):
+            raise ValueError("options must be an object")
+        return {**options, **({"force": value["force"]} if "force" in value else {})}
+
+
+class VisionAnalyzeRequest(_VisualJobRequest):
     """Options for a semantic-analysis job or its dry-run preview."""
 
     limit: int | None = Field(default=None, ge=1, le=2000)
@@ -428,7 +442,7 @@ class MotionCandidateOut(BaseModel):
     suggested_priority: str
 
 
-class MotionReviewRequest(BaseModel):
+class MotionReviewRequest(_VisualJobRequest):
     """Inputs for a timestamped multi-frame motion review (TSB-307)."""
 
     segment_ids: list[str] = Field(default_factory=list)

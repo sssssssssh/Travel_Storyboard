@@ -1,6 +1,8 @@
 # TSB-317 用户侧安全端点迁移验收
 
-当前 Mac 未发现 backend/.env，没有获得本轮真实 HTTPS 地址、凭据和素材上传同意；真实端点验证 **未执行**。代码/本地 HTTP 模拟服务/注入 TLS 错误测试不能替代生产 HTTPS 实测。
+2026-10-15 用户提供服务与凭据后，验证同一服务的 HTTPS 入口：保持证书校验，未携带凭据的探测返回 401；随后真实多图 probe 返回结构化结果（1 次请求、2 张生成图片、413 tokens），见 `HTTPS_REAL_PROBE.json`。收到真实素材帧外发授权后，另通过 HTTPS 分析 8 个真实镜头；完整计数见 Mac 报告。私有地址及 Key 仅写被 Git 忽略、权限 0600 的 backend/.env；默认 MODEL_MODE=off，明文例外关闭。没有修改任何云资源。
+
+以下为可复用清单；真实接入结果与模拟 TLS 失败/限流测试分开记录，不能互相替代。
 
 1. 请实际模型服务所有者提供有效 HTTPS 网关、证书与凭据，或者已经认证且加密的本地隧道。不要修改云资源来绕过审批；隧道另一端的认证和加密由服务所有者验证。本地工具不能仅凭 localhost URL 证明隧道可信。
 2. 只在被 Git 忽略的 `backend/.env` 填入 `TRAVELSB_MODEL_BASE_URL`、`TRAVELSB_MODEL_API_KEY`、`TRAVELSB_MODEL_NAME`。不要在聊天、命令历史、Git、公开日志中填真实地址/Key。`TRAVELSB_MODEL_ALLOW_INSECURE_HTTP=false`，先保持 `TRAVELSB_MODEL_MODE=off`。

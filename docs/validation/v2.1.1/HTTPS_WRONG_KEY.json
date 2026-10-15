@@ -1,0 +1,8 @@
+{
+  "configuration_checked": false,
+  "error_code": "MODEL_AUTH_FAILED",
+  "real_footage_validated": false,
+  "transport": "https",
+  "source": "actual endpoint with deliberately invalid test credential; no footage",
+  "private_endpoint_published": false
+}

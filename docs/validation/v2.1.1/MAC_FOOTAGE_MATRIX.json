@@ -1,0 +1,85 @@
+{
+  "copied_real_videos": 6,
+  "copies_verified_sha256": true,
+  "source_before_metadata_unchanged": true,
+  "matrix": [
+    {
+      "alias": "video-01",
+      "size": 295597560,
+      "mtime_ns": 1790930298039999962,
+      "sha256": "cde3e08a5c2188f7b7bf5913cdf9763d3d806882149eb26aad39658f040c1e59",
+      "codec": "hevc",
+      "width": 3840,
+      "height": 2160,
+      "duration_sec": 20.522667,
+      "has_audio": true,
+      "color_transfer": "bt709",
+      "rotation": 0
+    },
+    {
+      "alias": "video-02",
+      "size": 678651296,
+      "mtime_ns": 1791006564309999943,
+      "sha256": "b61afd2b73e204ea9c55e5993bc156a4e457b80934338579ad1a2d15b6e409cd",
+      "codec": "hevc",
+      "width": 3840,
+      "height": 2160,
+      "duration_sec": 48.576,
+      "has_audio": true,
+      "color_transfer": "bt709",
+      "rotation": 0
+    },
+    {
+      "alias": "video-03",
+      "size": 883027194,
+      "mtime_ns": 1791013025289999962,
+      "sha256": "107f65b066b11a55f27fda1e3fe220d938fe143661236dfffa35e906e6df2f3b",
+      "codec": "hevc",
+      "width": 3840,
+      "height": 2160,
+      "duration_sec": 60.992,
+      "has_audio": true,
+      "color_transfer": "bt709",
+      "rotation": 0
+    },
+    {
+      "alias": "video-04",
+      "size": 760297366,
+      "mtime_ns": 1791015345649999976,
+      "sha256": "7ca5f98031e6107e29399744bc25b24200fe558f9f6185cfd80b764c2d0f1553",
+      "codec": "hevc",
+      "width": 3840,
+      "height": 2160,
+      "duration_sec": 51.818667,
+      "has_audio": true,
+      "color_transfer": "bt709",
+      "rotation": 0
+    },
+    {
+      "alias": "video-05",
+      "size": 1988400562,
+      "mtime_ns": 1791017174980000019,
+      "sha256": "78fbe8717df8ed2657205baa9636a0bc142a69c9fd57fbc10cdebffa0d83a867",
+      "codec": "hevc",
+      "width": 3840,
+      "height": 2160,
+      "duration_sec": 140.79065,
+      "has_audio": true,
+      "color_transfer": "bt709",
+      "rotation": 0
+    },
+    {
+      "alias": "video-06",
+      "size": 153943257,
+      "mtime_ns": 1791017422669999957,
+      "sha256": "836bee08fd66b61a90b49b8cde1fb379b8236325b8024fdddf6543fb35229678",
+      "codec": "hevc",
+      "width": 3840,
+      "height": 2160,
+      "duration_sec": 10.794667,
+      "has_audio": true,
+      "color_transfer": "bt709",
+      "rotation": 0
+    }
+  ]
+}

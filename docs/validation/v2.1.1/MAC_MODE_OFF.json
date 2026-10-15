@@ -1,0 +1,22 @@
+{
+  "model_configured": true,
+  "model_mode": "off",
+  "jobs": [
+    {
+      "type": "vision_analyze",
+      "job_id": "bdc0e55e-4403-4630-ad43-f7633b7306e7",
+      "status": "failed",
+      "error_code": "MODEL_UPLOAD_DENIED",
+      "reported_calls": 0
+    },
+    {
+      "type": "motion_review",
+      "job_id": "c16bab2e-e635-4ae2-af25-43ccf19f1637",
+      "status": "failed",
+      "error_code": "MODEL_UPLOAD_DENIED",
+      "reported_calls": 0
+    }
+  ],
+  "legacy_http": 403,
+  "network_observation": "application permission denial and reported calls; independent zero-outbound instrumentation is covered by automated tests"
+}

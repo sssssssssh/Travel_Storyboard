@@ -270,14 +270,14 @@ python -m pytest -q
 | --- | --- | --- | --- |
 | T01 | 首次扫描 | 新建项目 → 添加素材根目录 → 扫描 | 每个文件一行 Asset；`scan_status` 正确 |
 | T02 | 损坏/空文件 | 放一个 0 字节或截断的 `.mp4`，扫描 | 恰好一行 Asset，`scan_status=failed`，`error_code=probe_failed`；再次扫描不新增行 |
-| T03 | 裁剪后重复检测 | 标注一个镜头（收窄入出点 + 收藏）→ 强制重新检测 ≥2 次 | 镜头 id、收藏、备注、裁剪区间全部保留；`detected_*` 不变 |
+| T03 | 裁剪后重复检测与复核 | 标注镜头（收窄入出点 + 收藏）→ 强制重新检测 ≥2 次；M5 confirm/reject 加备注后原样/改区间重跑 | 镜头 id、收藏、备注、裁剪区间保留；`detected_*` 不变；相同有效证据保留判定，区间/模型证据变化须重新确认且历史可查（TSB-314/319） |
 | T04 | 增量检测 | 不改素材再点一次「检测」（不勾选强制） | 任务 `skipped ≥ 1`，磁盘帧数不增长 |
 | T05 | 帧缓存回收 | 连续强制检测 3 次 | `<项目工作区>/frames/` 文件数稳定，不随次数增长 |
 | T06 | 中途杀进程 | 检测进行中直接结束后端进程 → 重启 | 任务被重新派发（`resume_interrupted_jobs`），不产生重复镜头 |
 | T07 | 并发保护 | 检测运行中再点扫描/打包 | 第二次请求返回 409 并给出正在运行的任务编号 |
 | T08 | 取消 | 打包/代理运行中点取消 | 任务状态 `cancelled`，已产出的临时文件不污染正式目录；**进程应立即停止**（见 T20） |
 | T09 | 部分失败可见 | 让某个素材不可读后跑打包 | 任务 `partial_failed`，前端列出失败条目，成功部分仍可用 |
-| T10 | 授权边界 | 直接请求 `/api/system/token`、`/api/projects/<pid>/media?path=token.txt` | 404 / 400，绝不返回内容 |
+| T10 | 授权边界 | 直接请求 `/api/system/token`、`/api/projects/<pid>/media?path=token.txt`；M5 已有 Key 下关闭总开关/不勾本次同意，检查新旧入口 | 404 / 400，绝不返回内容；M5 零出站、错误可见；生产模型 HTTPS 且证书有效，明文开发例外关闭（TSB-317/319） |
 | T11 | 跨站防护 | 用非回环 `Host`/`Origin` 发请求 | 403 |
 | T12 | 分析包隐私 | 生成分析包并解压检查所有 JSON | 不出现 `source_path`、绝对路径、令牌 |
 | T13 | 复核闭环 | 导入复核请求（含合法与非法各若干）→ 生成代理 → 播放 | 合法项 `proxied` 可播放；非法项被跳过并给出原因 |
@@ -290,7 +290,7 @@ python -m pytest -q
 | T20 | 取消**及时**生效 | 对一段较长素材生成代理（或跑粗剪），在编码进行中点「取消」，同时用任务管理器观察 `ffmpeg.exe` | `ffmpeg.exe` 在数秒内退出（不再跑完整个片段）；任务为 `cancelled` 而非 `failed`；项目锁被释放，可立即提交新任务 |
 | T21 | 并发取消不误伤 | 分别在两个项目各起一个长任务，只取消其中一个 | 只有被取消的那个进程退出；另一个任务继续正常完成 |
 | T22 | 取消窗口与互斥 | 长任务编码中点「取消」，**立刻**再点同一重活 | 取消后到进程真正退出前，新任务返回 **409** 且带阻塞任务类型与 ID；旧任务终态为 `cancelled` 后才返回 202；不能只把新任务排队 |
-| T23 | 取消后暂存与历史产物 | 取消粗剪/代理/检测后检查工作区 | 本任务 `staging-*`（或 `staging/<asset>/<token>`、`proxies/staging/<token>`）已清空；**历史**已发布的 `roughcut.mp4` / 代理 / 收藏 / 裁剪 / 计划引用原样保留 |
+| T23 | 取消后暂存与历史产物 | 取消粗剪/代理/检测及 M5 视觉/多帧后检查工作区 | 本任务已登记 `staging-*`、`staging/<asset>/<token>`、`proxies/staging/<token>`、`vision/staging/<job>`、`vision/motion/<job>` 清空或明确报告残留；历史产物与人工编辑保留；兄弟/重启后未知 stage 不接管（TSB-318/319） |
 | T24 | 深路径暂存回收 | 在工作区路径 ≥270/320 字符处跑一次任务并取消 | 文件与子目录**实际**删除（不是仅 API 返回成功）；界面/日志可见残留字节时能定位 |
 | T25 | 链接逃逸防护 | 在工作区内放一个指向工作区**外**的目录链接（junction/symlink），置于待清理的暂存目录下，再触发清理 | 链接目标内容**绝不**被删除；结果给出可追踪的拒绝或残留记录 |
 
@@ -623,4 +623,9 @@ M5 全链路（见 `docs/validation/v2.1-m5/`），但**未覆盖竖屏/无音�
 | ::test_real_motion_in_deep_unicode_workspace_keeps_source_and_history | T318-08 | 真实 FFmpeg 中文深路径抽帧和拥有的 stage 回收，原合成源及历史产物不变；进入强制媒体清单 |
 | VisionPanel insecure-development-warning / cleanup residual | T317/318 | 明文例外必须显式可见，清理失败不能显示无残留 |
 
-手动补充 T01–T25 门禁：T317-02 实际持密钥 HTTPS/认证加密隧道多图接入，以及 TSB-319 Mac 8～10 段真实素材流程，均未执行；参见 `validation/v2.1.1/HTTPS_ACCEPTANCE.md`。CI 和上述合成媒体不能替代。
+手动补充 T01–T25 门禁：本轮实际 HTTPS 多图接入与 6 段素材/8 镜头的 Mac API 验收另见 `validation/v2.1.1/HTTPS_REAL_PROBE.json` 和 Mac 报告；8～10 段、多类型矩阵与完整 UI 人工验收仍未完成。CI 和上述合成媒体不能替代。
+
+| 用例 | 任务 | 守护行为 |
+|---|---|---|
+| test_vision_route_wiring::test_real_route_persists_all_visual_options (4) | TSB-319/312 接线 | 真实 FastAPI 匹配专用路由；前端 flat 和旧 options 包装都保留同意、选段、limit、force/frame_count |
+| ::test_visual_options_use_dedicated_validation (2) / test_ambiguous_consent_is_rejected_before_enqueue (2) | TSB-319/317 | 非法 limit 和矛盾的两种同意格式在入队前 422，不静默丢弃/覆盖 |

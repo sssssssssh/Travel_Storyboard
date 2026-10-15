@@ -9,44 +9,100 @@
       "summary": [
         "2026-10-15T13:33:54.5269915Z  Test Files  7 passed (7)",
         "2026-10-15T13:33:54.5270808Z       Tests  38 passed (38)"
-      ]
+      ],
+      "name": "Frontend",
+      "conclusion": "success",
+      "collected": 38,
+      "passed": 38,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "platform": "ubuntu-latest"
     },
     {
       "job_id": 116451708141,
       "summary": [
         "2026-10-15T13:36:37.4132414Z ================= 612 passed, 44 skipped in 149.39s (0:02:29) =================="
-      ]
+      ],
+      "name": "Required FFmpeg (ubuntu-latest)",
+      "conclusion": "success",
+      "collected": 656,
+      "passed": 612,
+      "skipped": 44,
+      "failures": 0,
+      "errors": 0,
+      "platform": "ubuntu-latest"
     },
     {
       "job_id": 116451708212,
       "summary": [
         "2026-10-15T13:36:29.9717203Z backend job: collected=719 passed=675 failures=0 errors=0 skipped=44"
-      ]
+      ],
+      "name": "Backend (Python 3.13)",
+      "conclusion": "success",
+      "collected": 719,
+      "passed": 675,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 44,
+      "platform": "ubuntu-latest"
     },
     {
       "job_id": 116451708215,
       "summary": [
         "2026-10-15T13:33:48.6192280Z LongPathsEnabled=0\r",
         "2026-10-15T13:37:27.2712108Z ======================= 656 passed in 162.91s (0:02:42) =======================\r"
-      ]
+      ],
+      "name": "Required FFmpeg (windows-latest)",
+      "conclusion": "success",
+      "collected": 656,
+      "passed": 656,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "platform": "windows-latest"
     },
     {
       "job_id": 116451708283,
       "summary": [
         "2026-10-15T13:37:23.9124231Z backend job: collected=719 passed=719 failures=0 errors=0 skipped=0\r"
-      ]
+      ],
+      "name": "Backend (Python 3.13)",
+      "conclusion": "success",
+      "collected": 719,
+      "passed": 719,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "platform": "windows-latest"
     },
     {
       "job_id": 116451708298,
       "summary": [
         "2026-10-15T13:36:22.1980931Z backend job: collected=719 passed=719 failures=0 errors=0 skipped=0\r"
-      ]
+      ],
+      "name": "Backend (Python 3.11)",
+      "conclusion": "success",
+      "collected": 719,
+      "passed": 719,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "platform": "windows-latest"
     },
     {
       "job_id": 116451708400,
       "summary": [
         "2026-10-15T13:36:24.5704706Z backend job: collected=719 passed=675 failures=0 errors=0 skipped=44"
-      ]
+      ],
+      "name": "Backend (Python 3.11)",
+      "conclusion": "success",
+      "collected": 719,
+      "passed": 675,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 44,
+      "platform": "ubuntu-latest"
     }
   ]
 }

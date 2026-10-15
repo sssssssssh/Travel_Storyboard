@@ -57,3 +57,23 @@ TSB-318 问题 → 修复：视觉任务自行递归清理没有 Job 所有权�
 范围：保留原片、SQLite 旧数据、人工评分/裁剪/角色、确认历史、代理与粗剪；不放宽 skip 守卫，不改 Runner 状态机，不开发 M6、音频语义或原生视频理解。自动化只使用本地模拟服务、注入异常、合成图片/视频；真实 HTTPS、Mac 8～10 段视觉流程和 200GB 性能另列未完成。
 
 R2-C 最终本地全量：collected 781 / passed 737 / skipped 44 / failed 0 / errors 0（macOS arm64，Python 3.12.14，TSB_REQUIRE_FFMPEG=1）；前端四项全部通过，40 tests passed。Windows 专属 skip 原因按既有守卫解释。pnpm 包装器在本机不可用，使用 npm run 执行完全相同的 package.json 四个脚本；CI 保持 pnpm。见 `validation/v2.1.1/R2C_LOCAL.json`。同 SHA CI 推送后核对。
+
+## R2-C 同 SHA CI 存证
+
+`9b6831765aaa0f6a083b8ab7a87b66f1529df9e5`，Run [38746742154](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38746742154)，7/7 success。Windows 常规两 Python 作业各 collected/passed 760，0 skipped；Ubuntu 常规各 collected 760 / passed 716 / skipped 44；强制媒体各 collected 697，Windows 697 passed / 0 skipped，Ubuntu 653 passed / 44 skipped；前端 40 passed。逐 Job 计数和平台见 `validation/v2.1.1/R2C_CI.json`，R2A/B 也补齐逐 Job 平台/精确计数。
+
+## R2-D / TSB-319 发布回归与 Mac 实测
+
+真实接线发现的问题 → 修复：通用 `/jobs/{job_type}` 先于专用视觉路由注册，前端 flat body 中 upload_acknowledged / segment_ids / limit / frame_count 被 JobCreate 忽略，导致已同意的请求仍失败；模拟 provider 单元测试没有覆盖真实 HTTP 匹配。新增 8 项真实 FastAPI 测试修复前 6 failed / 2 passed；将视觉路由放在通用路由前，并兼容原 options 包装，格式矛盾或越界参数在入队前 422。反向恢复旧路由顺序，6 项再次失败；恢复后全部转绿。证据 `tsb319-route-before/after/reverse.txt`，新套件已进入强制媒体清单。保留 TSB-312/313 的逐调用授权与内存图片机制，没有换 Runner 或扩展 M6。
+
+最终本地回归（修正路由后）：**collected 789 / passed 745 / skipped 44 / failures 0 / errors 0**；环境 macOS arm64 / Python 3.12.14，TSB_REQUIRE_FFMPEG=1。前端 typecheck/lint/test/build 全部通过，**40 tests passed**。详见 `validation/v2.1.1/R2D_LOCAL.json`；最终 HEAD 的 7 Job CI 结果推送后核对，不拿上一批绿色替代。
+
+用户提供素材与模型后，验证同一模型服务的有效 HTTPS 接入，明文例外保持 false；凭据仅存被 Git 忽略的 backend/.env（0600），默认模式 off。生成多图 probe 及真实错误 Key 分类通过；用户明确授权人脸/车牌画面外发后，在隔离 SQLite/工作区副本完成跨 6 段素材的 8 镜头语义（8 次请求、13 张 JPEG、9816 tokens）、8 镜头有效缓存（0 新调用）、4 镜头多帧、2 镜头确认/拒绝及重跑历史、裁剪失效、Prompt 版本 1.0→v2→1.0 和真实模型取消。模型重跑的描述实际变化，因此需要重新确认，未把输入相同说成模型证据相同。
+
+本机正式旧 SQLite 的 9 表/269 行旧列数量及逻辑哈希全部保留，迁移前备份与临时副本恢复校验通过；新增 audit_sqlite_upgrade.py 可复用此检查。备份 `backend/data/travel_storyboard.pre-migration-20261015-134731-570082.bak` 仅留本机。6 段原片及验收副本 SHA、原片 mtime/大小，282 个原历史派生文件字节均不变。模型测试只写隔离副本，Asset/Segment ID 保持原值。
+
+范围：未删除/改写原片和历史代理、粗剪、检测边界、正式人工评分/裁剪/角色、UserAnnotation、ReviewRequest、EditPlanShot 或原审阅记录。正式旧库只做有备份的增量 schema 升级，旧表旧列核对相同；验收副本里的显式测试判定/裁剪与正式数据分开。未操作云资源，未提交原图/视频/SQLite/凭据/私有端点。
+
+尚未完成：用户目录实际仅 6 段同类型 4K HEVC 横屏 MP4，少于要求的 8～10 段；H.264/MOV/竖屏/无音轨/HDR、完整 UI 人工审阅与导出流程、真实限流/断网故障注入仍未执行。精确事务屏障、故障清理边界由自动化覆盖，不能冒充真实服务对应注入。失败/取消尝试未报告的 token 不假定为零或免费，不估算供应商价格。60+ 段/200GB 性能未测，不外推；原生视频/音频语义和 AI 导演决策未开发。
+
+完整实测矩阵、逐 Job 和 G1～G8 见 [MAC_REAL_FOOTAGE.md](validation/v2.1.1/MAC_REAL_FOOTAGE.md)。最终同 HEAD CI 存证推送后生成 `validation/v2.1.1/FINAL_HEAD_CI.local.json`（不提交，避免改变被验 SHA），同时在交付回复链接 GitHub Run；CI 的 JUnit/平台 artifacts 为权威原始证据。最终结论：**代码级整改通过，发布门禁未完成**。

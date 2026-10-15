@@ -1,0 +1,61 @@
+{
+  "all_original_videos_and_copies_unchanged": true,
+  "sources": [
+    {
+      "alias": "video-01",
+      "sha256_unchanged": true,
+      "size_unchanged": true,
+      "mtime_ns_unchanged": true,
+      "copy_sha256_unchanged": true
+    },
+    {
+      "alias": "video-02",
+      "sha256_unchanged": true,
+      "size_unchanged": true,
+      "mtime_ns_unchanged": true,
+      "copy_sha256_unchanged": true
+    },
+    {
+      "alias": "video-03",
+      "sha256_unchanged": true,
+      "size_unchanged": true,
+      "mtime_ns_unchanged": true,
+      "copy_sha256_unchanged": true
+    },
+    {
+      "alias": "video-04",
+      "sha256_unchanged": true,
+      "size_unchanged": true,
+      "mtime_ns_unchanged": true,
+      "copy_sha256_unchanged": true
+    },
+    {
+      "alias": "video-05",
+      "sha256_unchanged": true,
+      "size_unchanged": true,
+      "mtime_ns_unchanged": true,
+      "copy_sha256_unchanged": true
+    },
+    {
+      "alias": "video-06",
+      "sha256_unchanged": true,
+      "size_unchanged": true,
+      "mtime_ns_unchanged": true,
+      "copy_sha256_unchanged": true
+    }
+  ],
+  "original_derived_files_unchanged": 282,
+  "original_sqlite_old_rows_and_columns_unchanged": true,
+  "original_sqlite_table_counts": {
+    "assets": 6,
+    "edit_plan_shots": 12,
+    "frames": 127,
+    "jobs": 8,
+    "projects": 1,
+    "review_packages": 1,
+    "review_requests": 13,
+    "segments": 100,
+    "user_annotations": 1
+  },
+  "scope": "existing project preserved; all M5 writes confined to restored SQLite/workspace acceptance copy; Asset/Segment IDs retained, only storage paths changed in that copy"
+}

@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "environment": "macOS arm64 / Python 3.12.14",
+  "launcher": "scripts/start.sh --skip-install --skip-frontend; installed venv on PATH and already-built frontend",
+  "health_http": 200,
+  "ffmpeg_available": true,
+  "frontend_http": 200,
+  "frontend_assets_http": 200,
+  "vision_status_http": 200,
+  "model_mode": "off",
+  "model_configured": true,
+  "allow_insecure_http": false,
+  "no_token_http": 401,
+  "foreign_host_http": 403,
+  "config_status_health_no_secret_or_absolute_path": true,
+  "scope": "startup and API smoke; not complete browser UI acceptance"
+}
