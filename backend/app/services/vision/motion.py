@@ -35,6 +35,7 @@ from ...ffmpeg import FFmpegError, extract_frame, safe_stat, safe_unlink
 from ...models import Asset, Job, Segment, SegmentMotionReview, utcnow
 from ...paths import project_cache_dir
 from ..runner import JobCancelled, JobFailures, cancel_check_for, register_task, update_job
+from .authorization import authorize_upload
 from .errors import (
     CANCELLED,
     INSUFFICIENT_FRAMES,
@@ -208,7 +209,7 @@ def validate_motion(payload: dict, allowed_timestamps: list[float]) -> dict:
 
 def motion_review_task(job_id: str) -> None:
     """Worker entry point for the ``motion_review`` job."""
-    from . import get_provider, is_configured
+    from . import get_provider
 
     settings = get_settings()
     cancel_check = cancel_check_for(job_id)
@@ -221,12 +222,16 @@ def motion_review_task(job_id: str) -> None:
         project_id = job.project_id
         config = dict(job.config_snapshot or {})
 
-    if not bool(config.get("upload_acknowledged")) or settings.model_mode != "on":
-        update_job(job_id, status="failed",
-                   error=f"{MODEL_UPLOAD_DENIED}: 未确认上传或视觉模型未启用")
-        return
-    if not is_configured():
-        update_job(job_id, status="failed", error=f"{MODEL_NOT_CONFIGURED}: 视觉模型未配置")
+    # TSB-312: same shared boundary as vision_analyze, evaluated before any frame
+    # is extracted so a denied run leaves nothing on disk.
+    try:
+        context = authorize_upload(
+            project_id=project_id,
+            upload_acknowledged=bool(config.get("upload_acknowledged")),
+            purpose="motion_review",
+        )
+    except ModelError as exc:
+        update_job(job_id, status="failed", error=str(exc))
         return
 
     segment_ids = list(config.get("segment_ids") or [])
@@ -265,7 +270,9 @@ def motion_review_task(job_id: str) -> None:
                     _progress(job_id, index, total, counts)
                     continue
 
-                result, usage = _analyze_motion(provider, segment, frames, cancel_check)
+                result, usage = _analyze_motion(
+                    provider, segment, frames, cancel_check, authorization=context
+                )
                 _store(project_id, segment, result, frames,
                        provider_name=provider.name, model_id=settings.model_name,
                        usage=usage)
@@ -388,7 +395,7 @@ def _strip_metadata(path: Path, target_width: int) -> bool:
         return False
 
 
-def _analyze_motion(provider, segment, frames, cancel_check):
+def _analyze_motion(provider, segment, frames, cancel_check, *, authorization=None):
     from .providers.base import ImagePart, VisionRequest
 
     manifest = [
@@ -415,6 +422,7 @@ def _analyze_motion(provider, segment, frames, cancel_check):
             system=SYSTEM_PROMPT,
             json_object=True,
             max_tokens=settings.vision_max_tokens_motion,
+            authorization=authorization,
         ),
         cancel_check=cancel_check,
     )

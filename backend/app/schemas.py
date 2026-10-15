@@ -350,6 +350,17 @@ class VisionAnalyzeRequest(BaseModel):
     upload_acknowledged: bool = False
 
 
+class StoryAnalyzeRequest(BaseModel):
+    """TSB-312 — body for the legacy ``POST /story/analyze`` endpoint.
+
+    The field is deliberately required-in-practice (defaulting to ``False``) so an
+    old client that sends no body gets a stable ``MODEL_UPLOAD_DENIED`` plus a
+    migration hint, instead of silently uploading frames as it used to.
+    """
+
+    upload_acknowledged: bool = False
+
+
 class VisionStatusOut(BaseModel):
     """Capability summary. Booleans and limits only — never a URL or a key."""
 

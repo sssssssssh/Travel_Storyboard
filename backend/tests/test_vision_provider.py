@@ -147,10 +147,22 @@ def _provider(url: str) -> OpenAICompatibleVisionProvider:
     return OpenAICompatibleVisionProvider()
 
 
-def _request(jpg: Path, n: int = 1) -> VisionRequest:
+def _auth():
+    """A per-call authorization token, as a real caller would supply.
+
+    TSB-312 made the provider refuse an unguarded request, so every test that
+    expects to reach the network must present one — exactly like production code.
+    """
+    from app.services.vision.authorization import AuthorizedModelContext
+
+    return AuthorizedModelContext(project_id="p-test", purpose="unit-test")
+
+
+def _request(jpg: Path, n: int = 1, *, authorization=...) -> VisionRequest:
     return VisionRequest(
         prompt="Describe the image.",
         images=[ImagePart(path=str(jpg), label=f"t={i}s") for i in range(n)],
+        authorization=_auth() if authorization is ... else authorization,
     )
 
 
@@ -185,6 +197,39 @@ def test_the_local_path_never_reaches_the_request(mock_server, jpg, monkeypatch)
     sent = mock_server.calls[-1]["body"].decode()
     assert str(jpg) not in sent
     assert "t=0s" in sent and "t=1s" in sent
+
+
+# --------------------------------------------------------------------------
+# TSB-312: the provider refuses an unguarded call
+# --------------------------------------------------------------------------
+
+
+def test_request_without_authorization_is_refused_before_any_network_io(
+    mock_server, jpg, monkeypatch
+):
+    """A direct provider call must not be able to bypass the consent boundary.
+
+    This is the structural guarantee behind C5: permission is a per-call token
+    produced by the business entry point, not a process-wide flag, so no future
+    refactor can reach the network without an explicit decision.
+    """
+    _configure(monkeypatch, mock_server.url)
+    mock_server.ok("{}")
+    with pytest.raises(err.ModelError) as ei:
+        _provider(mock_server.url).complete(_request(jpg, authorization=None))
+    assert ei.value.code == err.MODEL_UPLOAD_DENIED
+    assert mock_server.calls == [], "no request may be attempted without a context"
+
+
+def test_require_context_rejects_missing_and_accepts_present():
+    from app.services.vision.authorization import AuthorizedModelContext, require_context
+
+    with pytest.raises(err.ModelError) as ei:
+        require_context(None)
+    assert ei.value.code == err.MODEL_UPLOAD_DENIED
+
+    ctx = AuthorizedModelContext(project_id="p", purpose="test")
+    assert require_context(ctx) is ctx
 
 
 # --------------------------------------------------------------------------

@@ -23,6 +23,8 @@ export default function AIDirector() {
   const [importText, setImportText] = useState('')
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
   const [jobKind, setJobKind] = useState('')
+  // TSB-312: separate, per-action consent for the legacy direct-model endpoint.
+  const [legacyAcknowledged, setLegacyAcknowledged] = useState(false)
 
   const job = useJob(jobId)
   useEffect(() => {
@@ -75,7 +77,11 @@ export default function AIDirector() {
 
   const analyze = useMutation({
     mutationFn: () =>
-      api<DirectAnalysisResult>(endpoints.analyzeStory(id), { method: 'POST' }),
+      api<DirectAnalysisResult>(endpoints.analyzeStory(id), {
+        method: 'POST',
+        // TSB-312: the legacy route no longer uploads without per-call consent.
+        body: JSON.stringify({ upload_acknowledged: true }),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['review-requests', id] }),
   })
 
@@ -204,16 +210,41 @@ export default function AIDirector() {
         )}
       </Card>
 
-      {/* Optional direct model */}
+      {/* Optional direct model (legacy M3 endpoint) */}
       <Card>
         <h2 className="mb-3 text-sm font-semibold text-slate-200">直连模型（可选）</h2>
         <p className="mb-3 text-xs text-slate-500">
           模型只会看到抽样后的代表帧。下方会明确列出覆盖了多少镜头、哪些没被看到 ——
           未覆盖的判断不可轻信。
         </p>
-        <Button variant="ghost" disabled={analyze.isPending} onClick={() => analyze.mutate()}>
+        <p className="mb-3 text-xs text-amber-300">
+          该旧接口需要同时满足：全局开关 <code>TRAVELSB_MODEL_MODE=on</code>，
+          以及本次上传的明确同意。仅配置 API Key 不会自动上传。
+        </p>
+        <label className="mb-3 flex items-start gap-2 text-xs text-slate-300">
+          <input
+            type="checkbox"
+            checked={legacyAcknowledged}
+            onChange={(e) => setLegacyAcknowledged(e.target.checked)}
+          />
+          <span>
+            我确认将抽样后的脱敏代表帧发送至已配置的模型服务。
+            代表帧已去除 EXIF/GPS，但这<strong>不等于</strong>人脸、车牌已遮挡；
+            如需更细的预估与逐镜头进度，请使用上方「视觉理解（M5）」面板。
+          </span>
+        </label>
+        <Button
+          variant="ghost"
+          disabled={analyze.isPending || !legacyAcknowledged}
+          onClick={() => analyze.mutate()}
+        >
           调用视觉模型分析
         </Button>
+        {analyze.error && (
+          <p className="mt-2 text-xs text-red-300">
+            无法调用：{String((analyze.error as Error).message)}
+          </p>
+        )}
 
         {analyze.data && <DirectAnalysisReport data={analyze.data} />}
       </Card>

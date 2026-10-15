@@ -8,7 +8,15 @@ from sqlalchemy.orm import Session
 
 from ..database import begin_write
 from ..models import Asset, EditPlanShot, Job, Project, ReviewRequest, Segment, UserAnnotation, utcnow
-from ..schemas import ImportResult, JobCreate, JobOut, ReviewRequestOut, ReviewRequestsImport, ReviewDisposition
+from ..schemas import (
+    ImportResult,
+    JobCreate,
+    JobOut,
+    ReviewRequestOut,
+    ReviewRequestsImport,
+    ReviewDisposition,
+    StoryAnalyzeRequest,
+)
 from ..services.job_service import (
     InvalidJobType,
     JobConflict,
@@ -18,6 +26,7 @@ from ..services.job_service import (
 )
 from ..services.runner import runner
 from ..services.story_planner import direct_analyze, import_review_requests
+from ..services.vision.authorization import authorization_denial_reason
 from ..services.review_validation import (ReviewValidationError, validate_review, verified_source,
                                           INVALID_SEGMENT_STATUSES)
 from .deps import get_db
@@ -165,8 +174,46 @@ def _proxy_job_config(project: Project, request: JobRequest) -> dict:
 
 
 @router.post("/projects/{project_id}/story/analyze")
-def analyze_story(project_id: str, db: Session = Depends(get_db)):
+def analyze_story(
+    project_id: str,
+    body: StoryAnalyzeRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    """Legacy direct-model analysis (M3).
+
+    TSB-312: this endpoint used to upload frames as soon as a base URL and key
+    were configured — it only checked ``model_client.is_configured()``, so merely
+    configuring a key *silently* authorised uploads. It now goes through the same
+    shared authorization boundary as the newer ``vision_analyze`` job, so it
+    requires ``TRAVELSB_MODEL_MODE=on`` **and** an explicit
+    ``"upload_acknowledged": true`` in the body.
+
+    A caller that sends no body gets a stable ``MODEL_UPLOAD_DENIED`` plus a
+    migration hint instead of an upload. The newer entry point is
+    ``POST /api/projects/{id}/jobs/vision_analyze``.
+    """
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    acknowledged = bool(body.upload_acknowledged) if body else False
+    reason = authorization_denial_reason(
+        upload_acknowledged=acknowledged, project_id=project_id
+    )
+    if reason is not None:
+        code = reason.split(":", 1)[0]
+        raise HTTPException(
+            status_code=403 if code == "MODEL_UPLOAD_DENIED" else 422,
+            detail={
+                "error_code": code,
+                "message": reason,
+                "migration_hint": (
+                    "旧接口 /story/analyze 需要请求体 "
+                    '{"upload_acknowledged": true}。'
+                    "推荐迁移到 POST /api/projects/{id}/jobs/vision_analyze，"
+                    "它提供逐镜头进度、可取消任务与覆盖率统计。"
+                ),
+            },
+        )
+
     return direct_analyze(project_id)

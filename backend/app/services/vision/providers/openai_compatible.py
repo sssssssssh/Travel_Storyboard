@@ -92,6 +92,13 @@ class OpenAICompatibleVisionProvider:
         *,
         cancel_check: Callable[[], bool] | None = None,
     ) -> VisionResponse:
+        # TSB-312: refuse before any network work if this call was not authorised
+        # by the business entry point. This is the chokepoint that makes an
+        # unguarded outbound request impossible rather than merely discouraged.
+        from ..authorization import require_context
+
+        require_context(request.authorization)
+
         if not (self.base_url and self.api_key):
             raise ModelError(
                 MODEL_NOT_CONFIGURED,

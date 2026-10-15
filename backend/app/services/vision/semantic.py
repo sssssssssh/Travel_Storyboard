@@ -37,6 +37,7 @@ from ...models import Job, Asset, Frame, Segment, SegmentSemanticResult, utcnow
 from ...paths import project_cache_dir, resolve_in_project
 from ..runner import JobCancelled, JobFailures, cancel_check_for, register_task, update_job
 from . import schema as schema_mod
+from .authorization import authorize_upload
 from .errors import (
     CANCELLED,
     INSUFFICIENT_FRAMES,
@@ -358,7 +359,7 @@ class _Budget:
 
 def vision_analyze_task(job_id: str) -> None:
     """Worker entry point for the ``vision_analyze`` job."""
-    from . import get_provider, is_configured
+    from . import get_provider
 
     settings = get_settings()
     cancel_check = cancel_check_for(job_id)
@@ -376,20 +377,17 @@ def vision_analyze_task(job_id: str) -> None:
     segment_ids = list(config.get("segment_ids") or [])
     acknowledged = bool(config.get("upload_acknowledged"))
 
-    # Consent gate: images leave the machine only after an explicit opt-in.
-    if not acknowledged or settings.model_mode != "on":
-        update_job(
-            job_id,
-            status="failed",
-            error=(
-                f"{MODEL_UPLOAD_DENIED}: 未确认上传或视觉模型未启用"
-                "（需 upload_acknowledged=true 且 TRAVELSB_MODEL_MODE=on）"
-            ),
+    # TSB-312: the single shared authorization boundary. It is evaluated before
+    # any frame is selected, rendered or encoded, so a denied run leaves no temp
+    # files behind as well as making zero outbound calls.
+    try:
+        context = authorize_upload(
+            project_id=project_id,
+            upload_acknowledged=acknowledged,
+            purpose="vision_analyze",
         )
-        return
-
-    if not is_configured():
-        update_job(job_id, status="failed", error=f"{MODEL_NOT_CONFIGURED}: 视觉模型未配置")
+    except ModelError as exc:
+        update_job(job_id, status="failed", error=str(exc))
         return
 
     candidates = select_candidates(project_id, limit=limit, segment_ids=segment_ids or None)
@@ -436,6 +434,7 @@ def vision_analyze_task(job_id: str) -> None:
                 budgets.spend()
                 outcome, usage, sent = _analyze_one(
                     project_id, candidate, staging, provider, cancel_check,
+                    authorization=context,
                 )
             except ModelError as exc:
                 if exc.code == CANCELLED:
@@ -523,6 +522,8 @@ def _analyze_one(
     staging: Path,
     provider,
     cancel_check,
+    *,
+    authorization=None,
 ):
     """Render, call and validate one shot.
 
@@ -587,6 +588,7 @@ def _analyze_one(
             system=schema_mod.SYSTEM_PROMPT,
             json_object=True,
             max_tokens=settings.vision_max_tokens,
+            authorization=authorization,
         ),
         cancel_check=cancel_check,
     )

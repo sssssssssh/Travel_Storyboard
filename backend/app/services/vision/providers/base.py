@@ -9,7 +9,10 @@ semantics (M5.1) and timestamped multi-frame motion review (M5.2).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Protocol
+from typing import TYPE_CHECKING, Callable, Protocol
+
+if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a circular import
+    from ..authorization import AuthorizedModelContext
 
 
 @dataclass
@@ -32,6 +35,10 @@ class VisionRequest:
     json_object: bool = False
     max_tokens: int = 2048
     temperature: float = 0.2
+    #: TSB-312: proof that this specific call was authorised to send frames.
+    #: The provider refuses a request without it, so no code path can reach the
+    #: network by bypassing the business entry point.
+    authorization: "AuthorizedModelContext | None" = None
 
 
 @dataclass
