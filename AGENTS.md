@@ -101,6 +101,13 @@ docs(TSB-246): v2.0.4 发布记录、回归清单与实机验收门禁
 | Node / pnpm | 18.19.0（CI 用 20） |
 | `pytest-timeout` | **未安装**，`--timeout=` 参数不可用 |
 | ruff / flake8 | **未安装**，CI 也不跑（无需为 lint 折腾） |
+| 视觉模型 | `backend/.env` 配置 GLM-5.3-Flash（PAI-EAS，OpenAI 兼容）。**明文 `http://`，需 `TRAVELSB_MODEL_ALLOW_INSECURE_HTTP=1`**；图片与令牌在网络上不加密 |
+
+> **`.env` 只在从 `backend/` 运行时才会被读取。**
+> `SettingsConfigDict(env_file=".env")` 相对当前工作目录解析，因此从仓库根目录
+> 直接跑脚本会**静默丢掉** FFmpeg 路径与模型配置，表现为 `EXECUTABLE_MISSING`
+> 或 `MODEL_UPLOAD_DENIED`（后者看似"未配置"，实际是没读到 `.env`）。
+> 验收脚本一律先 `cd backend`。
 
 ### 4.2 后端测试
 
@@ -128,7 +135,7 @@ $x=[xml](Get-Content tsb.xml); $s=$x.testsuites.testsuite; if(-not $s){$s=$x.tes
 cd frontend
 pnpm run typecheck    # tsc --noEmit
 pnpm run lint         # eslint
-pnpm run test         # vitest run（当前 21 passed）
+pnpm run test         # vitest run（当前 33 passed）
 pnpm run build
 ```
 
@@ -274,10 +281,13 @@ v2.0.7 起，先通过 `create_owned_staging` 原子新建并登记 Job/项目/�
 - **CI 全绿只证明自动化与合成素材路径通过**，不构成实机验收证据。
 - 真机 + **8～10 段真实旅行素材**端到端验收与 60+ 视频 / 200GB 全量性能
   **尚未执行**。最近一轮记录见
-  [docs/validation/v2.0.7/WINDOWS_REAL_FOOTAGE.md](docs/validation/v2.0.7/WINDOWS_REAL_FOOTAGE.md)
-  （v2.0.3/v2.0.4 的历史记录在同级目录）。
+  [docs/validation/v2.1-m5/](docs/validation/v2.1-m5/)（v2.1 M5 视觉理解）
+  与 [docs/validation/v2.0.7/WINDOWS_REAL_FOOTAGE.md](docs/validation/v2.0.7/WINDOWS_REAL_FOOTAGE.md)
+  （v2.0.7；v2.0.3/v2.0.4 的历史记录在同级目录）。
 - 在这些记录补齐前，**不得**宣称已满足真实素材发布门禁。
 - 不要用耗时外推 200GB 的性能结论。
+- **模型 Mock 通过不等于真实云模型可用；多帧推断不等于原生视频理解；
+  语义识别通过不等于 AI 导演决策完成。** 三者必须分开陈述。
 - 任务书要求的结论措辞：证据不足时写**「代码级整改通过，发布门禁未完成」**，
   而不是「已修复」「已通过」。
 

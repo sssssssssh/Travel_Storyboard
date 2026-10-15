@@ -40,6 +40,9 @@ from pathlib import Path
 # Run from `backend/` so `app.*` imports and `.env` both resolve.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+#: Per-job ceiling. Detection over several GB of 4K HEVC is the slow one.
+TIMEOUT_SEC = 3600.0
+
 
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
@@ -75,8 +78,13 @@ def main() -> int:
     )
     from app.services.analyzer import detect_task
     from app.services.indexer import scan_task
+    from app.services.runner import runner
     from app.services.vision.motion import motion_review_task
     from app.services.vision.semantic import vision_analyze_task
+
+    # The task functions are imported for their registration side effect; every
+    # job is dispatched by type through the runner, never called directly.
+    _ = (scan_task, detect_task, vision_analyze_task, motion_review_task)
 
     settings = get_settings()
     source_root = Path(args.source).resolve()
@@ -123,7 +131,16 @@ def main() -> int:
         project_id = project.id
     print(f"project: {project_id}")
 
-    def run_job(job_type: str, fn, config: dict | None = None) -> tuple[str, float]:
+    def run_job(job_type: str, _fn=None, config: dict | None = None) -> tuple[str, float]:
+        """Run one job through the **real** runner.
+
+        Calling the task function directly would bypass ``runner._run``, which is
+        what takes the project lock and performs the ``pending -> running``
+        transition. Driving it by hand produced a job that executed its work but
+        stayed ``pending`` forever, and the next job then blocked: the harness was
+        measuring its own mistake rather than the product. Submitting through
+        ``runner.submit`` and waiting on the future is the same path the API uses.
+        """
         with session_scope() as s:
             job = Job(
                 project_id=project_id,
@@ -137,7 +154,13 @@ def main() -> int:
             s.flush()
             job_id = job.id
         started = time.time()
-        fn(job_id)
+        runner.submit(job_id)
+        future = runner._futures.get(job_id)  # noqa: SLF001 - harness, not product
+        if future is not None:
+            future.result(timeout=TIMEOUT_SEC)
+        else:
+            # Nothing was dispatched (job row missing or already terminal).
+            raise RuntimeError(f"job {job_id} ({job_type}) was not dispatched")
         elapsed = time.time() - started
         with session_scope() as s:
             row = s.get(Job, job_id)
@@ -161,8 +184,8 @@ def main() -> int:
         }
         return status, elapsed
 
-    scan_status, _ = run_job("scan", scan_task)
-    detect_status, _ = run_job("detect", detect_task)
+    scan_status, _ = run_job("scan", None)
+    detect_status, _ = run_job("detect", None)
 
     with session_scope() as s:
         asset_count = s.query(Asset).filter(Asset.project_id == project_id).count()
@@ -173,7 +196,7 @@ def main() -> int:
 
     vision_status, _ = run_job(
         "vision_analyze",
-        vision_analyze_task,
+        None,
         {"upload_acknowledged": True, "limit": args.limit},
     )
 
@@ -228,7 +251,7 @@ def main() -> int:
     if target_ids:
         motion_status, _ = run_job(
             "motion_review",
-            motion_review_task,
+            None,
             {
                 "upload_acknowledged": True,
                 "segment_ids": target_ids,

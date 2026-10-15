@@ -51,3 +51,6 @@ desktop.ini
 .vscode/
 *.log
 logs/
+
+# --- Acceptance-run scratch output (superseded by the JSON report) ---
+docs/validation/**/_run.log*

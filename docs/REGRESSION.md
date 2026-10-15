@@ -480,3 +480,61 @@ TC-29 进一步用 Event 控制清理阶段，等待 worker Future 返回后才�
 性能验证。清单见 `docs/validation/v2.0.7/WINDOWS_REAL_FOOTAGE.md`。
 
 RT274-02 升级恢复补充：test_cleanup_reporting.py::test_legacy_single_cleanup_failure_survives_resumed_stage_success，旧版单条失败统计不被新 stage 成功覆盖；CleanupNotice.test.tsx 验证未知大小不会冒称 0 字节。
+
+---
+
+## v2.1 (M5) 视觉理解与动态复核用例映射
+
+结果、范围声明与未完成项见 [RELEASE_V2_1_M5.md](RELEASE_V2_1_M5.md)。
+用例 → 任务号 → 守护的行为：
+
+| 用例 | 任务 | 守护的行为 |
+| --- | --- | --- |
+| test_vision_provider.py::test_status_classification[*] | TSB-302 | 401/403/404/408/429/5xx/400 各自映射到稳定错误码 |
+| test_vision_provider.py::test_auth_failure_is_not_retried | TSB-302 | 错 Key 立即失败，不空耗预算 |
+| test_vision_provider.py::test_bad_model_id_reported_as_400_is_classified_as_not_found | TSB-302 | 网关用 400 + "does not exist" 表示错模型时仍归类为 NOT_FOUND |
+| test_vision_provider.py::test_retry_is_bounded / test_retry_after_is_honoured | TSB-302 | 重试有界且真正等待 Retry-After（断言时延） |
+| test_vision_provider.py::test_malformed_success_bodies_are_rejected[*] | TSB-302/C6 | 200 但无可用内容 = 失败，不是空成功 |
+| test_vision_provider.py::test_reasoning_only_answer_names_the_real_cause | TSB-302 | 推理型模型 content=null 时给出可定位原因（真实端点实测） |
+| test_vision_provider.py::test_cancel_before_send_makes_no_request / test_cancel_during_backoff_stops_retrying | TSB-302 | 取消后不再发新请求，且不排队第二次 |
+| test_vision_provider.py::test_declared_no_image_support_is_refused_before_any_request | TSB-302 | 能力错配在花钱之前被拒绝 |
+| test_vision_provider.py::test_error_message_redacts_the_api_key | TSB-302/C5 | 供应商回显密钥也不得泄露到异常 |
+| test_vision_provider.py::test_cleartext_non_loopback_is_refused_by_default | TSB-302 | 非回环明文端点默认拒绝，需显式 opt-in |
+| test_vision_schema.py::test_fabricated_segment_id_is_rejected | TSB-303/C3 | 编造 ID 不解析为行，不静默重映射 |
+| test_vision_schema.py::test_model_supplied_asset_id_is_ignored | TSB-303/C3 | 模型不能把镜头改指到别的素材 |
+| test_vision_schema.py::test_unknown_frame_ids_are_dropped_not_trusted | TSB-303 | 编造 frame_id 被丢弃而非采信 |
+| test_vision_schema.py::test_identity_and_place_claims_are_dropped[*] | TSB-303 | 像素无法证明的人名/地点断言不落库 |
+| test_vision_schema.py::test_ordinary_visible_descriptions_survive | TSB-303 | 过滤器不过度：真实可见描述保留 |
+| test_vision_schema.py::test_explicit_unknown_state_is_preserved | TSB-303 | "看不到" 是合法答案，不被归一掉 |
+| test_vision_schema.py::test_single_frame_shot_is_forced_into_motion_review | TSB-303/307 | 单帧不能证明运动，强制标记并记录原因 |
+| test_vision_semantics.py::test_job_reports_coverage_not_a_total_claim | TSB-304 | 分析子集必须报告为子集（not_covered 可见） |
+| test_vision_semantics.py::test_rerun_skips_unchanged_shots | TSB-304 | 相同输入不重复调用模型 |
+| test_vision_semantics.py::test_force_reruns_in_place_without_duplicating | TSB-304/C6 | 强制重跑真的重跑且不留重复行（曾静默失败） |
+| test_vision_semantics.py::test_history_is_kept_when_the_input_signature_changes | TSB-304 | 输入签名变化时旧结论保留可审计 |
+| test_vision_semantics.py::test_retrim_makes_the_result_stale_and_reanalyzed | TSB-304/C2 | 人工裁剪使缓存结论失效并重分析 |
+| test_vision_semantics.py::test_provider_failure_yields_partial_failed | TSB-304/C6 | 单项失败不得呈现为成功 |
+| test_vision_semantics.py::test_invalid_model_output_is_a_visible_failure | TSB-304/A13 | 畸形 JSON 逐项可见，不中断整批 |
+| test_vision_semantics.py::test_job_refuses_without_upload_acknowledgement | TSB-304/A14 | 未同意时一张图都不发 |
+| test_vision_semantics.py::test_uploaded_bytes_carry_no_local_path | TSB-304/C5 | 提示词含标签不含本机绝对路径 |
+| test_vision_semantics.py::test_job_never_modifies_human_fields | TSB-304/C4 | AI 不写评分/用途/裁剪 |
+| test_vision_candidates.py::test_rule_reason_never_asserts_a_shake | TSB-306 | 帧差只作"需核验"提示，不声称抖动/甩镜 |
+| test_vision_candidates.py::test_single_frame_shot_is_flagged_not_dropped | TSB-306/A10 | 单帧标记运动不可判定而非排除 |
+| test_vision_candidates.py::test_static_shot_is_not_a_candidate | TSB-306 | 无变化不是弱信号，静止镜头不入队 |
+| test_vision_candidates.py::test_non_current_semantic_rows_are_ignored | TSB-306 | 已失效的语义结论不驱动新复核 |
+| test_vision_candidates.py::test_works_without_a_configured_model | TSB-306/A01 | 规则候选不需要模型 |
+| test_vision_motion.py::test_sample_times_are_inside_the_interval | TSB-307 | 采样点严格落在有效区间内，不取到相邻镜头 |
+| test_vision_motion.py::test_sampled_timestamps_lie_inside_the_valid_interval | TSB-307/C2 | 真实抽帧的时间戳同样受区间约束 |
+| test_vision_motion.py::test_invented_timestamps_are_dropped | TSB-307 | 模型编造的证据时间戳不被采信 |
+| test_vision_motion.py::test_unknown_motion_always_requests_human_review | TSB-307/A11 | unknown 不留成看似确定的空白 |
+| test_vision_motion.py::test_prompt_states_it_is_not_video / test_prompt_forbids_audio_claims | TSB-307 | 提示词声明非视频、不得评论音频 |
+| test_vision_motion.py::test_source_longer_than_reported_duration_cannot_seek_past_the_end | TSB-307 | 过期时长不会让采样越过文件末尾 |
+| test_vision_motion.py::test_short_interval_that_cannot_yield_two_frames_is_a_visible_failure | TSB-307/C6 | 抽不到两帧是可见失败，不算成功 |
+| test_vision_motion.py::test_frames_are_removed_after_the_job | TSB-307/C7 | 只清理本次任务自己的暂存帧 |
+| test_vision_motion.py::test_human_verdict_is_stored_and_survives_a_rerun | TSB-307/C4 | 模型可重跑，人工判定不被抹掉 |
+| test_vision_motion.py::test_audio_is_never_claimed_to_be_analyzed | TSB-307 | 音频未分析必须写明 |
+| VisionPanel.test.tsx（11 项，含 motion 4 项） | TSB-305/307 | 无模型提示、mode=off 拒传、同意门禁、上传预估、来源标注、部分失败、多帧非视频标注、人工判定替换按钮 |
+
+手工门禁 **TSB-308 的真机部分**：本轮在 Windows 上用 6 段 DJI 4K HEVC 跑通
+M5 全链路（见 `docs/validation/v2.1-m5/`），但**未覆盖竖屏/无音轨/HDR**，
+段数也少于 8～10 段要求，因此真实素材发布门禁仍然未完成。
+原生视频理解、音频语义、60+ 段/200GB 性能均未测。
