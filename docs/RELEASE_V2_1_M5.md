@@ -156,7 +156,7 @@ PARSED JSON keys: ['scene', 'subjects', 'camera_motion', 'limitations']
 | 检查 | 命令 | 结果 |
 | --- | --- | --- |
 | 后端全量 | `pytest -q` | **659 collected / 0 failed / 0 errors / 1 skipped** |
-| M5 强制媒体模式 | `TSB_REQUIRE_FFMPEG=1 pytest <5 个视觉套件> test_ci_skip_guard.py` | **144 passed**，无误判 skip |
+| M5 强制媒体模式 | `TSB_REQUIRE_FFMPEG=1 pytest <5 个视觉套件> test_ci_skip_guard.py` | **147 passed / 0 skipped**，无误判 skip |
 | 前端 typecheck | `tsc --noEmit` | 通过 |
 | 前端 lint | `eslint .` | 通过 |
 | 前端 test | `vitest run` | **33 passed** |
