@@ -1,0 +1,21 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_release_version_has_one_authority_and_api_agrees _____________
+
+client = <starlette.testclient.TestClient object at 0x103001f10>
+
+    def test_release_version_has_one_authority_and_api_agrees(client):
+        from app import __version__
+        from app.config import APP_VERSION, ANALYSIS_VERSION, get_settings
+        target = (ROOT/'VERSION').read_text().strip()
+>       assert target == __version__ == APP_VERSION == '2.1.2'
+E       AssertionError: assert '2.1.2' == '2.1.0'
+E
+E         - 2.1.0
+E         ?     ^
+E         + 2.1.2
+E         ?     ^
+
+backend/tests/test_release_version.py:14: AssertionError
+=========================== short test summary info ============================
+FAILED backend/tests/test_release_version.py::test_release_version_has_one_authority_and_api_agrees

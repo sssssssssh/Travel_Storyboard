@@ -1,0 +1,76 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+____________ test_release_version_has_one_authority_and_api_agrees _____________
+
+client = <starlette.testclient.TestClient object at 0x12193ffe0>
+
+    def test_release_version_has_one_authority_and_api_agrees(client):
+        from app import __version__
+        from app.config import APP_VERSION, ANALYSIS_VERSION, get_settings
+>       target = (ROOT/'VERSION').read_text().strip()
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+backend/tests/test_release_version.py:13:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+../../../.cache/codex-runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = PosixPath('<repo>/VERSION')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '<repo>/VERSION'
+
+../../../.cache/codex-runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/pathlib.py:1013: FileNotFoundError
+_________ test_checked_generation_and_launchers_cannot_silently_drift __________
+
+    def test_checked_generation_and_launchers_cannot_silently_drift():
+        result = subprocess.run([sys.executable,str(ROOT/'scripts/sync_version.py'),'--check'],capture_output=True,text=True)
+>       assert result.returncode == 0, result.stdout+result.stderr
+E       AssertionError: <repo>/.venv/bin/python: can't open file '<repo>/scripts/sync_version.py': [Errno 2] No such file or directory
+E
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['<repo>/.venv/bin/python', '<user-home>/Downloads/pr...ile '<repo>/scripts/sync_version.py': [Errno 2] No such file or directory\n").returncode
+
+backend/tests/test_release_version.py:24: AssertionError
+____________ test_package_drift_is_rejected_without_modifying_files ____________
+
+tmp_path = PosixPath('<temporary-path>')
+
+    def test_package_drift_is_rejected_without_modifying_files(tmp_path):
+        import importlib.util
+        path=ROOT/'scripts/sync_version.py'
+        spec=importlib.util.spec_from_file_location('version_sync',path)
+>       module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+backend/tests/test_release_version.py:34:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+<frozen importlib._bootstrap_external>:995: in exec_module
+    ???
+<frozen importlib._bootstrap_external>:1132: in get_code
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <_frozen_importlib_external.SourceFileLoader object at 0x136a96600>
+path = '<repo>/scripts/sync_version.py'
+
+>   ???
+E   FileNotFoundError: [Errno 2] No such file or directory: '<repo>/scripts/sync_version.py'
+
+<frozen importlib._bootstrap_external>:1190: FileNotFoundError
+=========================== short test summary info ============================
+FAILED backend/tests/test_release_version.py::test_release_version_has_one_authority_and_api_agrees
+FAILED backend/tests/test_release_version.py::test_checked_generation_and_launchers_cannot_silently_drift
+FAILED backend/tests/test_release_version.py::test_package_drift_is_rejected_without_modifying_files

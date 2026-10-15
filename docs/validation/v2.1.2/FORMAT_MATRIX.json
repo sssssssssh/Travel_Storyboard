@@ -1,0 +1,442 @@
+{
+  "layer": "L1 synthetic compatibility; never real travel footage",
+  "cases": [
+    {
+      "case_id": "M322-01",
+      "variant": "h264_mp4",
+      "original_or_synthetic": "synthetic",
+      "codec": "h264",
+      "container": "mov,mp4,m4a,3gp,3g2,mj2",
+      "dimensions": [
+        96,
+        64
+      ],
+      "audio": true,
+      "transfer": "unknown",
+      "pixel_format": "yuv420p",
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "scan": "passed",
+      "detect": "passed",
+      "frames": "readable; display aspect checked",
+      "proxy": "readable; aspect/duration checked",
+      "export": "JSON/CSV/OTIO + real 1280x720 roughcut with original aspect/padding and AAC/silence",
+      "result": "passed",
+      "error_code": "",
+      "source_sha256_before_after": {
+        "before": "508cf941526ba6a9d432bb229c67602f061d67b5948359c870d93421f06e19be",
+        "after": "508cf941526ba6a9d432bb229c67602f061d67b5948359c870d93421f06e19be"
+      },
+      "source_mtime_size_unchanged": true,
+      "limits": []
+    },
+    {
+      "case_id": "M322-02",
+      "variant": "hevc_mp4",
+      "original_or_synthetic": "synthetic",
+      "codec": "hevc",
+      "container": "mov,mp4,m4a,3gp,3g2,mj2",
+      "dimensions": [
+        96,
+        64
+      ],
+      "audio": true,
+      "transfer": "unknown",
+      "pixel_format": "yuv420p",
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "scan": "passed",
+      "detect": "passed",
+      "frames": "readable; display aspect checked",
+      "proxy": "readable; aspect/duration checked",
+      "export": "JSON/CSV/OTIO + real 1280x720 roughcut with original aspect/padding and AAC/silence",
+      "result": "passed",
+      "error_code": "",
+      "source_sha256_before_after": {
+        "before": "a397546edfc107e51a7ed8af7bb95c5990099e5de33c022a9425ded81b9de427",
+        "after": "a397546edfc107e51a7ed8af7bb95c5990099e5de33c022a9425ded81b9de427"
+      },
+      "source_mtime_size_unchanged": true,
+      "limits": []
+    },
+    {
+      "case_id": "M322-03",
+      "variant": "h264_mov",
+      "original_or_synthetic": "synthetic",
+      "codec": "h264",
+      "container": "mov,mp4,m4a,3gp,3g2,mj2",
+      "dimensions": [
+        96,
+        64
+      ],
+      "audio": true,
+      "transfer": "unknown",
+      "pixel_format": "yuv420p",
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "scan": "passed",
+      "detect": "passed",
+      "frames": "readable; display aspect checked",
+      "proxy": "readable; aspect/duration checked",
+      "export": "JSON/CSV/OTIO + real 1280x720 roughcut with original aspect/padding and AAC/silence",
+      "result": "passed",
+      "error_code": "",
+      "source_sha256_before_after": {
+        "before": "5a6d349f21ceb563e1d47bab558ec4de00cddbde7aba399d28cbb1ab529ef135",
+        "after": "5a6d349f21ceb563e1d47bab558ec4de00cddbde7aba399d28cbb1ab529ef135"
+      },
+      "source_mtime_size_unchanged": true,
+      "limits": []
+    },
+    {
+      "case_id": "M322-04",
+      "variant": "portrait",
+      "original_or_synthetic": "synthetic",
+      "codec": "h264",
+      "container": "mov,mp4,m4a,3gp,3g2,mj2",
+      "dimensions": [
+        72,
+        128
+      ],
+      "audio": true,
+      "transfer": "unknown",
+      "pixel_format": "yuv420p",
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "scan": "passed",
+      "detect": "passed",
+      "frames": "readable; display aspect checked",
+      "proxy": "readable; aspect/duration checked",
+      "export": "JSON/CSV/OTIO + real 1280x720 roughcut with original aspect/padding and AAC/silence",
+      "result": "passed",
+      "error_code": "",
+      "source_sha256_before_after": {
+        "before": "b40abdd49e0d10439dd20c98041c8016fd20a8f8848be16652651d97c3168363",
+        "after": "b40abdd49e0d10439dd20c98041c8016fd20a8f8848be16652651d97c3168363"
+      },
+      "source_mtime_size_unchanged": true,
+      "limits": []
+    },
+    {
+      "case_id": "M322-05",
+      "variant": "silent",
+      "original_or_synthetic": "synthetic",
+      "codec": "h264",
+      "container": "mov,mp4,m4a,3gp,3g2,mj2",
+      "dimensions": [
+        96,
+        64
+      ],
+      "audio": false,
+      "transfer": "unknown",
+      "pixel_format": "yuv420p",
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "scan": "passed",
+      "detect": "passed",
+      "frames": "readable; display aspect checked",
+      "proxy": "readable; aspect/duration checked",
+      "export": "JSON/CSV/OTIO + real 1280x720 roughcut with original aspect/padding and AAC/silence",
+      "result": "passed",
+      "error_code": "",
+      "source_sha256_before_after": {
+        "before": "aa3be2793fa881a0acc4f5bb35558f1cf8753724aac567d18b73e8d127a72f4b",
+        "after": "aa3be2793fa881a0acc4f5bb35558f1cf8753724aac567d18b73e8d127a72f4b"
+      },
+      "source_mtime_size_unchanged": true,
+      "limits": []
+    },
+    {
+      "case_id": "M322-06-PQ",
+      "variant": "pq_10bit",
+      "original_or_synthetic": "synthetic",
+      "codec": "hevc",
+      "container": "mov,mp4,m4a,3gp,3g2,mj2",
+      "dimensions": [
+        96,
+        64
+      ],
+      "audio": false,
+      "transfer": "smpte2084",
+      "pixel_format": "yuv420p10le",
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "scan": "passed",
+      "detect": "passed",
+      "frames": "readable; display aspect checked",
+      "proxy": "readable; aspect/duration checked",
+      "export": "JSON/CSV/OTIO + real 1280x720 roughcut with original aspect/padding and AAC/silence",
+      "result": "compatible_with_color_management_limit",
+      "error_code": "",
+      "source_sha256_before_after": {
+        "before": "6aa22881c7928676c7552971405b29660944c3bb63b6358f12368459874735de",
+        "after": "6aa22881c7928676c7552971405b29660944c3bb63b6358f12368459874735de"
+      },
+      "source_mtime_size_unchanged": true,
+      "limits": [
+        "HDR preview color accuracy/tone mapping not established"
+      ]
+    },
+    {
+      "case_id": "M322-06-HLG",
+      "variant": "hlg_10bit",
+      "original_or_synthetic": "synthetic",
+      "codec": "hevc",
+      "container": "mov,mp4,m4a,3gp,3g2,mj2",
+      "dimensions": [
+        96,
+        64
+      ],
+      "audio": false,
+      "transfer": "arib-std-b67",
+      "pixel_format": "yuv420p10le",
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "scan": "passed",
+      "detect": "passed",
+      "frames": "readable; display aspect checked",
+      "proxy": "readable; aspect/duration checked",
+      "export": "JSON/CSV/OTIO + real 1280x720 roughcut with original aspect/padding and AAC/silence",
+      "result": "compatible_with_color_management_limit",
+      "error_code": "",
+      "source_sha256_before_after": {
+        "before": "02d4bf2f44cf9eb92fc06ad0a687a295d34e7b6069f61532114b7d4a934a7006",
+        "after": "02d4bf2f44cf9eb92fc06ad0a687a295d34e7b6069f61532114b7d4a934a7006"
+      },
+      "source_mtime_size_unchanged": true,
+      "limits": [
+        "HDR preview color accuracy/tone mapping not established"
+      ]
+    },
+    {
+      "case_id": "M322-07-CFR",
+      "variant": "fps60",
+      "original_or_synthetic": "synthetic",
+      "codec": "h264",
+      "container": "mov,mp4,m4a,3gp,3g2,mj2",
+      "dimensions": [
+        96,
+        64
+      ],
+      "audio": true,
+      "transfer": "unknown",
+      "pixel_format": "yuv420p",
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "scan": "passed",
+      "detect": "passed",
+      "frames": "readable; display aspect checked",
+      "proxy": "readable; aspect/duration checked",
+      "export": "JSON/CSV/OTIO + real 1280x720 roughcut with original aspect/padding and AAC/silence",
+      "result": "passed",
+      "error_code": "",
+      "source_sha256_before_after": {
+        "before": "24a6bda9b7bf15a3e751c719afa82b9196de2c52af68e221bd8dffcd140358f2",
+        "after": "24a6bda9b7bf15a3e751c719afa82b9196de2c52af68e221bd8dffcd140358f2"
+      },
+      "source_mtime_size_unchanged": true,
+      "limits": []
+    },
+    {
+      "case_id": "M322-07-VFR",
+      "variant": "vfr",
+      "original_or_synthetic": "synthetic",
+      "codec": "h264",
+      "container": "mov,mp4,m4a,3gp,3g2,mj2",
+      "dimensions": [
+        96,
+        64
+      ],
+      "audio": true,
+      "transfer": "unknown",
+      "pixel_format": "yuv420p",
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "scan": "passed",
+      "detect": "passed",
+      "frames": "readable; display aspect checked",
+      "proxy": "readable; aspect/duration checked",
+      "export": "JSON/CSV/OTIO + real 1280x720 roughcut with original aspect/padding and AAC/silence",
+      "result": "passed",
+      "error_code": "",
+      "source_sha256_before_after": {
+        "before": "f667962dc249bda7af15c5047be4c2d4c46f244d0a335b8eddbe0fbe0612187b",
+        "after": "f667962dc249bda7af15c5047be4c2d4c46f244d0a335b8eddbe0fbe0612187b"
+      },
+      "source_mtime_size_unchanged": true,
+      "limits": []
+    },
+    {
+      "case_id": "M322-04-ROT",
+      "variant": "rotation",
+      "original_or_synthetic": "synthetic",
+      "codec": "h264",
+      "container": "mov,mp4,m4a,3gp,3g2,mj2",
+      "dimensions": [
+        128,
+        72
+      ],
+      "audio": true,
+      "transfer": "unknown",
+      "pixel_format": "yuv420p",
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "scan": "passed",
+      "detect": "passed",
+      "frames": "readable; display aspect checked",
+      "proxy": "readable; aspect/duration checked",
+      "export": "JSON/CSV/OTIO + real 1280x720 roughcut with original aspect/padding and AAC/silence",
+      "result": "passed",
+      "error_code": "",
+      "source_sha256_before_after": {
+        "before": "428367dead71fb973e51735c9f9f749883a6dba1853e5c777afe0d97922cad0a",
+        "after": "428367dead71fb973e51735c9f9f749883a6dba1853e5c777afe0d97922cad0a"
+      },
+      "source_mtime_size_unchanged": true,
+      "limits": []
+    },
+    {
+      "case_id": "M322-08-corrupt",
+      "original_or_synthetic": "synthetic",
+      "scan": "visible failure",
+      "result": "expected_failure",
+      "error_code": "COMMAND_FAILED",
+      "source_sha256_before_after": {
+        "before": "bfbfa1fbba3dfa05c14c745202b1378bd682d456a57bc40ae8d6e2a85a291c52",
+        "after": "bfbfa1fbba3dfa05c14c745202b1378bd682d456a57bc40ae8d6e2a85a291c52"
+      },
+      "source_mtime_size_unchanged": true,
+      "codec": null,
+      "container": null,
+      "dimensions": null,
+      "audio": null,
+      "transfer": null,
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "detect": "not_applicable_to_expected_failure",
+      "frames": "not_applicable_to_expected_failure",
+      "proxy": "not_applicable_to_expected_failure",
+      "export": "not_applicable_to_expected_failure"
+    },
+    {
+      "case_id": "M322-08-empty",
+      "original_or_synthetic": "synthetic",
+      "scan": "visible failure",
+      "result": "expected_failure",
+      "error_code": "COMMAND_FAILED",
+      "source_sha256_before_after": {
+        "before": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "source_mtime_size_unchanged": true,
+      "codec": null,
+      "container": null,
+      "dimensions": null,
+      "audio": null,
+      "transfer": null,
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "detect": "not_applicable_to_expected_failure",
+      "frames": "not_applicable_to_expected_failure",
+      "proxy": "not_applicable_to_expected_failure",
+      "export": "not_applicable_to_expected_failure"
+    },
+    {
+      "case_id": "M322-08-zero_duration",
+      "original_or_synthetic": "synthetic",
+      "scan": "visible failure",
+      "result": "expected_failure",
+      "error_code": "probe_failed",
+      "source_sha256_before_after": {
+        "before": "e203447741f8a1cf22e735f1eef156b82b9c7466c46d8b7a4ea7fc98b1697077",
+        "after": "e203447741f8a1cf22e735f1eef156b82b9c7466c46d8b7a4ea7fc98b1697077"
+      },
+      "source_mtime_size_unchanged": true,
+      "codec": null,
+      "container": null,
+      "dimensions": null,
+      "audio": null,
+      "transfer": null,
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "detect": "not_applicable_to_expected_failure",
+      "frames": "not_applicable_to_expected_failure",
+      "proxy": "not_applicable_to_expected_failure",
+      "export": "not_applicable_to_expected_failure"
+    },
+    {
+      "case_id": "M322-08-missing",
+      "original_or_synthetic": "synthetic",
+      "scan": "passed",
+      "detect": "visible failure",
+      "result": "expected_failure",
+      "failure_codes": [
+        "source_unavailable"
+      ],
+      "source_sha256_before_after": "deliberately removed owned synthetic fixture after scan; no user footage involved",
+      "codec": null,
+      "container": null,
+      "dimensions": null,
+      "audio": null,
+      "transfer": null,
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "frames": "not_applicable_to_expected_failure",
+      "proxy": "not_applicable_to_expected_failure",
+      "export": "not_applicable_to_expected_failure",
+      "error_code": "source_unavailable"
+    },
+    {
+      "case_id": "M322-10",
+      "original_or_synthetic": "synthetic",
+      "scan": "4 valid / 1 visible failure",
+      "detect": "4 valid assets",
+      "frames": "readable",
+      "result": "passed",
+      "source_sha256_before_after": {
+        "h264_mp4.mp4": "508cf941526ba6a9d432bb229c67602f061d67b5948359c870d93421f06e19be",
+        "hevc_mp4.mp4": "a397546edfc107e51a7ed8af7bb95c5990099e5de33c022a9425ded81b9de427",
+        "h264_mov.mov": "5a6d349f21ceb563e1d47bab558ec4de00cddbde7aba399d28cbb1ab529ef135",
+        "portrait.mp4": "b40abdd49e0d10439dd20c98041c8016fd20a8f8848be16652651d97c3168363"
+      },
+      "codec": [
+        "h264",
+        "hevc"
+      ],
+      "container": [
+        "MP4",
+        "MOV"
+      ],
+      "dimensions": [
+        [
+          96,
+          64
+        ],
+        [
+          72,
+          128
+        ]
+      ],
+      "audio": true,
+      "transfer": "unspecified SDR",
+      "ffmpeg_version": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "proxy": "not_applicable_to_expected_failure",
+      "export": "not_applicable_to_expected_failure",
+      "error_code": "not_applicable_to_expected_failure"
+    },
+    {
+      "case_id": "M322-09",
+      "original_or_synthetic": "synthetic",
+      "result": "Windows CI gate; not run on macOS",
+      "reference": "test_deep_media_http.py / test_deep_path_cleanup.py / test_deep_scan_api.py / test_vision_staging_ownership.py real deep Unicode motion",
+      "codec": "see mandatory real-media CI fixtures",
+      "container": "MP4",
+      "dimensions": "see fixture",
+      "audio": "fixture dependent",
+      "transfer": "SDR",
+      "ffmpeg_version": "recorded by media CI",
+      "scan": "mandatory Windows suite",
+      "detect": "mandatory Windows suite",
+      "frames": "mandatory Windows suite",
+      "proxy": "mandatory Windows suite",
+      "export": "mandatory Windows suite",
+      "error_code": null,
+      "source_sha256_before_after": "asserted in mandatory tests",
+      "LongPathsEnabled": 0
+    }
+  ],
+  "real_footage_L2": {
+    "distinct_files_available": 6,
+    "extra_real_files_provided": 0,
+    "status": "incomplete",
+    "types": "HEVC MP4 3840x2160 landscape/audio/bt709 only"
+  },
+  "hdr_color_management": "PQ/HLG input transfer/primaries/10-bit verified; decoded previews readable. No claim of accurate HDR display or tone mapping.",
+  "tool_version_source": "real FFmpeg/FFprobe on each test host; per-case version in JUnit/CI"
+}

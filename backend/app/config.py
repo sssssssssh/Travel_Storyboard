@@ -6,6 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from . import __version__
 
 # Bump when the indexing / detection algorithm changes in a way that
 # invalidates previously stored analysis results.
@@ -13,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # job creation and proxy acceptance — the detection algorithm is unchanged, so
 # existing analysis stays valid and is not re-run.
 ANALYSIS_VERSION = "2.0.2"
-APP_VERSION = "2.1.0"
+APP_VERSION = __version__
 
 # File extensions treated as source video.
 VIDEO_EXTENSIONS = {

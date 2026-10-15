@@ -8,6 +8,7 @@ import Review from './pages/Review'
 import AIDirector from './pages/AIDirector'
 import Export from './pages/Export'
 import Settings from './pages/Settings'
+import { version } from '../package.json'
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
   `block rounded-md px-3 py-2 text-sm transition-colors ${
@@ -30,7 +31,7 @@ function Shell() {
             设置
           </NavLink>
         </nav>
-        <div className="mt-auto px-4 py-4 text-xs text-slate-600">v2.0.7 · 本地运行</div>
+        <div className="mt-auto px-4 py-4 text-xs text-slate-600">v{version} · 本地运行</div>
       </aside>
       <main className="flex-1 overflow-auto">
         <Routes>

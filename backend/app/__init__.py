@@ -1,3 +1,5 @@
 """Travel Storyboard backend package."""
 
-__version__ = "2.1.0"
+from pathlib import Path
+
+__version__ = (Path(__file__).resolve().parents[2] / "VERSION").read_text(encoding="utf-8").strip()

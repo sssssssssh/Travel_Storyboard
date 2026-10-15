@@ -1,4 +1,4 @@
-# Travel Storyboard v2.0 — one-click launcher (Windows PowerShell)
+# Travel Storyboard — one-click launcher (Windows PowerShell)
 #
 #   .\scripts\start.ps1                 # install if needed, build UI, then run
 #   .\scripts\start.ps1 -SkipFrontend   # backend only (use `pnpm dev` for the UI)
@@ -44,7 +44,8 @@ function Resolve-Python {
     return $null
 }
 
-Write-Host "Travel Storyboard v2.0" -ForegroundColor White
+$releaseVersion = (Get-Content -Raw (Join-Path $repoRoot "VERSION")).Trim()
+Write-Host "Travel Storyboard v$releaseVersion" -ForegroundColor White
 Write-Host "Repository: $repoRoot"
 
 # ---------------------------------------------------------------- prerequisites
@@ -54,6 +55,8 @@ $python = Resolve-Python
 if (-not $python) {
     throw "Python 3.11+ not found. Install it from https://www.python.org/downloads/ (tick 'Add to PATH')."
 }
+& $python.Exe (Join-Path $repoRoot "scripts\sync_version.py") --check
+if ($LASTEXITCODE -ne 0) { throw "Release version metadata mismatch" }
 Write-Ok "Python $($python.Version) at $($python.Exe)"
 
 # FFmpeg: on PATH or via backend\.env (TRAVELSB_FFMPEG_PATH / TRAVELSB_FFPROBE_PATH)

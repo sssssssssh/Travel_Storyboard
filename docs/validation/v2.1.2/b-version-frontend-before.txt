@@ -1,0 +1,151 @@
+
+> travel-storyboard-frontend@2.1.0 test
+> vitest run --run src/App.test.tsx
+
+
+ RUN  v2.1.9 <repo>/frontend
+
+stderr | src/App.test.tsx > application shell displays the release version built from package metadata
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ❯ src/App.test.tsx (1 test | 1 failed) 26ms
+   × application shell displays the release version built from package metadata 25ms
+     → Unable to find an element with the text: v2.1.2 · 本地运行. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex h-screen overflow-hidden"[39m
+    [36m>[39m
+      [36m<aside[39m
+        [33mclass[39m=[32m"flex w-52 shrink-0 flex-col border-r border-ink-800 bg-ink-900"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"px-4 py-5"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"text-lg font-semibold text-white"[39m
+          [36m>[39m
+            [0mTravel Storyboard[0m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"text-xs text-slate-500"[39m
+          [36m>[39m
+            [0mAI 旅行影片导演助手[0m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<nav[39m
+          [33mclass[39m=[32m"flex flex-col gap-1 px-2"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33maria-current[39m=[32m"page"[39m
+            [33mclass[39m=[32m"block rounded-md px-3 py-2 text-sm transition-colors bg-ink-700 text-white"[39m
+            [33mhref[39m=[32m"#/"[39m
+          [36m>[39m
+            [0m项目[0m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mclass[39m=[32m"block rounded-md px-3 py-2 text-sm transition-colors text-slate-400 hover:bg-ink-800 hover:text-slate-200"[39m
+            [33mhref[39m=[32m"#/settings"[39m
+          [36m>[39m
+            [0m设置[0m
+          [36m</a>[39m
+        [36m</nav>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mt-auto px-4 py-4 text-xs text-slate-600"[39m
+        [36m>[39m
+          [0mv2.0.7 · 本地运行[0m
+        [36m</div>[39m
+      [36m</aside>[39m
+      [36m<main[39m
+        [33mclass[39m=[32m"flex-1 overflow-auto"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [0mhome[0m
+        [36m</div>[39m
+      [36m</main>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/App.test.tsx > application shell displays the release version built from package metadata
+TestingLibraryElementError: Unable to find an element with the text: v2.1.2 · 本地运行. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex h-screen overflow-hidden"[39m
+    [36m>[39m
+      [36m<aside[39m
+        [33mclass[39m=[32m"flex w-52 shrink-0 flex-col border-r border-ink-800 bg-ink-900"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"px-4 py-5"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"text-lg font-semibold text-white"[39m
+          [36m>[39m
+            [0mTravel Storyboard[0m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"text-xs text-slate-500"[39m
+          [36m>[39m
+            [0mAI 旅行影片导演助手[0m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<nav[39m
+          [33mclass[39m=[32m"flex flex-col gap-1 px-2"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33maria-current[39m=[32m"page"[39m
+            [33mclass[39m=[32m"block rounded-md px-3 py-2 text-sm transition-colors bg-ink-700 text-white"[39m
+            [33mhref[39m=[32m"#/"[39m
+          [36m>[39m
+            [0m项目[0m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mclass[39m=[32m"block rounded-md px-3 py-2 text-sm transition-colors text-slate-400 hover:bg-ink-800 hover:text-slate-200"[39m
+            [33mhref[39m=[32m"#/settings"[39m
+          [36m>[39m
+            [0m设置[0m
+          [36m</a>[39m
+        [36m</nav>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mt-auto px-4 py-4 text-xs text-slate-600"[39m
+        [36m>[39m
+          [0mv2.0.7 · 本地运行[0m
+        [36m</div>[39m
+      [36m</aside>[39m
+      [36m<main[39m
+        [33mclass[39m=[32m"flex-1 overflow-auto"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [0mhome[0m
+        [36m</div>[39m
+      [36m</main>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/App.test.tsx:13:17
+     11| test('application shell displays the release version built from packag…
+     12|   render(<App />)
+     13|   expect(screen.getByText('v2.1.2 · 本地运行')).toBeTruthy()
+       |                 ^
+     14| })
+     15|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  23:37:24
+   Duration  1.18s (transform 123ms, setup 0ms, collect 259ms, tests 26ms, environment 423ms, prepare 58ms)

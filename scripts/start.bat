@@ -1,5 +1,5 @@
 @echo off
-REM Travel Storyboard v2.0 — double-click launcher for Windows.
+REM Travel Storyboard — double-click launcher for Windows.
 REM Runs scripts\start.ps1 with a permissive execution policy so no manual
 REM PowerShell configuration is needed.
 setlocal

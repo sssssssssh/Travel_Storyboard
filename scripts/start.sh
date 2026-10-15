@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Travel Storyboard v2.0 — one-click launcher (macOS / Linux)
+# Travel Storyboard — one-click launcher (macOS / Linux)
 #
 #   ./scripts/start.sh                  # install if needed, build UI, then run
 #   ./scripts/start.sh --skip-frontend  # backend only
@@ -17,12 +17,14 @@ PORT="${PORT:-8737}"
 BIND_HOST="${BIND_HOST:-127.0.0.1}"
 SKIP_INSTALL=0
 SKIP_FRONTEND=0
+RELEASE_VERSION="$(tr -d '\r\n' < "$REPO_ROOT/VERSION")"
 
 for arg in "$@"; do
   case "$arg" in
     --skip-install)  SKIP_INSTALL=1 ;;
     --skip-frontend) SKIP_FRONTEND=1 ;;
     -h|--help)
+      echo "Travel Storyboard v$RELEASE_VERSION"
       sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
@@ -33,7 +35,7 @@ step() { printf '\n==> %s\n' "$1"; }
 ok()   { printf '    %s\n' "$1"; }
 warn() { printf '    %s\n' "$1" >&2; }
 
-echo "Travel Storyboard v2.0"
+echo "Travel Storyboard v$RELEASE_VERSION"
 echo "Repository: $REPO_ROOT"
 
 # ------------------------------------------------------------- prerequisites
@@ -54,6 +56,7 @@ if [ -z "$PY" ]; then
   exit 1
 fi
 ok "Python $("$PY" -c 'import sys; print(".".join(map(str, sys.version_info[:3])))') ($PY)"
+"$PY" "$REPO_ROOT/scripts/sync_version.py" --check
 
 if command -v ffmpeg >/dev/null 2>&1; then
   ok "ffmpeg found on PATH: $(command -v ffmpeg)"

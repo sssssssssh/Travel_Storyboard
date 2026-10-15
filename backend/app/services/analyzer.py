@@ -629,5 +629,5 @@ def detect_task(job_id: str) -> None:
         except Exception as exc:
             logger.exception('Analyze failed for asset %s', aid)
             fail_item(item, exc, token)
-            failures.record(kind='asset', ref=aid, message=str(exc))
+            failures.record(kind='asset', ref=aid, message=str(exc), error_code=item['error_code'])
         persist(job_id, items, token)

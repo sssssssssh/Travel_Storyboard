@@ -1,0 +1,14 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_matrix_is_explicitly_forced_in_the_media_job _______________
+
+    def test_matrix_is_explicitly_forced_in_the_media_job():
+        workflow=Path(__file__).resolve().parents[2]/'.github/workflows/ci.yml'
+>       assert 'tests/test_media_format_matrix.py' in workflow.read_text()
+E       AssertionError: assert 'tests/test_media_format_matrix.py' in 'name: CI\n\non:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n  workflow_dispatch:\n\nconcur...n        run: pnpm run test\n\n      - name: Build\n        working-directory: frontend\n        run: pnpm run build\n'
+E        +  where 'name: CI\n\non:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n  workflow_dispatch:\n\nconcur...n        run: pnpm run test\n\n      - name: Build\n        working-directory: frontend\n        run: pnpm run build\n' = read_text()
+E        +    where read_text = PosixPath('<repo>/.github/workflows/ci.yml').read_text
+
+backend/tests/test_media_format_matrix.py:190: AssertionError
+=========================== short test summary info ============================
+FAILED backend/tests/test_media_format_matrix.py::test_matrix_is_explicitly_forced_in_the_media_job

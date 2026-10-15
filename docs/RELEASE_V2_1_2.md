@@ -22,3 +22,28 @@ Windows 专属跳过逐项见 validation/v2.1.2/A_LOCAL.json；JUnit 及原始�
 范围：不删除/改写原片、旧数据库/模型结果/人工字段/历史代理/粗剪；只在隔离测试数据库与暂存中注入故障。未放宽 skip 守卫、所有权/链接/重启未知目录边界，未重做 TSB-311～317，未开发 M6 或原生视频/音频模型。
 
 尚未完成：B/C 批待执行；真实素材仍只有 6 段同类型 HEVC MP4，用户确认暂无额外素材，缺少 8～10 段及 H.264/MOV/竖屏/无音轨/HDR 实片。完整浏览器及真人工验收、真实导出/播放和最终 HEAD CI 另行记录，不以本批组件/合成测试替代。阶段性结论：代码级整改通过，正式发布门禁未完成。
+
+## A 同 SHA CI
+
+`30c3635ed0041cfd32a6938e94860343d8bac915`，Run [38761580532](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38761580532)，7/7 success。Windows 常规两 Python 作业各 collected/passed 786，0 skipped；Ubuntu 常规各 collected 786 / passed 742 / skipped 44；强制媒体各 collected 723，Windows 723 passed / 0 skipped，Ubuntu 679 passed / 44 skipped；前端 43 passed。逐 Job/平台记录见 `validation/v2.1.2/A_CI.json`。
+
+## B / TSB-321、TSB-322
+
+TSB-321 问题 → 修复：应用/API/配置为 2.1.0、前端页脚为 2.0.7、启动器/README 仍写 2.0，和整改文档版本混淆。以根 VERSION=2.1.2 为权威，后端 __version__/APP_VERSION/API/发布包读取同值；前端 package.json 使用 scripts/sync_version.py 同步，Vite、启动器与 CI 均拒绝元信息漂移。UI 页脚读取生成的 package 元信息，启动提示/帮助同步；历史 v2.1.1 文档批次不改写成历史应用版本。ANALYSIS_VERSION=2.0.2、Prompt/schema 和已保存缓存键保持不变。
+
+版本红绿证据：初始后端 3 项因缺权威源/检查流程失败，前端实际页脚测试失败；新增当前 README 检查也先失败，再修改。补充构建分析包 manifest 的实际版本和算法/模型缓存键不受产品版本影响的检查，共 5 个后端版本用例通过。反向将配置恢复为独立旧版本，测试失败，已恢复。
+
+TSB-322：新增 16 个强制媒体用例，以真实正式 API → Runner → FFmpeg 完成扫描、检测/抽帧、代理、JSON/CSV/OTIO、1280×720 粗剪、时长/音轨/方向核验、强制检测稳定 ID 和原合成源 SHA/mtime/大小核对。覆盖 H.264、HEVC、MOV、9:16、真实 Display Matrix 旋转、无音轨、60fps、按帧时间戳验证的 VFR、10-bit BT.2020 PQ/HLG、损坏/空/零时长/缺失和混合项目。PQ/HLG 为按标准传递函数编码的灰阶测试信号，逐项核验编码器 VUI，不是 SDR 仅改标签。
+
+媒体夹具最初对粗剪不可变文件名、done 统计含义及编码器元数据存在错误假设，校准这些测试后才形成有效兼容证据；不把夹具错误称作产品缺陷。有效 L1 编解码兼容路径通过，HDR 预览可读但未实现/未验收完整色彩管理，不声明色彩准确或以合成代替实片。
+
+发现并修复的实际接线问题：缺失源的 checkpoint 已有 source_unavailable，但 detect JobFailures 没传 error_code，API 明细丢失结构化分类。新测试先复现 None，再接入已有 item.error_code；未改变分类字典或隐藏失败。反向断开该参数再次失败。另先测试媒体清单未登记即失败，再登记，并反向移除证明守卫有效。
+
+| B 本地检查 | 结果 |
+|---|---|
+| macOS arm64 / Python 3.12.14，TSB_REQUIRE_FFMPEG=1 | collected 828 / passed 784 / skipped 44 / failed 0 / errors 0 |
+| 前端 typecheck/lint/test/build | 全部通过；44 tests passed（npm 等价脚本） |
+
+逐项矩阵见 `validation/v2.1.2/FORMAT_MATRIX.json`，L1/现有 L2 缺口分开；版本/媒体错误码/CI 接线原始红绿与反向证据为 b-*.txt，JUnit 和平台 skip 解释见 B_LOCAL.json。本批同 SHA CI 推送后核对。
+
+范围：不变更原片、正式 SQLite、人工状态、检测算法/边界或模型授权/TLS/清理安全边界；兼容测试仅生成小型隔离文件。没有新增版权来源不明的旅行视频、没有复制同一实片充数、没有开发 M6/音频/原生视频模型。C 批浏览器/真人工 UI 及真实产物验收待执行；8～10 段多类型实片和 HDR 色彩准确性、200GB 性能仍未完成。

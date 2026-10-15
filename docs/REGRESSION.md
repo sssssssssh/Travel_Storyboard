@@ -643,3 +643,13 @@ M5 全链路（见 `docs/validation/v2.1-m5/`），但**未覆盖竖屏/无音�
 | VisionPanel legacy-success cleanup/retry / CleanupNotice (新增 2) / useJob cancelling (新增 1) | C320-10 / U323-08/09/10 | 不保留纯绿色成功、重试只调 cleanup API、补救可见、未知数诚实、取消持续轮询 |
 
 T23 手动扩展：视觉业务成功但清理失败必须醒目警示；仅安全重试后保留终态、显示补救且模型调用数不增加。真实浏览器/真人工证据待 C 批，不以组件测试代替。
+
+| 用例 | 任务 | 守护行为 |
+|---|---|---|
+| test_release_version (5) / App release-version UI (1) | C321-01～04 | VERSION 权威；API/配置/启动器/前端/README/发布包 2.1.2；漂移拒绝，算法和模型缓存键不因产品版本变化 |
+| test_media_format_matrix::test_format_runs_real_scan_detect_proxy_and_export (10) | M322-01～07 | H.264/HEVC/MOV/竖屏/Display Matrix 旋转/无音轨/PQ/HLG/60fps/VFR，正式 API+Runner 全媒体路径、可读/时长/比例/音轨和原合成文件保全 |
+| ::test_invalid_container_is_visible_without_changing_bytes (3) / test_missing_source_after_scan_is_a_visible_detect_failure | M322-08 | 损坏/空/零时长/缺失可见且稳定错误码；detect API failure 与 checkpoint code 一致 |
+| ::test_mixed_project_retains_good_formats_and_isolates_corruption / test_matrix_is_explicitly_forced_in_the_media_job | M322-10 | 四种有效类型+坏文件隔离；必须登记强制媒体 CI，不允许仅常规 backend |
+| 既有 test_deep_media_http/deep_path_cleanup/deep_scan_api/vision_staging_ownership | M322-09 | Windows 默认长路径策略 + 真媒体 + 任务所有权安全回收；本地 Mac 平台 skip 不能代替 Windows CI |
+
+T01/T04 手动增加：应用/帮助/API/发布包版本一致；旧库启动不因仅产品版本变化全量重新检测。T15/T17/T19 增加混合格式、竖屏/旋转、无音轨静音策略、实际可播放产物与时长核验。HDR 色彩准确性和 L2 额外实片未验收，不能由上述 L1 自动化替代。

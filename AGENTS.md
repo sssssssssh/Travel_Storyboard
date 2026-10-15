@@ -101,7 +101,7 @@ docs(TSB-246): v2.0.4 发布记录、回归清单与实机验收门禁
 | Node / pnpm | 18.19.0（CI 用 20） |
 | `pytest-timeout` | **未安装**，`--timeout=` 参数不可用 |
 | ruff / flake8 | **未安装**，CI 也不跑（无需为 lint 折腾） |
-| 视觉模型 | `backend/.env` 配置 GLM-5.3-Flash（PAI-EAS，OpenAI 兼容）。**明文 `http://`，需 `TRAVELSB_MODEL_ALLOW_INSECURE_HTTP=1`**；图片与令牌在网络上不加密 |
+| 视觉模型 | 历史 Windows 明文接入不作为生产验收。当前 Mac 使用被忽略的 backend/.env 配置 HTTPS，MODEL_MODE 默认 off，明文例外关闭；私有端点及 Key 不得公开 |
 
 > **`.env` 只在从 `backend/` 运行时才会被读取。**
 > `SettingsConfigDict(env_file=".env")` 相对当前工作目录解析，因此从仓库根目录
@@ -135,7 +135,7 @@ $x=[xml](Get-Content tsb.xml); $s=$x.testsuites.testsuite; if(-not $s){$s=$x.tes
 cd frontend
 pnpm run typecheck    # tsc --noEmit
 pnpm run lint         # eslint
-pnpm run test         # vitest run（当前 43 passed）
+pnpm run test         # vitest run（当前 44 passed）
 pnpm run build
 ```
 

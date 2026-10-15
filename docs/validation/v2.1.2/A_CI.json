@@ -1,0 +1,116 @@
+{
+  "commit": "30c3635ed0041cfd32a6938e94860343d8bac915",
+  "run_id": 38761580532,
+  "url": "https://github.com/sssssssssh/Travel_Storyboard/actions/runs/38761580532",
+  "successful_jobs": 7,
+  "jobs": [
+    {
+      "job_id": 116513938599,
+      "name": "Required FFmpeg (ubuntu-latest)",
+      "conclusion": "success",
+      "summary": [
+        "2026-10-15T15:34:54.1891515Z Image: ubuntu-24.04",
+        "2026-10-15T15:35:41.1287795Z collected 723 items",
+        "2026-10-15T15:38:19.6232638Z ================= 679 passed, 44 skipped in 160.63s (0:02:40) =================="
+      ],
+      "platform": "ubuntu-24.04",
+      "collected": 723,
+      "passed": 679,
+      "skipped": 44,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "job_id": 116513938887,
+      "name": "Backend (Python 3.13)",
+      "conclusion": "success",
+      "summary": [
+        "2026-10-15T15:34:56.7321756Z Image: windows-2025-vs2026",
+        "2026-10-15T15:39:18.2269819Z backend job: collected=786 passed=786 failures=0 errors=0 skipped=0"
+      ],
+      "platform": "windows-2025-vs2026",
+      "collected": 786,
+      "passed": 786,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "job_id": 116513938959,
+      "name": "Required FFmpeg (windows-latest)",
+      "conclusion": "success",
+      "summary": [
+        "2026-10-15T15:34:54.0585692Z Image: windows-2025-vs2026",
+        "2026-10-15T15:35:11.4847633Z LongPathsEnabled=0",
+        "2026-10-15T15:36:16.2343717Z collected 723 items",
+        "2026-10-15T15:39:20.5999917Z ======================= 723 passed in 188.83s (0:03:08) ======================="
+      ],
+      "platform": "windows-2025-vs2026",
+      "collected": 723,
+      "passed": 723,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "job_id": 116513939090,
+      "name": "Backend (Python 3.13)",
+      "conclusion": "success",
+      "summary": [
+        "2026-10-15T15:34:53.8604488Z Image: ubuntu-24.04",
+        "2026-10-15T15:37:25.7234712Z backend job: collected=786 passed=742 failures=0 errors=0 skipped=44"
+      ],
+      "platform": "ubuntu-24.04",
+      "collected": 786,
+      "passed": 742,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 44
+    },
+    {
+      "job_id": 116513939245,
+      "name": "Backend (Python 3.11)",
+      "conclusion": "success",
+      "summary": [
+        "2026-10-15T15:34:54.1680990Z Image: ubuntu-24.04",
+        "2026-10-15T15:37:51.5864778Z backend job: collected=786 passed=742 failures=0 errors=0 skipped=44"
+      ],
+      "platform": "ubuntu-24.04",
+      "collected": 786,
+      "passed": 742,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 44
+    },
+    {
+      "job_id": 116513939347,
+      "name": "Frontend",
+      "conclusion": "success",
+      "summary": [
+        "2026-10-15T15:34:54.6111167Z Image: ubuntu-24.04",
+        "2026-10-15T15:35:20.0193790Z       Tests  43 passed (43)"
+      ],
+      "platform": "ubuntu-24.04",
+      "collected": 43,
+      "passed": 43,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "job_id": 116513939442,
+      "name": "Backend (Python 3.11)",
+      "conclusion": "success",
+      "summary": [
+        "2026-10-15T15:34:56.0923724Z Image: windows-2025-vs2026",
+        "2026-10-15T15:39:48.1146398Z backend job: collected=786 passed=786 failures=0 errors=0 skipped=0"
+      ],
+      "platform": "windows-2025-vs2026",
+      "collected": 786,
+      "passed": 786,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ]
+}

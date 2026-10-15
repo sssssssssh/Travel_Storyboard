@@ -1,0 +1,29 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_missing_source_after_scan_is_a_visible_detect_failure __________
+
+client = <starlette.testclient.TestClient object at 0x109b6a2d0>
+tmp_path = PosixPath('<temporary-path>')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11b833320>
+record_property = <function record_property.<locals>.append_property at 0x11b852ca0>
+
+    def test_missing_source_after_scan_is_a_visible_detect_failure(client,tmp_path,monkeypatch,record_property):
+        monkeypatch.setattr(runner,'submit',lambda _:None);source=synthesize(tmp_path/'sources','h264_mp4');pid=project(client,tmp_path,source.parent)
+        assert job(client,pid,'scan')['status']=='succeeded';source.unlink()  # Controlled synthetic fixture only.
+        result=job(client,pid,'detect');assert result['status'] in ('partial_failed','failed') and result['failures']['count']>0
+>       assert result['failures']['items'][0].get('error_code')=='source_unavailable'
+E       assert None == 'source_unavailable'
+E        +  where None = <built-in method get of dict object at 0x11baa3dc0>('error_code')
+E        +    where <built-in method get of dict object at 0x11baa3dc0> = {'kind': 'asset', 'ref': 'ac962dc4-59b7-4443-91a8-9803bdea00df', 'message': "[Errno 2] No such file or directory: '/pr...s/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-42/test_missing_source_after_scan0/sources/h264_mp4.mp4'"}.get
+
+backend/tests/test_media_format_matrix.py:174: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.services.analyzer:analyzer.py:630 Analyze failed for asset ac962dc4-59b7-4443-91a8-9803bdea00df
+Traceback (most recent call last):
+  File "<repo>/backend/app/services/analyzer.py", line 577, in detect_task
+    prepare_item(job_id, item, items, token, config)
+  File "<repo>/backend/app/services/checkpoints.py", line 181, in prepare_item
+    raise SourceChanged(item['source_error']) if item.get('error_code') == 'source_changed' else SourceUnavailable(item['source_error'])
+app.services.checkpoints.SourceUnavailable: [Errno 2] No such file or directory: '<temporary-path>'
+=========================== short test summary info ============================
+FAILED backend/tests/test_media_format_matrix.py::test_missing_source_after_scan_is_a_visible_detect_failure

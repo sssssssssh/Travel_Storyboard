@@ -196,6 +196,8 @@ jobs:
           tests/test_vision_staging_ownership.py
           tests/test_vision_route_wiring.py
           tests/test_vision_cleanup_status.py
+          tests/test_release_version.py
+          tests/test_media_format_matrix.py
           tests/test_vision_compat.py
       - name: Record exact commit and platform evidence
         if: always()
@@ -227,6 +229,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check release version metadata
+        run: python scripts/sync_version.py --check
 
       - uses: pnpm/action-setup@v4
         with:
