@@ -582,3 +582,17 @@ M5 全链路（见 `docs/validation/v2.1-m5/`），但**未覆盖竖屏/无音�
 修复前的实测泄漏证据见 `docs/validation/v2.1-m5-1/tsb313-before.txt`
 （每次 `_flatten` 产生 1 个 203 字节 `tsb-vision-*.jpg`，返回后仍存在）。
 
+
+## v2.1.1 / M5-R2
+
+| 用例 | 任务 | 守护行为 |
+|---|---|---|
+| test_motion_verdict_continuity::test_same_evidence_rerun_keeps_current_api_verdict (3) | T314-01/02/07 | confirm/reject/unclear 重跑后当前列表/详情一致，备注和历史保留 |
+| ::test_changed_evidence_requires_reconfirmation_and_retains_history (5) | T314-03/04 | 区间、源、JPEG、结论、检测签名改变需重新确认，历史不丢 |
+| ::test_stale_page_verdict_is_409_without_rebinding_to_new_result | T314-07 | 页面证据过期不能绑定到新结果 |
+| ::test_concurrent_confirmations_append_history_last_commit_is_effective | T314-06 | 并发确认历史完整，最后提交唯一有效，历史分页一致 |
+| ::test_old_database_is_backed_up_before_create_all_and_backfill_is_once | T314-05 | 新表之前 WAL 一致备份、旧人工字段回填一次、未知指纹不伪造 |
+| ::test_backup_failure_blocks_schema_creation | T314-05 | 备份失败不修改旧 schema |
+| VisionPanel human-state (3) / verdict version-note-conflict (1) | T314-07 | 三态/历史/备注可见，提交绑定用户看到的证据，错误可见 |
+
+手动门禁：在 Mac 真实素材和真实 HTTPS 模型条件下复查人工判定原样重跑、改裁剪重跑、历史及升级前后数据；本轮尚未执行，不以以上自动化替代。

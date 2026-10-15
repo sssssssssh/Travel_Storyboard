@@ -66,6 +66,7 @@ ADDITIVE_MIGRATIONS: list[tuple[str, str, str]] = [
     ('review_requests', 'supersedes_request_id', "VARCHAR(36) DEFAULT ''"),
     ('review_requests', 'superseded_by_request_id', "VARCHAR(36) DEFAULT ''"),
     ('review_requests', 'disposition_at', 'DATETIME'),
+    ('segment_motion_reviews', 'input_signature', "VARCHAR(128) DEFAULT ''"),
 ]
 
 
@@ -86,7 +87,7 @@ def _backup_sqlite_file() -> str | None:
     db_path = Path(path)
     if not db_path.is_file():
         return None
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
     backup = db_path.with_name(f"{db_path.stem}.pre-migration-{stamp}.bak")
     try:
         with sqlite3.connect(str(db_path)) as source, sqlite3.connect(str(backup)) as dest:
@@ -116,11 +117,10 @@ def init_db() -> None:
     # Import models so they register on Base.metadata before create_all.
     from . import models  # noqa: F401
 
-    Base.metadata.create_all(bind=engine)
-
-    # Detect pending work before touching anything so we only back up when needed.
+    # create_all also mutates an old schema: back up BEFORE adding any table.
     inspector = inspect(engine)
-    pending = False
+    existing_tables = set(inspector.get_table_names())
+    pending = bool(set(Base.metadata.tables) - existing_tables)
     for table, column, _ddl in ADDITIVE_MIGRATIONS:
         if not inspector.has_table(table):
             continue
@@ -128,13 +128,40 @@ def init_db() -> None:
             pending = True
             break
     if pending:
-        backup = _backup_sqlite_file()
+        backup = _backup_sqlite_file() if existing_tables else None
         if backup:
             logger.info("Database backed up to %s before migration", backup)
+    Base.metadata.create_all(bind=engine)
+    if pending:
         applied = _apply_migrations()
         if applied:
             logger.info("Applied schema migrations: %s", ", ".join(applied))
         _legacy_backfill(applied)
+    _backfill_motion_verdicts()
+
+
+def _backfill_motion_verdicts() -> None:
+    """Retain old judgements without inventing missing input provenance."""
+    from sqlalchemy import select
+    from .models import SegmentMotionReview, SegmentMotionVerdict, new_id
+
+    with Session(engine) as session:
+        begin_write(session)
+        migrated = select(SegmentMotionVerdict.motion_review_id)
+        rows = session.scalars(select(SegmentMotionReview).where(
+            SegmentMotionReview.human_verdict != "",
+            SegmentMotionReview.id.not_in(migrated),
+        )).all()
+        for row in rows:
+            session.add(SegmentMotionVerdict(
+                id=new_id(), project_id=row.project_id, asset_id=row.asset_id,
+                segment_id=row.segment_id, motion_review_id=row.id,
+                input_signature="", evidence_signature="",
+                verdict=row.human_verdict, note=row.human_note,
+                created_at=row.human_at or row.updated_at or row.created_at,
+                legacy_review_id=row.id,
+            ))
+        session.commit()
 
 
 def _legacy_backfill(applied: list[str] | None = None) -> None:

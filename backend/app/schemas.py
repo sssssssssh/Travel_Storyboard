@@ -442,6 +442,8 @@ class MotionVerdictRequest(BaseModel):
 
     verdict: str
     note: str = ""
+    motion_review_id: str | None = None
+    input_signature: str | None = None
 
 
 class MotionReviewOut(ORMModel):
@@ -466,6 +468,11 @@ class MotionReviewOut(ORMModel):
     human_verdict: str
     human_note: str
     human_at: datetime | None
+    input_signature: str = ""
+    human_state: str = "not_reviewed"
+    human_verdict_id: str | None = None
+    human_invalid_reason: str = ""
+    human_history: list[dict] = Field(default_factory=list)
     error_code: str
     created_at: datetime
     updated_at: datetime

@@ -371,3 +371,58 @@ test('multi-frame review requires consent before it can be started', async () =>
     ).toBe(false),
   )
 })
+
+// T314-07: a verdict must be projected by evidence validity, never just truthiness.
+test.each(['confirmed_current', 'needs_reconfirmation', 'not_reviewed'])(
+  'human state %s is visible with audit history and notes', async (humanState) => {
+    const history = humanState === 'not_reviewed' ? [] : [{
+      id: 'v1', motion_review_id: 'm0', input_signature: 'sig', verdict: 'reject',
+      note: 'original reviewed carefully', created_at: '2026-10-15T00:00:00Z',
+      is_effective: humanState === 'confirmed_current',
+    }]
+    mockApi({
+      '/api/vision/status': configuredStatus,
+      '/api/projects/p/vision/preview': preview,
+      '/api/projects/p/vision-results': { count: 0, items: [] },
+      '/api/projects/p/vision-candidates': [],
+      '/api/projects/p/motion-reviews': [{ ...motionReview,
+        input_signature: 'sig', human_state: humanState,
+        human_verdict: humanState === 'confirmed_current' ? 'reject' : '',
+        human_note: humanState === 'confirmed_current' ? 'original reviewed carefully' : '',
+        human_invalid_reason: humanState === 'needs_reconfirmation' ? 'EVIDENCE_CHANGED' : '',
+        human_history: history,
+      }],
+    })
+    setup()
+    const labels = { confirmed_current: '当前有效', needs_reconfirmation: '证据改变，需重新确认', not_reviewed: '尚未人工判定' }
+    await screen.findByText(labels[humanState as keyof typeof labels])
+    if (history.length) {
+      expect(screen.getByText(/历史判断/)).toBeTruthy()
+      expect(screen.getAllByText(/original reviewed carefully/).length).toBeGreaterThan(0)
+    }
+    if (humanState !== 'confirmed_current') {
+      expect(screen.getByRole('button', { name: '确认成立' })).toBeTruthy()
+    }
+  },
+)
+
+test('verdict sends the displayed evidence version and human note, and shows conflict', async () => {
+  mockApi({
+    '/api/vision/status': configuredStatus,
+    '/api/projects/p/vision/preview': preview,
+    '/api/projects/p/vision-results': { count: 0, items: [] },
+    '/api/projects/p/vision-candidates': [],
+    '/api/projects/p/motion-reviews': [{ ...motionReview, input_signature: 'input-v1', human_state: 'not_reviewed', human_history: [] }],
+  })
+  const base = vi.mocked(api).getMockImplementation()!
+  vi.mocked(api).mockImplementation((url, options) => String(url).endsWith('/verdict')
+    ? Promise.reject(new Error('409: 证据已更新，请刷新后重新确认')) : base(url, options))
+  setup()
+  fireEvent.change(await screen.findByLabelText('人工判定备注'), { target: { value: 'checked source' } })
+  fireEvent.click(screen.getByRole('button', { name: '确认成立' }))
+  await screen.findByText(/证据已更新/)
+  const call = vi.mocked(api).mock.calls.find(([url]) => String(url).endsWith('/verdict'))
+  expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+    verdict: 'confirm', note: 'checked source', motion_review_id: 'm1', input_signature: 'input-v1',
+  })
+})

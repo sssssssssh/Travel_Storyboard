@@ -324,8 +324,8 @@ class SegmentMotionReview(Base):
     is **not** continuous video understanding, and the UI must not imply
     otherwise. A future native-video adapter would add its own value here.
 
-    Human confirmation lives in ``human_verdict``/``human_at`` and is never
-    overwritten by a re-run: the model proposes, a person decides (C4).
+    Human judgements live in SegmentMotionVerdict. Legacy human_* columns are
+    retained as compatibility mirrors; their existence does not prove validity.
     """
 
     __tablename__ = "segment_motion_reviews"
@@ -348,6 +348,8 @@ class SegmentMotionReview(Base):
     end_sec: Mapped[float] = mapped_column(Float, default=0.0)
     frame_manifest_hash: Mapped[str] = mapped_column(String(128), default="")
 
+    input_signature: Mapped[str] = mapped_column(String(128), default="")
+
     motion_type: Mapped[str] = mapped_column(String(32), default="unknown")
     stability_risk: Mapped[str] = mapped_column(String(16), default="unknown")
     action_summary: Mapped[str] = mapped_column(Text, default="")
@@ -368,3 +370,25 @@ class SegmentMotionReview(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class SegmentMotionVerdict(Base):
+    """Append-only human audit. Revision orders serialized commits, not UUIDs."""
+
+    __tablename__ = "segment_motion_verdicts"
+
+    revision: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[str] = mapped_column(String(36), unique=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    asset_id: Mapped[str] = mapped_column(String(36), index=True)
+    segment_id: Mapped[str] = mapped_column(String(36), index=True)
+    motion_review_id: Mapped[str] = mapped_column(String(36), index=True)
+    input_signature: Mapped[str] = mapped_column(String(128), default="")
+    evidence_signature: Mapped[str] = mapped_column(String(128), default="")
+    verdict: Mapped[str] = mapped_column(String(32))
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # NULL for new judgements; one backfill per old model row, even after restart.
+    legacy_review_id: Mapped[str | None] = mapped_column(String(36), unique=True, nullable=True)

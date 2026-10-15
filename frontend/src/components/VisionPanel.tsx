@@ -390,16 +390,18 @@ function MotionCandidateList({
  */
 function MotionReviewList({ projectId }: { projectId: string }) {
   const qc = useQueryClient()
+  const [notes, setNotes] = useState<Record<string, string>>({})
   const reviews = useQuery({
     queryKey: ['motion-reviews', projectId],
     queryFn: () => api<MotionReviewOut[]>(endpoints.motionReviews(projectId)),
   })
 
   const verdict = useMutation({
-    mutationFn: ({ segmentId, value }: { segmentId: string; value: string }) =>
-      api<MotionReviewOut>(endpoints.motionVerdict(segmentId), {
+    mutationFn: ({ review, value }: { review: MotionReviewOut; value: string }) =>
+      api<MotionReviewOut>(endpoints.motionVerdict(review.segment_id), {
         method: 'POST',
-        body: JSON.stringify({ verdict: value }),
+        body: JSON.stringify({ verdict: value, note: notes[review.id] ?? '',
+          motion_review_id: review.id, input_signature: review.input_signature }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['motion-reviews', projectId] }),
   })
@@ -427,8 +429,23 @@ function MotionReviewList({ projectId }: { projectId: string }) {
               </span>
               {m.evidence?.needs_human_review && <Badge tone="yellow">需人工确认</Badge>}
               {m.human_verdict && <Badge tone="green">人工已确认：{m.human_verdict}</Badge>}
+              <Badge tone={m.human_state === 'confirmed_current' ? 'green' : 'yellow'}>
+                {m.human_state === 'confirmed_current' ? '当前有效'
+                  : m.human_state === 'needs_reconfirmation' ? '证据改变，需重新确认' : '尚未人工判定'}
+              </Badge>
             </div>
             <div className="mt-1 text-slate-300">{m.action_summary}</div>
+            {m.human_note && <div className="text-slate-300">人工备注：{m.human_note}</div>}
+            {m.human_invalid_reason && <div className="text-amber-300">失效原因：{m.human_invalid_reason}</div>}
+            {!!m.human_history?.length && (
+              <details className="mt-1 text-slate-400">
+                <summary>历史判断（最近 {m.human_history.length} 条）</summary>
+                <ul>{m.human_history.map((h) => (
+                  <li key={h.id}>{h.created_at} · {h.verdict} · {h.is_effective ? '当前有效' : '历史证据'}
+                    {' · '}{h.note} · 证据 {h.motion_review_id.slice(0, 8)}</li>
+                ))}</ul>
+              </details>
+            )}
             <div className="mt-1 text-slate-500">
               证据时间戳：{(m.evidence?.evidence_timestamps_sec ?? []).map((t) => `${t.toFixed(1)}s`).join(', ') || '—'}
               {' · '}音频未分析
@@ -436,15 +453,18 @@ function MotionReviewList({ projectId }: { projectId: string }) {
             {!!m.evidence?.limitations?.length && (
               <div className="text-slate-500">局限：{m.evidence.limitations.join('；')}</div>
             )}
-            {!m.human_verdict && (
-              <div className="mt-1 flex gap-2">
-                <Button variant="ghost" onClick={() => verdict.mutate({ segmentId: m.segment_id, value: 'confirm' })}>
+            {(m.human_state === 'needs_reconfirmation' || !m.human_verdict) && (
+              <div className="mt-1 flex flex-wrap gap-2">
+                <input aria-label="人工判定备注" placeholder="人工判定备注" maxLength={2000}
+                  className="rounded bg-ink-900 px-2" value={notes[m.id] ?? ''}
+                  onChange={(e) => setNotes((old) => ({ ...old, [m.id]: e.target.value }))} />
+                <Button disabled={verdict.isPending} variant="ghost" onClick={() => verdict.mutate({ review: m, value: 'confirm' })}>
                   确认成立
                 </Button>
-                <Button variant="ghost" onClick={() => verdict.mutate({ segmentId: m.segment_id, value: 'reject' })}>
+                <Button disabled={verdict.isPending} variant="ghost" onClick={() => verdict.mutate({ review: m, value: 'reject' })}>
                   判定不成立
                 </Button>
-                <Button variant="ghost" onClick={() => verdict.mutate({ segmentId: m.segment_id, value: 'unclear' })}>
+                <Button disabled={verdict.isPending} variant="ghost" onClick={() => verdict.mutate({ review: m, value: 'unclear' })}>
                   仍不确定
                 </Button>
               </div>
@@ -452,6 +472,7 @@ function MotionReviewList({ projectId }: { projectId: string }) {
           </li>
         ))}
       </ul>
+      {verdict.error && <div role="alert" className="text-xs text-red-300">{String(verdict.error)}</div>}
     </div>
   )
 }

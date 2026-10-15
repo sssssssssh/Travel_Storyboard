@@ -372,6 +372,19 @@ export interface MotionReviewOut {
   human_verdict: string
   human_note: string
   human_at: string | null
+  input_signature: string
+  human_state: 'confirmed_current' | 'needs_reconfirmation' | 'not_reviewed'
+  human_verdict_id: string | null
+  human_invalid_reason: string
+  human_history: Array<{
+    id: string
+    motion_review_id: string
+    input_signature: string
+    verdict: string
+    note: string
+    created_at: string
+    is_effective: boolean
+  }>
   error_code: string
   created_at: string
   updated_at: string

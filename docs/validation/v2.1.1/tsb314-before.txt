@@ -1,0 +1,316 @@
+FFFFFFFFFFFF                                                             [100%]
+=================================== FAILURES ===================================
+_________ test_same_evidence_rerun_keeps_current_api_verdict[confirm] __________
+
+client = <starlette.testclient.TestClient object at 0x1072de540>
+shot = ('c6ae5295-72d6-4f33-909b-bae76c7c9a50', {'segment_id': 'bdd00060-319d-4dfb-847c-83b74e7580d6', 'asset_id': '0b4feae2-.../var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-0/test_same_evidence_rerun_keeps0/source.mp4'))
+verdict = 'confirm'
+
+    @pytest.mark.parametrize('verdict', ['confirm', 'reject', 'unclear'])
+    def test_same_evidence_rerun_keeps_current_api_verdict(client, shot, verdict):
+        store(shot)
+        sid = shot[1]['segment_id']
+        first = client.post(f'/api/segments/{sid}/motion-review/verdict',
+                            json={'verdict': verdict, 'note': 'human note survives'}).json()
+        store(shot)
+        current = detail(client, shot)
+>       assert current['human_verdict'] == verdict
+E       AssertionError: assert '' == 'confirm'
+E         
+E         - confirm
+
+backend/tests/test_motion_verdict_continuity.py:63: AssertionError
+__________ test_same_evidence_rerun_keeps_current_api_verdict[reject] __________
+
+client = <starlette.testclient.TestClient object at 0x1070c5760>
+shot = ('82a421ec-3dba-4c24-8bdd-9acb6b1ef0ab', {'segment_id': 'afbcacda-e868-4a63-bf7a-85545a745bfe', 'asset_id': '71f61e01-.../var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-0/test_same_evidence_rerun_keeps1/source.mp4'))
+verdict = 'reject'
+
+    @pytest.mark.parametrize('verdict', ['confirm', 'reject', 'unclear'])
+    def test_same_evidence_rerun_keeps_current_api_verdict(client, shot, verdict):
+        store(shot)
+        sid = shot[1]['segment_id']
+        first = client.post(f'/api/segments/{sid}/motion-review/verdict',
+                            json={'verdict': verdict, 'note': 'human note survives'}).json()
+        store(shot)
+        current = detail(client, shot)
+>       assert current['human_verdict'] == verdict
+E       AssertionError: assert '' == 'reject'
+E         
+E         - reject
+
+backend/tests/test_motion_verdict_continuity.py:63: AssertionError
+_________ test_same_evidence_rerun_keeps_current_api_verdict[unclear] __________
+
+client = <starlette.testclient.TestClient object at 0x121335280>
+shot = ('7ec9c434-6da4-48a8-b169-5635ad2b2987', {'segment_id': 'a562bc78-4134-439d-9fde-23c283d77ed4', 'asset_id': 'bc30d3f9-.../var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-0/test_same_evidence_rerun_keeps2/source.mp4'))
+verdict = 'unclear'
+
+    @pytest.mark.parametrize('verdict', ['confirm', 'reject', 'unclear'])
+    def test_same_evidence_rerun_keeps_current_api_verdict(client, shot, verdict):
+        store(shot)
+        sid = shot[1]['segment_id']
+        first = client.post(f'/api/segments/{sid}/motion-review/verdict',
+                            json={'verdict': verdict, 'note': 'human note survives'}).json()
+        store(shot)
+        current = detail(client, shot)
+>       assert current['human_verdict'] == verdict
+E       AssertionError: assert '' == 'unclear'
+E         
+E         - unclear
+
+backend/tests/test_motion_verdict_continuity.py:63: AssertionError
+___ test_changed_evidence_requires_reconfirmation_and_retains_history[trim] ____
+
+client = <starlette.testclient.TestClient object at 0x121353b60>
+shot = ('4a758738-9805-4af0-ad18-141d1ab5ec4d', {'segment_id': '46a01c8d-cc2f-4b8c-adc5-767c000b83dd', 'asset_id': 'fe03d154-.../var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-0/test_changed_evidence_requires0/source.mp4'))
+change = 'trim'
+
+    @pytest.mark.parametrize('change', ['trim', 'source', 'bytes', 'conclusion', 'signature'])
+    def test_changed_evidence_requires_reconfirmation_and_retains_history(client, shot, change):
+        store(shot)
+        sid = shot[1]['segment_id']
+        assert motion.record_human_verdict(sid, 'reject', 'keep history')
+        if change == 'trim':
+            with session_scope() as s:
+                s.get(Segment, sid).start_sec = 1.5
+        elif change == 'source':
+            shot[3].write_bytes(b'replaced-source-same-segment-id')
+        elif change == 'bytes':
+            Image.new('RGB', (16, 16), 'white').save(shot[2][0].path)
+        elif change == 'signature':
+            with session_scope() as s:
+                s.get(Asset, shot[1]['asset_id']).analyzed_source_signature = 'changed'
+        # Validity must also be recomputed on read, even before another model run.
+        if change in ('trim', 'source', 'signature'):
+>           assert detail(client, shot)['human_state'] == 'needs_reconfirmation'
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'human_state'
+
+backend/tests/test_motion_verdict_continuity.py:93: KeyError
+__ test_changed_evidence_requires_reconfirmation_and_retains_history[source] ___
+
+client = <starlette.testclient.TestClient object at 0x1216f2bd0>
+shot = ('ac6cef24-b7d5-4721-b560-4452f56dc06c', {'segment_id': 'fc195f8d-34ff-40ac-9e86-514eaf8ac5c3', 'asset_id': 'dbb47c40-.../var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-0/test_changed_evidence_requires1/source.mp4'))
+change = 'source'
+
+    @pytest.mark.parametrize('change', ['trim', 'source', 'bytes', 'conclusion', 'signature'])
+    def test_changed_evidence_requires_reconfirmation_and_retains_history(client, shot, change):
+        store(shot)
+        sid = shot[1]['segment_id']
+        assert motion.record_human_verdict(sid, 'reject', 'keep history')
+        if change == 'trim':
+            with session_scope() as s:
+                s.get(Segment, sid).start_sec = 1.5
+        elif change == 'source':
+            shot[3].write_bytes(b'replaced-source-same-segment-id')
+        elif change == 'bytes':
+            Image.new('RGB', (16, 16), 'white').save(shot[2][0].path)
+        elif change == 'signature':
+            with session_scope() as s:
+                s.get(Asset, shot[1]['asset_id']).analyzed_source_signature = 'changed'
+        # Validity must also be recomputed on read, even before another model run.
+        if change in ('trim', 'source', 'signature'):
+>           assert detail(client, shot)['human_state'] == 'needs_reconfirmation'
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'human_state'
+
+backend/tests/test_motion_verdict_continuity.py:93: KeyError
+___ test_changed_evidence_requires_reconfirmation_and_retains_history[bytes] ___
+
+client = <starlette.testclient.TestClient object at 0x1216f3560>
+shot = ('154e76e6-7e5c-4ea6-a3b7-d43ccd23ca88', {'segment_id': '167e356c-031b-415a-9d86-66e39a14ed60', 'asset_id': '47409052-.../var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-0/test_changed_evidence_requires2/source.mp4'))
+change = 'bytes'
+
+    @pytest.mark.parametrize('change', ['trim', 'source', 'bytes', 'conclusion', 'signature'])
+    def test_changed_evidence_requires_reconfirmation_and_retains_history(client, shot, change):
+        store(shot)
+        sid = shot[1]['segment_id']
+        assert motion.record_human_verdict(sid, 'reject', 'keep history')
+        if change == 'trim':
+            with session_scope() as s:
+                s.get(Segment, sid).start_sec = 1.5
+        elif change == 'source':
+            shot[3].write_bytes(b'replaced-source-same-segment-id')
+        elif change == 'bytes':
+            Image.new('RGB', (16, 16), 'white').save(shot[2][0].path)
+        elif change == 'signature':
+            with session_scope() as s:
+                s.get(Asset, shot[1]['asset_id']).analyzed_source_signature = 'changed'
+        # Validity must also be recomputed on read, even before another model run.
+        if change in ('trim', 'source', 'signature'):
+            assert detail(client, shot)['human_state'] == 'needs_reconfirmation'
+        store(shot, **({'motion_type': 'static'} if change == 'conclusion' else {}))
+        current = detail(client, shot)
+>       assert current['human_state'] == 'needs_reconfirmation'
+               ^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'human_state'
+
+backend/tests/test_motion_verdict_continuity.py:96: KeyError
+_ test_changed_evidence_requires_reconfirmation_and_retains_history[conclusion] _
+
+client = <starlette.testclient.TestClient object at 0x121753ad0>
+shot = ('d8dbf397-ffe2-4a1c-8e7f-57f7d28d4d6e', {'segment_id': '6cee9a76-6835-4950-bccb-577517d05467', 'asset_id': '1eac99c8-.../var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-0/test_changed_evidence_requires3/source.mp4'))
+change = 'conclusion'
+
+    @pytest.mark.parametrize('change', ['trim', 'source', 'bytes', 'conclusion', 'signature'])
+    def test_changed_evidence_requires_reconfirmation_and_retains_history(client, shot, change):
+        store(shot)
+        sid = shot[1]['segment_id']
+        assert motion.record_human_verdict(sid, 'reject', 'keep history')
+        if change == 'trim':
+            with session_scope() as s:
+                s.get(Segment, sid).start_sec = 1.5
+        elif change == 'source':
+            shot[3].write_bytes(b'replaced-source-same-segment-id')
+        elif change == 'bytes':
+            Image.new('RGB', (16, 16), 'white').save(shot[2][0].path)
+        elif change == 'signature':
+            with session_scope() as s:
+                s.get(Asset, shot[1]['asset_id']).analyzed_source_signature = 'changed'
+        # Validity must also be recomputed on read, even before another model run.
+        if change in ('trim', 'source', 'signature'):
+            assert detail(client, shot)['human_state'] == 'needs_reconfirmation'
+        store(shot, **({'motion_type': 'static'} if change == 'conclusion' else {}))
+        current = detail(client, shot)
+>       assert current['human_state'] == 'needs_reconfirmation'
+               ^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'human_state'
+
+backend/tests/test_motion_verdict_continuity.py:96: KeyError
+_ test_changed_evidence_requires_reconfirmation_and_retains_history[signature] _
+
+client = <starlette.testclient.TestClient object at 0x121753350>
+shot = ('e295d0dc-af4d-4a16-b3d0-8ca516b46356', {'segment_id': '8689fac9-a592-4a27-8afc-db0e1bc9cbcc', 'asset_id': 'c66e5a93-.../var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-0/test_changed_evidence_requires4/source.mp4'))
+change = 'signature'
+
+    @pytest.mark.parametrize('change', ['trim', 'source', 'bytes', 'conclusion', 'signature'])
+    def test_changed_evidence_requires_reconfirmation_and_retains_history(client, shot, change):
+        store(shot)
+        sid = shot[1]['segment_id']
+        assert motion.record_human_verdict(sid, 'reject', 'keep history')
+        if change == 'trim':
+            with session_scope() as s:
+                s.get(Segment, sid).start_sec = 1.5
+        elif change == 'source':
+            shot[3].write_bytes(b'replaced-source-same-segment-id')
+        elif change == 'bytes':
+            Image.new('RGB', (16, 16), 'white').save(shot[2][0].path)
+        elif change == 'signature':
+            with session_scope() as s:
+                s.get(Asset, shot[1]['asset_id']).analyzed_source_signature = 'changed'
+        # Validity must also be recomputed on read, even before another model run.
+        if change in ('trim', 'source', 'signature'):
+>           assert detail(client, shot)['human_state'] == 'needs_reconfirmation'
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'human_state'
+
+backend/tests/test_motion_verdict_continuity.py:93: KeyError
+________ test_stale_page_verdict_is_409_without_rebinding_to_new_result ________
+
+client = <starlette.testclient.TestClient object at 0x1048f88f0>
+shot = ('2f6be723-9c5c-44b3-b46c-2684a5e6a7a3', {'segment_id': '6b4b87b1-459b-4a87-921e-8be08a7350fc', 'asset_id': 'd390475d-.../var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-0/test_stale_page_verdict_is_4090/source.mp4'))
+
+    def test_stale_page_verdict_is_409_without_rebinding_to_new_result(client, shot):
+        store(shot)
+        old = detail(client, shot)
+        store(shot, motion_type='tilt')
+        sid = shot[1]['segment_id']
+        res = client.post(f'/api/segments/{sid}/motion-review/verdict', json={
+            'verdict': 'confirm', 'motion_review_id': old['id'],
+            'input_signature': old.get('input_signature', '')})
+>       assert res.status_code == 409
+E       assert 200 == 409
+E        +  where 200 = <Response [200 OK]>.status_code
+
+backend/tests/test_motion_verdict_continuity.py:114: AssertionError
+____ test_concurrent_confirmations_append_history_last_commit_is_effective _____
+
+client = <starlette.testclient.TestClient object at 0x121752a20>
+shot = ('6272e1bf-6e18-4991-ad7e-cb41c92cb0ce', {'segment_id': 'af11adcc-5a43-4396-856a-687b1ebb71d4', 'asset_id': 'e48c9767-.../var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-0/test_concurrent_confirmations_0/source.mp4'))
+
+    def test_concurrent_confirmations_append_history_last_commit_is_effective(client, shot):
+        store(shot)
+        gate = Barrier(2)
+        sid = shot[1]['segment_id']
+        def confirm(value):
+            gate.wait(timeout=10)
+            return motion.record_human_verdict(sid, value, value + '-note')
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(confirm, v) for v in ('confirm', 'reject')]
+            assert all(f.result(timeout=15) for f in futures)
+        out = detail(client, shot)
+>       assert out['human_state'] == 'confirmed_current'
+               ^^^^^^^^^^^^^^^^^^
+E       KeyError: 'human_state'
+
+backend/tests/test_motion_verdict_continuity.py:129: KeyError
+____ test_old_database_is_backed_up_before_create_all_and_backfill_is_once _____
+
+tmp_path = PosixPath('/private/var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-0/test_old_database_is_backed_up0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1217519a0>
+
+    def test_old_database_is_backed_up_before_create_all_and_backfill_is_once(tmp_path, monkeypatch):
+        path = tmp_path / 'legacy.db'
+        eng = create_engine(f'sqlite:///{path}')
+        # Exclude the future audit table, reproducing the exact old schema.
+        tables = [t for t in database.Base.metadata.sorted_tables if t.name != 'segment_motion_verdicts']
+        database.Base.metadata.create_all(eng, tables=tables)
+        with Session(eng) as s:
+            p = Project(name='retain'); s.add(p); s.flush()
+            a = Asset(project_id=p.id, source_path='/not-read-by-migration'); s.add(a); s.flush()
+            seg = Segment(project_id=p.id, asset_id=a.id, start_sec=2, end_sec=6, user_rating='favorite')
+            s.add(seg); s.flush()
+            row = SegmentMotionReview(project_id=p.id, asset_id=a.id, segment_id=seg.id,
+                                      human_verdict='confirm', human_note='legacy human note')
+            s.add(row); s.commit(); rid = row.id
+        with eng.begin() as c:
+            if 'input_signature' in {r[1] for r in c.execute(text('PRAGMA table_info(segment_motion_reviews)'))}:
+                c.execute(text('ALTER TABLE segment_motion_reviews DROP COLUMN input_signature'))
+        wal = sqlite3.connect(path)
+        wal.execute('PRAGMA journal_mode=WAL'); wal.execute('PRAGMA wal_autocheckpoint=0')
+        wal.execute("UPDATE segment_motion_reviews SET human_note='committed WAL note'"); wal.commit()
+        monkeypatch.setattr(database, 'engine', eng)
+        monkeypatch.setattr(database, '_settings', SimpleNamespace(resolved_database_url=f'sqlite:///{path}'))
+        try:
+            database.init_db()
+            backups = list(tmp_path.glob('*.bak'))
+>           assert len(backups) == 1
+E           assert 0 == 1
+E            +  where 0 = len([])
+
+backend/tests/test_motion_verdict_continuity.py:165: AssertionError
+__________________ test_backup_failure_blocks_schema_creation __________________
+
+tmp_path = PosixPath('/private/var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-0/test_backup_failure_blocks_sch0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x121741790>
+
+    def test_backup_failure_blocks_schema_creation(tmp_path, monkeypatch):
+        path = tmp_path / 'backup-failure.db'
+        eng = create_engine(f'sqlite:///{path}')
+        with eng.begin() as c:
+            c.execute(text('CREATE TABLE untouched (id TEXT)'))
+        monkeypatch.setattr(database, 'engine', eng)
+        monkeypatch.setattr(database, '_settings', SimpleNamespace(resolved_database_url=f'sqlite:///{path}'))
+        def fail():
+            raise OSError('backup unavailable')
+        monkeypatch.setattr(database, '_backup_sqlite_file', fail)
+        try:
+>           with pytest.raises(OSError, match='backup unavailable'):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE OSError
+
+backend/tests/test_motion_verdict_continuity.py:195: Failed
+=========================== short test summary info ============================
+FAILED backend/tests/test_motion_verdict_continuity.py::test_same_evidence_rerun_keeps_current_api_verdict[confirm]
+FAILED backend/tests/test_motion_verdict_continuity.py::test_same_evidence_rerun_keeps_current_api_verdict[reject]
+FAILED backend/tests/test_motion_verdict_continuity.py::test_same_evidence_rerun_keeps_current_api_verdict[unclear]
+FAILED backend/tests/test_motion_verdict_continuity.py::test_changed_evidence_requires_reconfirmation_and_retains_history[trim]
+FAILED backend/tests/test_motion_verdict_continuity.py::test_changed_evidence_requires_reconfirmation_and_retains_history[source]
+FAILED backend/tests/test_motion_verdict_continuity.py::test_changed_evidence_requires_reconfirmation_and_retains_history[bytes]
+FAILED backend/tests/test_motion_verdict_continuity.py::test_changed_evidence_requires_reconfirmation_and_retains_history[conclusion]
+FAILED backend/tests/test_motion_verdict_continuity.py::test_changed_evidence_requires_reconfirmation_and_retains_history[signature]
+FAILED backend/tests/test_motion_verdict_continuity.py::test_stale_page_verdict_is_409_without_rebinding_to_new_result
+FAILED backend/tests/test_motion_verdict_continuity.py::test_concurrent_confirmations_append_history_last_commit_is_effective
+FAILED backend/tests/test_motion_verdict_continuity.py::test_old_database_is_backed_up_before_create_all_and_backfill_is_once
+FAILED backend/tests/test_motion_verdict_continuity.py::test_backup_failure_blocks_schema_creation

@@ -264,7 +264,7 @@ def list_motion_reviews(
         .order_by(SegmentMotionReview.created_at.desc())
         .limit(limit)
     ).all()
-    return [_motion_out(r) for r in rows]
+    return [_motion_out(r, db) for r in rows]
 
 
 @router.get("/segments/{segment_id}/motion-review", response_model=MotionReviewOut)
@@ -279,7 +279,21 @@ def get_motion_review(segment_id: str, db: Session = Depends(get_db)):
     ).first()
     if row is None:
         raise HTTPException(status_code=404, detail="No motion review for this segment")
-    return _motion_out(row)
+    return _motion_out(row, db)
+
+
+@router.get("/segments/{segment_id}/motion-review/verdicts")
+def motion_verdict_history(segment_id: str, limit: int = Query(20, ge=1, le=100),
+                           offset: int = Query(0, ge=0), db: Session = Depends(get_db)):
+    from ..services.vision.verdicts import human_projection
+    row = db.scalars(select(SegmentMotionReview).where(
+        SegmentMotionReview.segment_id == segment_id,
+        SegmentMotionReview.is_current.is_(True),
+    )).first()
+    if row is None:
+        raise HTTPException(404, "No motion review for this segment")
+    items = human_projection(db, row, limit=limit, offset=offset)["human_history"]
+    return {"limit": limit, "offset": offset, "count": len(items), "items": items}
 
 
 @router.post("/segments/{segment_id}/motion-review/verdict", response_model=MotionReviewOut)
@@ -295,17 +309,15 @@ def set_motion_verdict(
     true rather than merely intended.
     """
     from ..services.vision.motion import record_human_verdict
-
-    row = db.scalars(
-        select(SegmentMotionReview).where(
-            SegmentMotionReview.segment_id == segment_id,
-            SegmentMotionReview.is_current.is_(True),
-        )
-    ).first()
-    if row is None:
-        raise HTTPException(status_code=404, detail="No motion review for this segment")
+    from ..services.vision.verdicts import VerdictConflict
     try:
-        record_human_verdict(segment_id, body.verdict, body.note or "")
+        found = record_human_verdict(segment_id, body.verdict, body.note or "",
+                                     motion_review_id=body.motion_review_id,
+                                     input_signature=body.input_signature)
+        if not found:
+            raise HTTPException(404, "No motion review for this segment")
+    except VerdictConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.rollback()
@@ -315,10 +327,13 @@ def set_motion_verdict(
             SegmentMotionReview.is_current.is_(True),
         )
     ).first()
-    return _motion_out(refreshed)
+    if refreshed is None:
+        raise HTTPException(409, "Motion review changed; refresh before confirming")
+    return _motion_out(refreshed, db)
 
 
-def _motion_out(row: SegmentMotionReview) -> MotionReviewOut:
+def _motion_out(row: SegmentMotionReview, db: Session) -> MotionReviewOut:
+    from ..services.vision.verdicts import human_projection
     return MotionReviewOut(
         id=row.id,
         segment_id=row.segment_id,
@@ -336,9 +351,8 @@ def _motion_out(row: SegmentMotionReview) -> MotionReviewOut:
         evidence=dict(row.evidence_json or {}),
         request_usage=dict(row.request_usage or {}),
         is_current=row.is_current,
-        human_verdict=row.human_verdict,
-        human_note=row.human_note,
-        human_at=row.human_at,
+        input_signature=row.input_signature,
+        **human_projection(db, row),
         error_code=row.error_code,
         created_at=row.created_at,
         updated_at=row.updated_at,

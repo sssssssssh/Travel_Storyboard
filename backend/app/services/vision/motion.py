@@ -31,11 +31,12 @@ from sqlalchemy import select, update
 
 from ...config import get_settings
 from ...database import begin_write, session_scope
-from ...ffmpeg import FFmpegError, extract_frame, safe_stat, safe_unlink
-from ...models import Asset, Job, Segment, SegmentMotionReview, utcnow
+from ...ffmpeg import FFmpegError, extract_frame, safe_open, safe_stat, safe_unlink
+from ...models import Asset, Job, Segment, SegmentMotionReview, SegmentMotionVerdict, utcnow
 from ...paths import project_cache_dir
 from ..runner import JobCancelled, JobFailures, cancel_check_for, register_task, update_job
 from .authorization import authorize_upload
+from .verdicts import VerdictConflict, source_identity, input_identity, evidence_identity, invalid_reason
 from .errors import (
     CANCELLED,
     INSUFFICIENT_FRAMES,
@@ -339,6 +340,7 @@ def _select_targets(project_id: str, segment_ids: list[str], limit: int) -> list
                     "has_audio": bool(asset.has_audio),
                     "fps_num": int(asset.fps_num or 0),
                     "fps_den": int(asset.fps_den or 1),
+                    "source_signature": source_identity(asset),
                 }
             )
     return out[: max(0, limit)]
@@ -436,6 +438,7 @@ def _store(project_id, segment, result, frames, *, provider_name, model_id, usag
     """Persist a motion reading, preserving any human verdict already recorded."""
     with session_scope() as s:
         begin_write(s)
+        frame_hash = _frames_hash(frames)
         s.execute(
             update(SegmentMotionReview)
             .where(
@@ -456,13 +459,16 @@ def _store(project_id, segment, result, frames, *, provider_name, model_id, usag
                 prompt_version=MOTION_PROMPT_VERSION,
                 start_sec=segment["start_sec"],
                 end_sec=segment["end_sec"],
-                frame_manifest_hash=_frames_hash(frames),
+                frame_manifest_hash=frame_hash,
+                input_signature=input_identity(project_id, segment, frame_hash,
+                                               segment.get("source_signature", "")),
                 motion_type=result["motion_type"],
                 stability_risk=result["stability_risk"],
                 action_summary=result["action_summary"],
                 analysis_json=result,
                 evidence_json={
                     "method": "multiframe",
+                    "source_signature": segment.get("source_signature", ""),
                     "frames": [{"time_sec": f.time_sec, "frame_id": f.frame_id} for f in frames],
                     "evidence_timestamps_sec": result["evidence_timestamps_sec"],
                     "limitations": result["limitations"],
@@ -480,11 +486,18 @@ def _store(project_id, segment, result, frames, *, provider_name, model_id, usag
 def _frames_hash(frames: list[MotionFrame]) -> str:
     import hashlib
 
-    payload = json.dumps([round(f.time_sec, 3) for f in frames], separators=(",", ":"))
+    items = []
+    for frame in frames:
+        with safe_open(frame.path, "rb") as stream:
+            fingerprint = hashlib.sha256(stream.read()).hexdigest()
+        items.append([frame.time_sec, fingerprint])
+    payload = json.dumps(items, separators=(",", ":"))
     return hashlib.sha256(payload.encode()).hexdigest()[:64]
 
 
-def record_human_verdict(segment_id: str, verdict: str, note: str = "") -> bool:
+def record_human_verdict(segment_id: str, verdict: str, note: str = "", *,
+                         motion_review_id: str | None = None,
+                         input_signature: str | None = None) -> bool:
     """Record a person's judgement on the current motion reading (C4)."""
     if verdict not in HUMAN_VERDICTS:
         raise ValueError(f"verdict must be one of {sorted(HUMAN_VERDICTS)}")
@@ -498,6 +511,16 @@ def record_human_verdict(segment_id: str, verdict: str, note: str = "") -> bool:
         ).first()
         if row is None:
             return False
+        if ((motion_review_id is not None and motion_review_id != row.id)
+                or (input_signature is not None and input_signature != row.input_signature)
+                or invalid_reason(s, row)):
+            raise VerdictConflict("证据已更新或无法验证，请刷新并重新复核")
+        s.add(SegmentMotionVerdict(
+            project_id=row.project_id, asset_id=row.asset_id, segment_id=row.segment_id,
+            motion_review_id=row.id, input_signature=row.input_signature,
+            evidence_signature=evidence_identity(row), verdict=verdict,
+            note=(note or "")[:2000],
+        ))
         row.human_verdict = verdict
         row.human_note = (note or "")[:2000]
         row.human_at = utcnow()
