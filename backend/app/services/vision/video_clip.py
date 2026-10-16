@@ -67,6 +67,7 @@ import hashlib
 import json
 
 import logging
+from contextlib import contextmanager
 
 from dataclasses import dataclass, field
 
@@ -87,7 +88,7 @@ from ...ffmpeg import (
 
 )
 
-from ..staging_cleanup import create_owned_staging
+from ..staging_cleanup import cleanup_staging_or_log, create_owned_staging
 
 
 
@@ -705,7 +706,40 @@ def cleanup_clip(artifact: ClipArtifact, *, project_id: str, job_id: str):
     from ..staging_cleanup import cleanup_staging_or_log
 
 
-
+    # ``artifact.path`` is the clip *file*; its parent is exactly the leaf that
+    # ``create_owned_staging`` created and registered. Passing anything higher
+    # (the asset directory, the project root) is refused by the cleaner, which is
+    # the behaviour TSB-336 fixed a caller for.
     stage = artifact.path.parent
     return cleanup_staging_or_log(project_id, stage, owner_job_id=job_id)
+
+
+@contextmanager
+def owned_clip_staging(project_id: str, *, asset_id: str, segment_id: str, job_id: str):
+    """Yield the owned staging leaf and register it **before** encoding starts.
+
+    TSB-336: ``derive_clip`` calls ``create_owned_staging`` and can then fail
+    (FFmpeg missing, source unreadable, cancelled, probe mismatch, encoding
+    error). Registering the path only after a *successful* return meant a failed
+    or cancelled derivation left its directory behind with nothing referencing
+    it, so no cleanup step could report or reclaim it.
+
+    The leaf is therefore published to the caller as soon as it exists: the
+    caller appends it to its cleanup list inside the ``with`` body, so every exit
+    path -- success, exception, cancellation -- has it recorded.
+
+    Ownership is not weakened: the directory still must be newly created by
+    ``create_owned_staging``, and ``cleanup_staging_or_log`` still validates the
+    exact leaf shape. This helper changes *when* the path is known, not *what* is
+    permitted to be deleted.
+    """
+    stage = create_owned_staging(
+        project_id, f"staging/{asset_id}/{segment_id}", owner_job_id=job_id
+    )
+    try:
+        yield Path(stage)
+    finally:
+        # No deletion here: cleanup is the caller's reported step so its outcome
+        # can be surfaced (C6). This only guarantees the path was observable.
+        pass
 

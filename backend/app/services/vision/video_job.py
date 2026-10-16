@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from sqlalchemy import select
 
@@ -519,8 +520,34 @@ def video_analyze_task(job_id: str) -> None:
     finally:
         # Cleanup runs on every exit path, and its outcome is reported rather than
         # assumed (TSB-262/318 discipline).
+        #
+        # TSB-336: ``cleanup_staging_or_log`` already records the canonical audit
+        # via ``record_cleanup_result`` (stats.cleanup.items with first_failure,
+        # residual_bytes, retryable, ...). Writing a second, differently-shaped
+        # ``cleanup={attempted,ok,failed,results}`` over it destroyed that audit, so
+        # the UI/retry path lost first-failure history and could not tell a
+        # remediated failure from a clean run. Only the video-specific verbosity is
+        # added here; the canonical fields are left to their own writer.
         cleanup_results = []
         for stage in staging_roots:
+            # A leaf recorded *before* derivation may never have been created (the
+            # source was unreadable, the asset vanished, cancellation arrived
+            # first). Asking the cleaner to reclaim a path that does not exist
+            # would be recorded as a failure with a FileNotFoundError, which
+            # misreports "nothing to clean" as "cleanup broke". Skip only paths
+            # that genuinely never appeared; an existing directory is always
+            # handed to the cleaner, so a real leftover cannot hide here.
+            if not Path(stage).exists():
+                cleanup_results.append(
+                    {
+                        "path_kind": "video_staging",
+                        "ok": True,
+                        "bytes": 0,
+                        "error": "",
+                        "note": "stage was never created",
+                    }
+                )
+                continue
             result = cleanup_staging_or_log(project_id, stage, owner_job_id=job_id)
             cleanup_results.append(
                 {
@@ -533,7 +560,8 @@ def video_analyze_task(job_id: str) -> None:
         merge_job_stats(
             job_id,
             {
-                "cleanup": {
+                # Deliberately NOT overwriting the canonical ``cleanup`` block.
+                "cleanup_detail": {
                     "attempted": len(cleanup_results),
                     "ok": sum(1 for r in cleanup_results if r["ok"]),
                     "failed": sum(1 for r in cleanup_results if not r["ok"]),
@@ -560,6 +588,19 @@ def _analyze_one(
     is_cancelled,
 ) -> None:
     """Derive, send and store one shot. Never raises for a per-shot problem."""
+    # TSB-336: derive_clip creates ``staging/<asset>/<segment>`` and can fail
+    # afterwards. Registering the leaf only on success left failed/cancelled
+    # derivations with an unreferenced directory that no cleanup step could
+    # report. The path is deterministic, so record it *before* deriving; the
+    # success path below re-registers nothing (the list is de-duplicated).
+    from ...paths import project_cache_dir
+
+    planned_stage = (
+        Path(project_cache_dir(project_id)) / "staging" / candidate.asset_id
+        / candidate.segment_id
+    )
+    staging_roots.append(str(planned_stage))
+
     try:
         with session_scope() as s:
             asset = s.get(Asset, candidate.asset_id)
@@ -603,7 +644,12 @@ def _analyze_one(
     )
         return
 
-    staging_roots.append(str(clip.path.parent.parent))
+    # The exact leaf was already recorded before derivation (see above). Assert the
+    # two agree rather than appending a second entry: a mismatch would mean the
+    # cleaner is pointed at a directory derive_clip never created.
+    actual_stage = str(clip.path.parent)
+    if actual_stage not in staging_roots:
+        staging_roots.append(actual_stage)
     stats["clip_bytes"] += clip.size_bytes
     stats["clip_seconds"] = round(stats["clip_seconds"] + clip.duration_sec, 3)
 

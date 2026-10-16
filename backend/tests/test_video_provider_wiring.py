@@ -442,3 +442,118 @@ def test_r09_a_plaintext_non_loopback_endpoint_is_refused_before_sending(
     assert [r for r in rows if r.is_current] == [], (
         "a refused upload must not publish an observation"
     )
+
+@needs_ffmpeg
+def test_r16_owned_leaf_staging_is_reclaimed_after_a_successful_run(job_env, monkeypatch):
+    """TSB-336 RED: the derived clip's own staging leaf must be cleaned up.
+
+    Today the job records ``parent.parent`` instead of the exact leaf created by
+    ``create_owned_staging()``, so the cleaner refuses the path (it is not an
+    owned leaf) and the job reports ``STAGING_NOT_OWNED``. The clip's temporary
+    bytes then stay on disk while the job looks successful.
+
+    This asserts the *observable* outcome: cleanup ok, and the leaf really gone.
+    """
+    require_ffmpeg()
+    import json as _json
+
+    from app.models import Job as _Job
+
+    import app.services.vision.video_job as module
+
+    caps = _verified_caps()
+    monkeypatch.setattr(module, "plan_video_job", lambda jid, **kw: _plan(job_env, caps))
+    module.video_analyze_task(job_env["job_id"])
+
+    with session_scope() as s:
+        job = s.get(_Job, job_env["job_id"])
+        stats = job.stats or {}
+        failures = job.failures or {}
+
+    # The canonical audit is written by record_cleanup_result; the job must not
+    # clobber it with its own simplified shape (TSB-336 requirement 3).
+    cleanup = stats.get("cleanup") or {}
+    assert cleanup, "the canonical cleanup audit must be present"
+    assert cleanup.get("ok") is True, (
+        "owned staging cleanup must not fail; "
+        f"stats.cleanup={_json.dumps(cleanup, ensure_ascii=False)}"
+    )
+    items = cleanup.get("items") or {}
+    assert items, "per-path cleanup detail must survive (not be overwritten)"
+    assert all(entry.get("ok") for entry in items.values()), items
+    removed = sum(int(e.get("removed_files", 0)) for e in items.values())
+    assert removed >= 1, f"the clip file must actually be removed, saw {removed}"
+
+    codes = [f.get("error_code") for f in (failures.get("items") or [])]
+    assert "STAGING_NOT_OWNED" not in codes, f"unexpected cleanup failure: {codes}"
+
+@needs_ffmpeg
+def test_r17_a_failed_derivation_still_reports_its_staging_leaf(job_env, monkeypatch):
+    """TSB-336: a derivation that fails after mkdir must not hide its directory.
+
+    ``derive_clip`` creates the owned leaf and can then fail (here: FFmpeg is made
+    to fail). Before the fix the path was registered only after a successful
+    return, so the directory stayed behind with nothing referencing it and the job
+    reported no cleanup at all.
+    """
+    require_ffmpeg()
+    import json as _json
+
+    import app.services.vision.video_job as module
+    import app.services.vision.video_clip as vc
+
+    caps = _verified_caps()
+    monkeypatch.setattr(module, "plan_video_job", lambda jid, **kw: _plan(job_env, caps))
+
+    def _boom(*a, **kw):
+        raise vc.VideoClipError("CLIP_FAILED", "synthetic encoder failure")
+
+    monkeypatch.setattr(module, "derive_clip", _boom)
+    module.video_analyze_task(job_env["job_id"])
+
+    from app.models import Job as _Job
+
+    with session_scope() as s:
+        job = s.get(_Job, job_env["job_id"])
+        stats = job.stats or {}
+        failures = job.failures or {}
+
+    # The failure is reported...
+    codes = [f.get("error_code") for f in (failures.get("items") or [])]
+    assert "CLIP_FAILED" in codes, f"the derivation failure must be visible: {codes}"
+
+    # ...and the cleanup pass actually ran over a path (not silently skipped).
+    detail = stats.get("cleanup_detail") or {}
+    assert detail.get("attempted", 0) >= 1, (
+        "a failed derivation must still hand a staging path to cleanup; "
+        f"stats.cleanup_detail={_json.dumps(detail, ensure_ascii=False)}"
+    )
+    assert detail.get("failed", 0) == 0, (
+        f"cleanup must not report a spurious failure: {_json.dumps(detail, ensure_ascii=False)}"
+    )
+    # A stage that never came into existence has nothing to reclaim, and must not
+    # be reported as either a failure or a leftover.
+    assert "STAGING_NOT_OWNED" not in codes, f"cleanup must not be refused: {codes}"
+
+
+@needs_ffmpeg
+def test_r19_cleanup_never_touches_a_sibling_or_the_source(job_env, monkeypatch):
+    """C1/C7: reclaiming our own leaf must not disturb anything else."""
+    require_ffmpeg()
+    import hashlib
+
+    import app.services.vision.video_job as module
+
+    caps = _verified_caps()
+    monkeypatch.setattr(module, "plan_video_job", lambda jid, **kw: _plan(job_env, caps))
+
+    source = job_env["source"]
+    before = hashlib.sha256(source.read_bytes()).hexdigest()
+    parent_listing_before = sorted(p.name for p in source.parent.iterdir())
+
+    module.video_analyze_task(job_env["job_id"])
+
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == before
+    assert sorted(p.name for p in source.parent.iterdir()) == parent_listing_before, (
+        "the source directory must be untouched by cleanup"
+    )
