@@ -53,6 +53,7 @@ from .authorization import authorization_denial_reason, authorize_upload
 from .errors import (
     MODEL_BUDGET_EXCEEDED,
     MODEL_NOT_CONFIGURED,
+    MODEL_PROVIDER_FAULT,
     MODEL_UPLOAD_DENIED,
     ModelError,
 )
@@ -480,9 +481,17 @@ def video_analyze_task(job_id: str) -> None:
     )
         return
 
-    from . import get_provider  # local import keeps the module import-light
+    from . import get_video_provider  # local import keeps the module import-light
 
-    provider = get_provider()
+    # TSB-334: this must be the *video* adapter. ``get_provider()`` returns the
+    # image adapter, which has no ``complete_video`` -- using it here raised
+    # AttributeError and silently produced no observation.
+    provider = get_video_provider()
+    if not hasattr(provider, "complete_video"):  # fail loudly, not as a dead channel
+        raise ModelError(
+            MODEL_NOT_CONFIGURED,
+            "video provider does not implement complete_video()",
+        )
     settings = get_settings()
     usage_totals: dict = {"calls": 0, "clip_bytes": 0}
     staging_roots: list[str] = []
@@ -673,7 +682,7 @@ def _analyze_one(
         stats["failed"] += 1
         _record_failure(
         failures,
-        code=MODEL_FAILED,
+        code=MODEL_PROVIDER_FAULT,
         message=str(exc),
     )
         return

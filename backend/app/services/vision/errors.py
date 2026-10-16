@@ -28,6 +28,14 @@ MODEL_TLS_FAILED = "MODEL_TLS_FAILED"
 MODEL_INVALID_OUTPUT = "MODEL_INVALID_OUTPUT"
 MODEL_BUDGET_EXCEEDED = "MODEL_BUDGET_EXCEEDED"
 MODEL_UPLOAD_DENIED = "MODEL_UPLOAD_DENIED"
+
+#: An unexpected exception escaped the provider adapter -- a bug on our side
+#: (for example calling a method the chosen adapter does not implement), as
+#: opposed to a classified upstream status. Kept distinct from
+#: ``MODEL_INVALID_OUTPUT`` so a wiring fault is never misread as "the model
+#: returned nonsense", which would send an operator looking in the wrong place.
+MODEL_PROVIDER_FAULT = "MODEL_PROVIDER_FAULT"
+
 INSUFFICIENT_FRAMES = "INSUFFICIENT_FRAMES"
 SOURCE_CHANGED = "SOURCE_CHANGED"
 CANCELLED = "CANCELLED"

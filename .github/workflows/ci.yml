@@ -208,6 +208,12 @@ jobs:
           tests/test_video_job.py
           tests/test_video_api.py
           tests/test_video_ab.py
+          # TSB-333/334: the switch-scope contract and the production wiring test.
+          # The wiring test derives a real clip with FFmpeg and drives a real
+          # loopback HTTP server, so it belongs in the mandatory-media job rather
+          # than the job where a missing tool would skip silently.
+          tests/test_video_model_switch_scope.py
+          tests/test_video_provider_wiring.py
       - name: Record exact commit and platform evidence
         if: always()
         working-directory: backend
