@@ -408,3 +408,86 @@ class SegmentMotionVerdict(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # NULL for new judgements; one backfill per old model row, even after restart.
     legacy_review_id: Mapped[str | None] = mapped_column(String(36), unique=True, nullable=True)
+
+
+class SegmentVideoObservation(Base):
+    """M5.3 (TSB-328) — a native-video reading of one shot.
+
+    A third independent result family beside ``SegmentSemanticResult`` (stills) and
+    ``SegmentMotionReview`` (multi-frame). Keeping them apart is what lets the UI
+    show all three side by side with their真实 input mode, and is why the A/B
+    evaluation can attribute a difference to the input rather than to a rewrite of
+    an existing table.
+
+    Versioning follows the same discipline: ``is_current`` marks the live reading,
+    older rows are retained, and the version key is derived from the *inputs*
+    (source, clip bytes, prompt/schema version, model, protocol). A forced re-run
+    with identical inputs replaces the row in place rather than duplicating it.
+
+    Nothing here writes to ``segments`` or any human column: ``user_rating``,
+    ``story_role``, the editable interval and any human verdict remain read-only
+    inputs (C4).
+    """
+
+    __tablename__ = "segment_video_observations"
+    __table_args__ = (
+        UniqueConstraint(
+            "segment_id",
+            "version_key",
+            name="uq_video_observation_version",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    asset_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+    segment_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+    status: Mapped[str] = mapped_column(String(32), default="succeeded")
+
+    #: How the evidence was obtained. ``video_native`` means a derived clip was
+    #: sent; it must never be written for an image or multi-frame reading.
+    method: Mapped[str] = mapped_column(String(32), default="video_native")
+
+    model_provider: Mapped[str] = mapped_column(String(64), default="")
+    model_id: Mapped[str] = mapped_column(String(128), default="")
+    prompt_version: Mapped[str] = mapped_column(String(32), default="")
+    schema_version: Mapped[str] = mapped_column(String(32), default="")
+    #: The protocol the capability probe actually verified.
+    protocol: Mapped[str] = mapped_column(String(64), default="")
+
+    #: Input identity. Changing any of these makes the row stale.
+    source_signature: Mapped[str] = mapped_column(String(128), default="")
+    clip_sha256: Mapped[str] = mapped_column(String(64), default="")
+    #: Hash over every input that decides the result; the version key is built
+    #: from it so an identical re-run is recognised rather than duplicated.
+    version_key: Mapped[str] = mapped_column(String(128), default="", index=True)
+
+    #: The clip's own geometry, so an event window can be re-derived later.
+    clip_start_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    clip_end_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    clip_duration_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    clip_size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    #: The editable interval in force when this reading was taken (C2/C3).
+    segment_start_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    segment_end_sec: Mapped[float] = mapped_column(Float, default=0.0)
+
+    analysis_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    events_json: Mapped[list] = mapped_column(JSON, default=list)
+    #: Per-call audit: usage, attempts, latency, bytes actually sent.
+    request_usage: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    #: Honesty flags that must travel with the row (task book §3 TSB-328).
+    audio_analyzed: Mapped[bool] = mapped_column(Boolean, default=False)
+    color_unverified: Mapped[bool] = mapped_column(Boolean, default=False)
+    observed_temporal_quality: Mapped[str] = mapped_column(String(16), default="unknown")
+
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True)
+    error_code: Mapped[str] = mapped_column(String(64), default="")
+    error_message: Mapped[str] = mapped_column(Text, default="")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
