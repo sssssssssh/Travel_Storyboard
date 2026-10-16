@@ -1,14 +1,15 @@
-# M5.3-R1 发布记录（批次 R1-A：TSB-333、TSB-334）
+# M5.3-R1 发布记录（批次 R1-A：TSB-333、TSB-334；批次 R1-B：TSB-335、TSB-336）
 
 **基线 commit：** `main@6649b6f`（任务书审阅基线）
 本批起点：`5f62709`（仅在其后追加了一篇 docs 记录，**未改动任何代码**，
 见"范围声明"）。代码基线等价于 `6649b6f`。
 
-**批次：** R1-A（TSB-333、TSB-334）
+**批次：** R1-A（TSB-333、TSB-334）→ R1-B（TSB-335、TSB-336）
 **机器：** macOS 15.7.7 arm64 / Python 3.12.14 / FFmpeg 9.0.2（Homebrew）
 **结论：** **代码级整改通过（本机），跨平台 CI 与发布门禁未完成。**
-两条 P0 已修复并有 RED→GREEN 与反向验证证据；真实 PAI-EAS 视频能力
-**仍 not verified**（外部部署状态，见第六节）。
+四条缺陷（R1-A 两条 P0、R1-B 一条 P0 + 一条 P1）已修复并有
+RED→GREEN 与反向验证证据；真实 PAI-EAS 视频能力**仍 not verified**
+（外部部署状态，见第六节）。
 
 ---
 
@@ -164,12 +165,141 @@ provider = get_provider()  # REVERSE-VERIFY: wrong factory
 
 ---
 
+## 二·补、TSB-335 — 端点能力记录闭环（P0，R1-B）
+
+### 问题（RED）
+
+`current_capabilities()` **永远**返回 `unverified`：
+
+```python
+def current_capabilities() -> VideoCapabilities:
+    settings = get_settings()
+    return unverified_capabilities(
+        model_id=settings.model_name or "",
+        reason="no capability probe result is loaded in this process",
+    )
+```
+
+后果：**即使探测已经成功**，视频通道也永远无法启用，前端每次 422。
+一个真正被证明可用的能力被永久锁死。
+
+**且这个缺陷被关了第二道**：`plan_video_job()` 的默认能力同样硬编码
+`unverified_capabilities()`，即**执行路径根本不查任何记录**：
+
+```python
+caps = capabilities if capabilities is not None else unverified_capabilities(...)
+```
+
+### 为什么"显而易见的修法"是错的
+
+最省事的做法是读取仓库内公开的
+`docs/validation/v2.1.3/CAPABILITY_REPORT.json` 然后据此赋权。
+**任务书 §2 明确禁止，且确实危险**：该文件是公开的、属于某一次历史
+部署，任何能提 PR 的人都能把它改成"已授权上传用户视频"。
+用一个可伪造的公开产物去校验隐私守卫，等于把守卫变成橡皮图章。
+
+### 修复（GREEN）
+
+新增 `app/services/vision/capability_store.py`。记录存放在
+**本机、操作者控制、仓库之外**的位置
+（`<data_dir>/runtime/video_capability.json`；`data/` 已在 `.gitignore`）。
+
+| 规则 | 实现 |
+| --- | --- |
+| 只接受实际执行过的探测 | `verified` 必须同时具备非空 `verification_scope` **与** `evidence_digest`；"调用返回 200"无法被包装成"理解了时间" |
+| 绑定完整服务端身份 | `base_url + model_name + protocol + deployment_id` |
+| 任意变化/损坏/过期 → 回落 | 一律 `unverified`，**绝不沿用旧正例** |
+| 不存敏感信息 | 无 Key、无绝对源路径；落盘 `chmod 0600` |
+| 排队与执行分别校验 | §2.4；两处都经 `current_capabilities()` |
+| 存储故障降级方向 | 降级为**"不允许"**，不是"允许"，且不拖垮需要解释状态的路由 |
+
+**部署标识的一个设计细节（重要）**：`deployment_id` **仅在运行时确实
+观测得到时才参与比较**。探测能读到服务端构建串，运行时没有等价通道；
+若强行要求与空值相等，就会让任何正例永久不可用 —— 那只是把
+"永远 unverified"换个马甲。反向情形仍严格保留：运行时**观测到不同
+部署** → 拒绝（§2.3）。
+
+**`tools/probe_video_capability.py` 新增 `--record-capability`**：闭合
+"探测→加载→使用"。**dry-run 拒绝写入**（没有证据）；`unsupported` 与
+`video_accepted_sampling_unknown` 也照实记录，让 UI 能说明"为什么关着"，
+而不是显示空白的 `unverified`。
+
+### 反向验证
+
+把 `current_capabilities()` 改回硬编码 `unverified` →
+**W1、W3 立刻转红**；恢复后 20/20 全绿。
+
+### 验收对照（任务书 §2 ①‑⑥）
+
+| # | 验收项 | 对应用例 |
+| --- | --- | --- |
+| ① | 新安装/unverified 0 次外发、422 | `a1`、`w3` |
+| ② | 实测 `unsupported` 仍拒绝 | `a2` |
+| ③ | 本机假服务正例绑定当前端点后允许一条任务 | `a3`、`w4` |
+| ④ | 换 URL/模型/部署/过期后重新拒绝 | `a4`、`a4b`、`a4c` |
+| ⑤ | 伪造旧报告或无证据 200 不解锁 | `a5`、`a5b`、`a5c`、`a5d` |
+| ⑥ | 启动重启行为有明确测试 | `a6`、`a6b`、`a6c` |
+
+---
+
+## 二·补二、TSB-336 — 暂存回收精确叶子（P1，R1-B）
+
+### 问题（RED，已在 TSB-334 集成测试中实测到）
+
+`create_owned_staging` 创建并登记的是**叶子**
+`staging/{asset}/{segment}`，而 `video_job.py` 记录的是
+`clip.path.parent.parent`（即 `staging/{asset}`）。清理器只接受精确
+叶子，于是**每一次成功运行**都记 `STAGING_NOT_OWNED`：
+
+```json
+{"attempted":1,"ok":0,"failed":1,"results":[{"ok":false,"bytes":0}]}
+```
+
+后果：短片临时字节**留在磁盘上**，而 Job **看起来是成功的**（C6 违背）。
+另外 `video_clip.py` 里本就有写对路径的 `cleanup_clip()`，却**没有任何
+地方调用它**（死代码），生产路径另行算错了目录。
+
+**另两处一并修复**：
+
+1. **派生失败/取消时完全没有登记路径** —— `derive_clip` 在 `mkdir`
+   之后可能抛异常，而登记只发生在成功 `return` 之后，于是失败分支留下
+   的目录无人引用、无法上报，也就无法回收。
+2. **清理健康口径被覆盖** —— `cleanup_staging_or_log` 已经通过
+   `record_cleanup_result` 写入规范审计（`stats.cleanup.items`，含
+   `first_failure` / `residual_bytes` / `retryable`），而 `video_job`
+   又用 `merge_job_stats` 写了一份形状不同的
+   `cleanup={attempted,ok,failed,results}`，把规范审计**整个覆盖**，
+   导致 UI/重试路径丢失首错历史、也分不清"已修复"与"从未失败"。
+
+### 修复（GREEN）
+
+- 登记路径改为精确叶子 `clip.path.parent`。
+- 在 `derive_clip` **之前**就登记确定性叶子路径，使失败/取消分支也有
+  可上报、可回收的对象；成功路径去重。
+- `video_clip.py` 新增 `owned_clip_staging()` 上下文管理器，在创建时即
+  暴露叶子；`cleanup_clip()` 补上 `contextmanager` 导入。
+- `video_job` 不再覆盖规范 `cleanup` 块，视频专有明细改记到
+  `cleanup_detail`。
+- 派生**前**登记但实际从未创建的叶子（源不可读/素材消失/先被取消）
+  跳过清理，而不是让清理器以 `FileNotFoundError` 记成 `CLEANUP_FAILED`
+  —— 那会把"本来就没有东西要清"误报成"清理坏了"。**存在的目录一律交给
+  清理器**，因此真正的残留无法借此隐藏。
+
+### 反向验证
+
+恢复 `parent.parent` 并去掉派生前登记 → **R16、R17 双双转红**；
+恢复后 8/8 全绿。
+
+---
+
 ## 三、验证结果（本机 macOS）
 
 | 检查 | 命令 | 结果 |
 | --- | --- | --- |
-| 后端全量 | `pytest -q --junitxml` | **1106 collected / 12 failed / 0 errors / 44 skipped** |
-| 强制媒体作业（ci.yml 原样 56 文件） | `TSB_REQUIRE_FFMPEG=1 pytest` | **1022 collected / 12 failed / 0 errors / 44 skipped** |
+| 后端全量 | `pytest -q --junitxml` | **1129 collected / 12 failed / 0 errors / 44 skipped** |
+| 视频与能力相关 6 套件 | `pytest` | **133 collected / 0 failed** |
+| TSB-335 能力闭环 | `pytest test_video_capability_store.py` | **20 / 0 failed**（反向断开后 2 failed） |
+| TSB-336 暂存回收 | `pytest test_video_provider_wiring.py` | **8 / 0 failed**（反向断开后 2 failed） |
 | TSB-333 目标套件 | `pytest test_native_video_provider.py` | **30 / 0 failed**（修复前 15 failed） |
 | TSB-334 新集成 | `pytest test_video_provider_wiring.py` | **5 / 0 failed**（反向断开后 5 failed） |
 | 开关范围契约 | `pytest test_video_model_switch_scope.py` | **5 / 0 failed** |
@@ -194,8 +324,8 @@ formula 依赖列表中**没有** freetype，故任何 Homebrew ffmpeg 9.0.2 都
 
 ### 数字口径（AGENTS.md §3.5）
 
-`1106` / `1022` 均为 **collected（收集数）**，含 skip。
-本机非跳过项为 `1106 - 44 = 1062`。**不得**把 collected 写成 "passed"。
+`1129` 为 **collected（收集数）**，含 skip。
+本机非跳过项为 `1129 - 44 = 1085`。**不得**把 collected 写成 "passed"。
 上一轮曾犯此错，已在 `MACOS_PULL_NOTES.md` 更正。
 
 ---
@@ -268,13 +398,13 @@ formula 依赖列表中**没有** freetype，故任何 Homebrew ffmpeg 9.0.2 都
 3. **真实 PAI-EAS 视频能力仍未验证** —— 端点现持续 503（第五节）。
    需部署所有者恢复服务后重新探测。**不得**用本批的 loopback Mock
    通过冒充"真实视频可用"。
-4. **R1-B/336 的现象已提前暴露** —— TSB-334 的集成测试已实测到
-   `STAGING_NOT_OWNED` 清理失败（Job failures 中出现
-   `error_code: STAGING_NOT_OWNED`），与任务书 TSB-336 对
-   `clip.path.parent.parent` 的预判一致。**本批未修**（属 R1-B），
-   但已有可复现的观测证据。
-5. **TSB-335 的能力闭环未实现** —— `current_capabilities()` 仍固定返回
-   `unverified`；本批未改（属 R1-B）。
+4. **R1-C / R1-D 未开始** —— TSB-337（多帧回退必须真正执行）、
+   TSB-338（`ApiError` 结构化 detail）、TSB-339（`PROTECTION_REPORT`
+   真实 DJI 文件名）、TSB-340（A/B 标签）均未开工。
+5. **能力闭环的"正例"仍未被真实端点验证过** —— TSB-335 的加载/失效/使用
+   路径已由 20 项测试证明（含本机假服务正例），但**真实** PAI-EAS 端点
+   当前持续 503，因此**没有**任何真实 `verified_native_video` 记录存在，
+   通道按设计保持拒绝。这不等于"真实视频已可用"。
 6. **A/B 真实标注 0、C 臂不可用**，不能给"视频优于抽帧"结论。
 
 ---

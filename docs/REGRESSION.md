@@ -875,3 +875,55 @@ vLLM 原始报错为
 A/B 报告 `AB_RESULTS.json` 的 `status` 为 `not_annotated`，**所有指标为 null**。
 
 
+
+---
+
+## M5.3-R1 整改（R1-A / R1-B）
+
+### TSB-333 CI 跨平台失败：测试级开启模型开关
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_native_video_provider.py`（模块 autouse fixture） | 15 项协议/嗅探/上限/状态分类/重试用例够得着授权边界之后的分支；**生产默认 off 不变** |
+| `test_video_model_switch_scope.py::R02` | fixture 开启后**确实**发生 1 次真实 loopback 请求（不是 0 次） |
+| `::R02b` | 该开启不依赖进程环境变量 |
+| `::R01` | 开关关着时 0 外发且 `MODEL_UPLOAD_DENIED` |
+| `::R01b` | `.env.example` 默认值仍为 `off` |
+| `::R01c` | `ci.yml` 不得出现 `TRAVELSB_MODEL_MODE`（防"全局打开"式假绿） |
+
+### TSB-334 视频 Provider 工厂与真实调用链
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_video_provider_wiring.py::R07` | 收到 `complete_video` 的类是 `NativeVideoVisionProvider` |
+| `::R07b` | 恰好 1 个请求；含 `data:video/mp4;base64,`、不含 `image_url`；载荷 `ftyp` 完好 |
+| `::R09` | 非回环明文端点 0 外发且不发布 observation |
+| `::R10` | 事件 rel 0.5s → 源片绝对 1.5s；`is_current` 唯一；`audio_analyzed` 强制 False |
+| 反向验证 R08 | 调用点改回 `get_provider()` → 5 项全红 |
+| `errors.MODEL_PROVIDER_FAULT` | 适配器逃逸异常与 `MODEL_INVALID_OUTPUT` 区分 |
+
+### TSB-335 端点能力记录闭环
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_video_capability_store.py::a1` | 全新安装无记录 → `unverified`、0 外发 |
+| `::a2` | 实测 `unsupported` 仍拒绝 |
+| `::a3` | 本机正例绑定当前端点后允许 |
+| `::a4/a4b/a4c` | 换 URL / 模型 / 协议 / 部署 / 过期 → 重新拒绝 |
+| `::a5/a5c/a5b` | 伪造记录、缺 scope、损坏 JSON 均不解锁 |
+| `::a5d` | 仅 200 无时间信息 = `video_accepted_sampling_unknown`，仍不可发送 |
+| `::a6/a6b/a6c` | 重启重读；记录不在仓库内；不含 Key/Authorization/绝对路径 |
+| `::w1/w3/w4` | `current_capabilities()` / `plan_video_job()` 确实读了记录 |
+| `::w2` | 存储故障降级为"拒绝"，不是"允许"、也不崩 |
+| `::w5` | 排队后切换端点在执行时被拦下 |
+| 反向验证 | 改回硬编码 `unverified` → W1、W3 转红 |
+| `probe_video_capability.py --record-capability` | dry-run 拒绝写入（无证据） |
+
+### TSB-336 暂存回收精确叶子与清理健康统一
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_video_provider_wiring.py::R16` | 成功运行后规范审计 `cleanup.ok=True`、`items` 非空、`removed_files>=1`（未被 `merge_job_stats` 覆盖） |
+| `::R17` | 派生失败仍把叶子交给清理；不产生伪失败 |
+| `::R19` | 原片 SHA-256 与源目录列表不变（C1/C7） |
+| 反向验证 | 恢复 `parent.parent` 且取消派生前登记 → R16、R17 双红 |
