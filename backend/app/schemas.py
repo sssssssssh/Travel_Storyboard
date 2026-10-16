@@ -490,3 +490,77 @@ class MotionReviewOut(ORMModel):
     error_code: str
     created_at: datetime
     updated_at: datetime
+
+
+class VideoAnalyzeRequest(_VisualJobRequest):
+    """Inputs for a native-video analysis job (TSB-329).
+
+    ``mode`` is explicit rather than inferred: the task book requires the caller to
+    say which channel it wants, and requires the *effective* mode to be reportable
+    when video is unavailable. ``allow_fallback`` is a separate opt-in so a silent
+    downgrade to multi-frame analysis can never happen by default.
+    """
+
+    mode: str = Field(default="video_native", pattern="^(image_only|multiframe|video_native)$")
+    segment_ids: list[str] = Field(default_factory=list)
+    limit: int | None = Field(default=None, ge=1, le=2000)
+    force: bool = False
+    #: Per-call consent for sending derived video clips. Never inherited from a
+    #: previous image upload (task book V02).
+    upload_acknowledged: bool = False
+    #: Explicit permission to run ``multiframe`` instead when video is unavailable.
+    allow_fallback: bool = False
+    #: Derivation and budget knobs; all local guard rails, not endpoint limits.
+    max_clip_sec: float | None = Field(default=None, gt=0, le=60)
+    max_segments: int | None = Field(default=None, ge=1, le=500)
+    max_total_sec: float | None = Field(default=None, gt=0, le=3600)
+    max_total_bytes: int | None = Field(default=None, ge=1, le=2_000_000_000)
+
+
+class VideoObservationOut(ORMModel):
+    """One native-video observation, with its honesty flags always present.
+
+    ``method`` distinguishes this family from ``semantic``/``multiframe`` readings;
+    the UI shows all three side by side, so the input mode must never be implied.
+    ``audio_analyzed`` is ``false`` by construction (the clip is silent) and
+    ``color_unverified`` marks an HDR source with no verified tone-map.
+    """
+
+    id: str
+    segment_id: str
+    asset_id: str
+    status: str
+    method: str
+    is_current: bool
+    model_id: str
+    prompt_version: str
+    schema_version: str
+    protocol: str
+    summary: str
+    events: list[dict] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    dropped: list[dict] = Field(default_factory=list)
+    clip: dict = Field(default_factory=dict)
+    segment_window: dict = Field(default_factory=dict)
+    audio_analyzed: bool
+    color_unverified: bool
+    observed_temporal_quality: str
+    request_usage: dict = Field(default_factory=dict)
+    error_code: str
+    error_message: str
+    created_at: str
+    updated_at: str
+
+
+class VideoCoverageOut(BaseModel):
+    """How much of the library has a video reading, reported as a subset."""
+
+    library_segments: int
+    segments_with_video_reading: int
+    segments_not_covered: int
+    failed_attempts: int
+    event_candidates: int
+    complete: bool
+    method: str
+    audio_analyzed: bool
+

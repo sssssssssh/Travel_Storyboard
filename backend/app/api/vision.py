@@ -11,13 +11,25 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
-from ..models import Asset, Job, Project, Segment, SegmentMotionReview, SegmentSemanticResult, SegmentSemanticAttempt
+from ..models import (
+    Asset,
+    Job,
+    Project,
+    Segment,
+    SegmentMotionReview,
+    SegmentSemanticAttempt,
+    SegmentSemanticResult,
+    SegmentVideoObservation,
+)
 from ..schemas import (
     JobOut,
     MotionCandidateOut,
     MotionReviewOut,
     MotionReviewRequest,
     MotionVerdictRequest,
+    VideoAnalyzeRequest,
+    VideoCoverageOut,
+    VideoObservationOut,
     VisionAnalyzeRequest,
     VisionPreviewOut,
     VisionResultOut,
@@ -29,12 +41,17 @@ from ..services.job_service import (
     JobRequest,
     ProjectNotFound,
     create_project_job,
+    locking_job_for,
 )
 from ..services.runner import ACTIVE_STATUSES
 from ..services.vision import capabilities as caps_mod
 from ..services.vision import is_configured
 from ..services.vision import semantic
+from ..services.vision.video_analysis import coverage_report, observation_payload
+from ..services.vision.video_job import video_capability_refusal
+from ..services.vision.video_schema import VIDEO_PROMPT_VERSION, VIDEO_SCHEMA_VERSION
 from .deps import get_db
+
 
 router = APIRouter(tags=["vision"])
 
@@ -394,3 +411,162 @@ def _result_out(row: SegmentSemanticResult) -> VisionResultOut:
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
+
+
+# ---------------------------------------------------------------------------
+# TSB-328/329 — native-video observations
+# ---------------------------------------------------------------------------
+
+def _video_config(project: Project, request: JobRequest) -> dict:
+    """Config snapshot for a ``video_analyze`` job.
+
+    Everything the task later needs is frozen here, including the consent flag and
+    the fallback permission. Freezing them means a settings change between request
+    and execution cannot widen what the job is allowed to send.
+    """
+    options = request.options or {}
+    settings = get_settings()
+    return {
+        "mode": str(options.get("mode") or "video_native"),
+        "limit": int(options.get("limit") or settings.vision_max_segments_per_job),
+        "segment_ids": list(options.get("segment_ids") or []),
+        "force": bool(request.force),
+        "upload_acknowledged": bool(options.get("upload_acknowledged")),
+        "allow_fallback": bool(options.get("allow_fallback")),
+        "max_clip_sec": float(options.get("max_clip_sec") or 15.0),
+        "max_segments": int(options.get("max_segments") or 20),
+        "max_total_sec": float(options.get("max_total_sec") or 300.0),
+        "max_total_bytes": int(options.get("max_total_bytes") or 120_000_000),
+        "prompt_version": VIDEO_PROMPT_VERSION,
+        "schema_version": VIDEO_SCHEMA_VERSION,
+    }
+
+
+@router.post("/projects/{project_id}/jobs/video_analyze", response_model=JobOut, status_code=202)
+def start_video_analyze(
+    project_id: str,
+    body: VideoAnalyzeRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    """Queue a native-video analysis job (202).
+
+    A job rather than a synchronous call because clip derivation is real FFmpeg
+    work and the model call can take minutes: it must be cancellable and must hold
+    the project's exclusivity like every other heavy task.
+
+    Capability is checked **here**, before the job is enqueued. Letting an
+    unavailable channel through and failing later inside the worker would be worse
+    than useless: the UI would show a queued job, the project lock would be taken,
+    and the user would learn only afterwards that video was never possible. The
+    task book requires the button to be disabled and the request refused (V03).
+
+    Order matters: an already-running job is reported as a conflict **before** the
+    capability verdict. Both are true in that situation, but "wait for the current
+    job" is the immediately actionable one, and answering 422 would hide the fact
+    that the project is busy at all.
+    """
+    options = (body.model_dump() if body else {}) or {}
+
+    if db.get(Project, project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if (blocking := locking_job_for(project_id)) is not None:
+        raise HTTPException(status_code=409, detail=JobConflict(blocking).detail())
+
+    refusal = video_capability_refusal(
+        mode=str(options.get("mode") or "video_native"),
+        allow_fallback=bool(options.get("allow_fallback")),
+    )
+    if refusal is not None:
+        raise HTTPException(status_code=422, detail=refusal)
+
+    try:
+        return create_project_job(
+            db,
+            project_id,
+            JobRequest(job_type="video_analyze", options=options,
+                       force=bool(options.get("force"))),
+            config_builder=_video_config,
+        )
+    except InvalidJobType as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ProjectNotFound:
+        raise HTTPException(status_code=404, detail="Project not found") from None
+    except JobConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail()) from exc
+
+
+@router.get("/projects/{project_id}/video-observations",
+            response_model=list[VideoObservationOut])
+def list_video_observations(
+    project_id: str,
+    limit: int = Query(default=200, ge=1, le=1000),
+    include_history: bool = Query(default=False),
+    db: Session = Depends(get_db),
+):
+    """Current video observations for a project.
+
+    ``include_history`` exposes superseded versions for audit; the default is the
+    live reading per shot, which is what the three-way comparison view needs.
+    """
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    statement = select(SegmentVideoObservation).where(
+        SegmentVideoObservation.project_id == project_id
+    )
+    if not include_history:
+        statement = statement.where(SegmentVideoObservation.is_current.is_(True))
+    rows = db.scalars(
+        statement.order_by(SegmentVideoObservation.created_at.desc()).limit(limit)
+    ).all()
+    return [VideoObservationOut(**observation_payload(row)) for row in rows]
+
+
+@router.get("/segments/{segment_id}/video-observation",
+            response_model=VideoObservationOut)
+def get_video_observation(segment_id: str, db: Session = Depends(get_db)):
+    """The live video reading for one shot, or 404."""
+    row = db.scalars(
+        select(SegmentVideoObservation)
+        .where(
+            SegmentVideoObservation.segment_id == segment_id,
+            SegmentVideoObservation.is_current.is_(True),
+        )
+        .order_by(SegmentVideoObservation.created_at.desc())
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="No video observation for this segment")
+    return VideoObservationOut(**observation_payload(row))
+
+
+@router.get("/segments/{segment_id}/video-observation/history",
+            response_model=list[VideoObservationOut])
+def video_observation_history(
+    segment_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Every retained version for one shot, newest first (audit trail)."""
+    rows = db.scalars(
+        select(SegmentVideoObservation)
+        .where(SegmentVideoObservation.segment_id == segment_id)
+        .order_by(SegmentVideoObservation.created_at.desc())
+        .limit(limit)
+    ).all()
+    return [VideoObservationOut(**observation_payload(row)) for row in rows]
+
+
+@router.get("/projects/{project_id}/video-coverage", response_model=VideoCoverageOut)
+def video_coverage(project_id: str, db: Session = Depends(get_db)):
+    """Coverage of the video channel, reported as a subset of the library.
+
+    Deliberately not a "success" summary: it states how many shots have a reading
+    and how many do not, so a partial analysis cannot be read as a full one.
+    """
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return VideoCoverageOut(**coverage_report(project_id))
+

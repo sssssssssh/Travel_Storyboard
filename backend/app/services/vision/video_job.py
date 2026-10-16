@@ -338,6 +338,53 @@ def _record_failure(
     )
 
 
+def video_capability_refusal(
+    *,
+    mode: str,
+    allow_fallback: bool,
+    capabilities: VideoCapabilities | None = None,
+) -> dict | None:
+    """The refusal body for an unavailable video channel, or None if it may run.
+
+    Returns structured detail rather than raising, so the API layer can answer the
+    request *before* enqueueing a job. Enqueueing and failing later would take the
+    project lock, show the user a queued job, and only then reveal that video was
+    never possible.
+    """
+    caps = capabilities if capabilities is not None else current_capabilities()
+    try:
+        resolve_mode(requested_mode=mode, capabilities=caps, allow_fallback=allow_fallback)
+    except ModelError as exc:
+        return {
+            "error_code": exc.code,
+            "message": str(exc),
+            "capability_state": caps.state,
+            "verified": caps.verified,
+            "requested_mode": mode,
+            # Actionable guidance: the state is not the caller's fault and the
+            # remedy is a server-side serving change (measured 2026-10-16).
+            "remedy": (
+                "让部署接受视频需要服务端加 --limit-mm-per-prompt video=1 并重启；"
+                "也可以改用 mode=multiframe 立即分析。"
+            ),
+        }
+    return None
+
+
+def current_capabilities() -> VideoCapabilities:
+    """The capability record this process knows about.
+
+    Returns ``unverified`` unless a probe result has been loaded, which is the
+    honest and safe answer: "no probe on record" means the channel may not send.
+    Callers holding a probe report pass it in explicitly via ``capabilities``.
+    """
+    settings = get_settings()
+    return unverified_capabilities(
+        model_id=settings.model_name or "",
+        reason="no capability probe result is loaded in this process",
+    )
+
+
 def register_video_tasks() -> None:
     """Register the ``video_analyze`` task type.
 
