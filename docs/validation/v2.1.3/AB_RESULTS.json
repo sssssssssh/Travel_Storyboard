@@ -1,0 +1,67 @@
+{
+  "task": "TSB-330",
+  "status": "not_annotated",
+  "evaluated": false,
+  "segments_in_run": 0,
+  "distinct_assets": 0,
+  "arm_c_available": 0,
+  "capability_state": "unsupported",
+  "arm_c_blocked_reason": "",
+  "endpoint_note": "model=GLM-5.3-Flash; capability=unsupported; scope=endpoint refused the video payload (HTTP 400): vLLM recognises the video content part, but this deployment's per-prompt video limit is 0 — the serving configuration needs `--limit-mm-per-prompt video=1` (a server-side change, not client-side)",
+  "sampling_note": "0 segments drawn from 0 source videos; segments from one video are not independent samples",
+  "per_segment": [],
+  "metrics": {
+    "evaluated": false,
+    "iou_threshold": 0.5,
+    "labelled_segments": 0,
+    "arms": {
+      "A_image_only": {
+        "evaluated": false,
+        "reason": "not_annotated",
+        "event_recall": null,
+        "event_precision": null,
+        "temporal_iou_ge_threshold": null,
+        "predicted_events": 0
+      },
+      "B_multiframe": {
+        "evaluated": false,
+        "reason": "not_annotated",
+        "event_recall": null,
+        "event_precision": null,
+        "temporal_iou_ge_threshold": null,
+        "predicted_events": 0
+      },
+      "C_video_native": {
+        "evaluated": false,
+        "reason": "not_annotated",
+        "event_recall": null,
+        "event_precision": null,
+        "temporal_iou_ge_threshold": null,
+        "predicted_events": 0
+      }
+    },
+    "recall_gain_points_C_over_A": null,
+    "meets_adoption_criteria": {
+      "decided": false,
+      "adopt_video_as_preferred": false,
+      "reason": "insufficient evidence",
+      "missing": [
+        "arm A and arm C recall both need real labels",
+        "arm C has no evaluated predictions"
+      ]
+    }
+  },
+  "adoption_criteria": {
+    "min_event_recall_gain_points": 10.0,
+    "temporal_iou_threshold": 0.5,
+    "max_false_positive_rate_delta": 0.05,
+    "requires_real_human_labels": true,
+    "requires_unit_cost_data": true
+  },
+  "cost_note": "arms A/B are billed per token; arm C sends clip_seconds and clip_bytes as well. Token counts are NOT comparable across these shapes and no unit-cost conclusion is drawn.",
+  "honesty": [
+    "没有人工标注时 per-arm 指标为 null，只报告覆盖率，不填造准确率",
+    "arm C 不可用时状态为 blocked_by_endpoint，其数值保持 null",
+    "Mock/合成素材通过不等于真实视频质量验收通过"
+  ]
+}
