@@ -166,6 +166,29 @@ def control_probe(*, model_id: str, timeout_sec: float = 60.0) -> tuple[int | No
     return resp.status_code, redact(resp.text[:300], settings.model_api_key)
 
 
+def _classify_video_rejection(body: str) -> str:
+    """Turn a rejection body into a precise, actionable reason.
+
+    "HTTP 400" is not a useful verdict on its own. The vLLM family answers with a
+    message that says *why*, and the difference between "this server cannot do
+    video at all" and "this server can, but the deployment's per-prompt video
+    limit is 0" changes the remedy completely: the first needs a different model,
+    the second needs a serving flag. So the body is inspected for that.
+    """
+    lowered = (body or "").lower()
+    if "limit-mm-per-prompt" in lowered or "may be provided in one prompt" in lowered:
+        return (
+            "vLLM recognises the video content part, but this deployment's "
+            "per-prompt video limit is 0 — the serving configuration needs "
+            "`--limit-mm-per-prompt video=1` (a server-side change, not client-side)"
+        )
+    if "unsupported chat content part type" in lowered:
+        return "server does not recognise this content part type at all"
+    if "not support" in lowered:
+        return "server states the model does not support this input"
+    return ""
+
+
 def classify_probe_outcome(outcome: ProbeOutcome) -> tuple[str, str]:
     """Map an observation onto ``(state, verification_scope)``.
 
@@ -192,7 +215,9 @@ def classify_probe_outcome(outcome: ProbeOutcome) -> tuple[str, str]:
         )
 
     if outcome.http_status in (415, 422, 400):
-        return vc.UNSUPPORTED, f"endpoint refused the video payload (HTTP {outcome.http_status})"
+        precise = _classify_video_rejection(outcome.response_excerpt)
+        base = f"endpoint refused the video payload (HTTP {outcome.http_status})"
+        return vc.UNSUPPORTED, f"{base}: {precise}" if precise else base
     if outcome.http_status in (401, 403):
         return vc.UNVERIFIED, f"probe was not accepted for auth reasons (HTTP {outcome.http_status})"
     if outcome.http_status == 413:

@@ -111,6 +111,52 @@ def test_a_healthy_control_lets_a_video_rejection_stand():
     assert state == vc.UNSUPPORTED
 
 
+# --- the rejection body must produce an actionable reason -------------------
+
+#: The exact body this endpoint returned on 2026-10-16 (vLLM, video limit 0).
+_VLLM_ZERO_VIDEO_LIMIT = (
+    '{"error":{"message":"At most 0 video(s) may be provided in one prompt. '
+    'Set `--limit-mm-per-prompt` to increase this limit. (parameter=video)",'
+    '"type":"BadRequestError","param":"video","code":400}}'
+)
+
+
+def test_a_zero_video_limit_names_the_serving_flag():
+    """'HTTP 400' alone sends the operator looking in the wrong place.
+
+    The remedy here is a server-side serving flag, not a client-side change, so
+    the reason must say so.
+    """
+    state, scope = classify_probe_outcome(
+        _outcome(http_status=400, control_http_status=200, response_excerpt=_VLLM_ZERO_VIDEO_LIMIT)
+    )
+    assert state == vc.UNSUPPORTED
+    assert "limit-mm-per-prompt" in scope
+    assert "server-side" in scope, "the fix is server-side; the reason must not imply otherwise"
+
+
+def test_an_unrecognised_content_part_is_described_as_such():
+    state, scope = classify_probe_outcome(
+        _outcome(
+            http_status=400,
+            control_http_status=200,
+            response_excerpt="Unsupported chat content part type: 'video'.",
+        )
+    )
+    assert state == vc.UNSUPPORTED
+    assert "does not recognise" in scope
+
+
+def test_an_unparsed_rejection_still_reports_the_status():
+    """No guessing at a cause we cannot read."""
+    state, scope = classify_probe_outcome(
+        _outcome(http_status=400, control_http_status=200, response_excerpt="something odd")
+    )
+    assert state == vc.UNSUPPORTED
+    assert "HTTP 400" in scope
+    assert "limit-mm-per-prompt" not in scope
+
+
 def test_a_healthy_control_lets_a_verification_stand():
     state, _ = classify_probe_outcome(
         _outcome(http_status=200, control_http_status=200, temporal_signal=True)

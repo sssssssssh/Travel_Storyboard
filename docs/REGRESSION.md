@@ -720,9 +720,24 @@ T01/T04/T15/T17/T19/T23/T25 本轮补充记录见 `validation/v2.1.2/MAC_UI_E2E.
 `capability_gate` → `test_capability_gate_refuses_sampling_unknown` 失败。
 `VERDICT: PASS`，脚本在每次变异后恢复原文件。
 
-**手动门禁（本轮未完成）**：端点视频能力**未验证**（探测时端点 503，纯文本对照同样 503）。
+**手动门禁结论**：端点**当前不接受视频**，`video_native` 通道保持禁用。
+
+实测（端点健康：纯文本 200、图片 200 且回答正确）——视频请求返回 HTTP 400，
+vLLM 原始报错为
+`At most 0 video(s) may be provided in one prompt. Set --limit-mm-per-prompt to increase this limit.`。
+即 vLLM **认得** `video_url` 类型，但该部署的 per-prompt 视频上限为 0：
+**服务端配置问题**，不是协议写错，也**不能**据此断言模型不支持视频。
+要解除需服务端加 `--limit-mm-per-prompt video=1` 并重启部署，再重跑探测。
+
+新增用例 `test_native_video_probe.py::test_a_zero_video_limit_names_the_serving_flag`
+守护这条结论的表述：报错必须被翻译成可执行的**服务端**修复建议，而不是笼统的"HTTP 400"；
+`::test_an_unrecognised_content_part_is_described_as_such` 区分"类型不存在"与"数量上限 0"；
+`::test_an_unparsed_rejection_still_reports_the_status` 保证读不懂的报错不瞎猜原因。
+
 证据见 `docs/validation/v2.1.3/CAPABILITY_REPORT.json` 与 `PROTOCOL_EXAMPLES.md`。
-本次 `--execute` 确实外发了 48,829 字节**合成**短片（无用户素材），但端点未给出任何视频相关信息，
-因此结论为 `unverified`，`video_native` 通道保持禁用。
-拿到真实正例前不得进入 TSB-327 之后的真实视频链路。
+本次 `--execute` 确实外发了 48,829 字节**合成**短片（无用户素材），
+不应描述为"仅本地测试"。
+**视频被接受后能否给出有用时间信息仍完全未知**；拿到真实正例前不得进入
+TSB-327 之后的真实视频链路，也不得宣传视频理解能力。
+
 

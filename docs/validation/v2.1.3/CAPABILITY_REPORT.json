@@ -25,27 +25,27 @@
   },
   "observation": {
     "attempted": true,
-    "http_status": 503,
+    "http_status": 400,
     "error_code": "",
     "temporal_signal": false,
     "temporal_signal_basis": "",
     "usage_present": false,
-    "latency_ms": 1965,
+    "latency_ms": 2119,
     "notes": [],
-    "control_http_status": 503,
-    "control_excerpt": "no healthy upstream",
-    "response_excerpt": "no healthy upstream"
+    "control_http_status": 200,
+    "control_excerpt": "{\"id\":\"chatcmpl-4631979b-4a3c-497b-bf76-8fdd61ecadf6\",\"object\":\"chat.completion\",\"created\":1792121300,\"model\":\"GLM-5.3-Flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":null,\"refusa",
+    "response_excerpt": "{\"error\":{\"message\":\"At most 0 video(s) may be provided in one prompt. Set `--limit-mm-per-prompt` to increase this limit. (parameter=video)\",\"type\":\"BadRequestError\",\"param\":\"video\",\"code\":400}}"
   },
   "capabilities": {
-    "state": "unverified",
+    "state": "unsupported",
     "protocol": "video_url_data_uri",
     "max_duration_sec": null,
     "max_bytes": null,
     "accepts_audio": null,
     "temporal_sampling_disclosed": false,
     "model_id": "GLM-5.3-Flash",
-    "probe_time": "2026-10-16T01:11:17+00:00",
-    "verification_scope": "endpoint unhealthy: text-only control also returned HTTP 503; the video attempt is inconclusive",
+    "probe_time": "2026-10-16T03:28:20+00:00",
+    "verification_scope": "endpoint refused the video payload (HTTP 400): vLLM recognises the video content part, but this deployment's per-prompt video limit is 0 — the serving configuration needs `--limit-mm-per-prompt video=1` (a server-side change, not client-side)",
     "detail": {
       "temporal_signal_basis": ""
     },
