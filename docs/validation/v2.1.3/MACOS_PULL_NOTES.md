@@ -3,10 +3,29 @@
 **日期**：2026-10-15
 **拉取**：`664239b` → `6649b6f`（11 个 commit，fast-forward）
 **机器**：macOS 15.7.7 arm64 / Python 3.12.14 / FFmpeg 9.0.2（Homebrew）
-**结论**：**代码可运行、无产品缺陷**。本机全量 `1096 collected / 12 failed`，
-12 项**全部源于 ffmpeg 构建缺 `drawtext`**（排除该文件后
-`1058 collected / 0 failed`）；另有 15 项曾被 `.env` 的 `MODEL_MODE=off` 掩盖，
-置 `on` 后全通过。两者都是**环境差异**，非回归。
+
+> ## ⚠️ 更正（2026-10-16，TSB-341）
+>
+> 本文件下方原结论称 12 项失败为**纯环境问题、非产品缺陷**。**该结论是错的。**
+>
+> 复核发现：`drawtext` 在 `backend/app/` 中确实零引用，但
+> **`tools/probe_video_capability.py` 使用了它** —— 而那是产出 TSB-335
+> 所读能力记录的**唯一**入口。缺 freetype 的 FFmpeg 上，探测在能报告
+> "不可用"之前就崩溃，**整条原生视频闭环不可达**；`tests/test_video_clip.py`
+> 的测试源构建器同样依赖它。
+>
+> 当时只把范围限定在 `tests/` 就下了"环境问题"的结论，**漏掉了 `tools/`
+> 里的生产工具**。已由 `fix(TSB-341)` 修复：探测短片改用 `color`/`drawbox`
+> 三段色相，测试源改用核心滤镜 `hue`。修复后本机全量
+> **1135 collected / 0 failed**，仓库内 `drawtext` 已无任何实际使用。
+>
+> 下方原有分析对"为什么本机缺 drawtext"的描述仍然准确，保留作为环境事实；
+> 但**"非产品缺陷"的判断已作废**。详见
+> [docs/RELEASE_M5_3_R1.md](../../RELEASE_M5_3_R1.md) 的 TSB-341 章节。
+
+**原结论（已作废，见上方更正）**：~~代码可运行、无产品缺陷~~。本机全量
+`1096 collected / 12 failed`，12 项源于 ffmpeg 构建缺 `drawtext`；另有 15 项
+曾被 `.env` 的 `MODEL_MODE=off` 掩盖（此项判断仍成立，由 TSB-333 处理）。
 
 ---
 

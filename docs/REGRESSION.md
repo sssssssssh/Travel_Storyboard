@@ -927,3 +927,15 @@ A/B 报告 `AB_RESULTS.json` 的 `status` 为 `not_annotated`，**所有指标�
 | `::R17` | 派生失败仍把叶子交给清理；不产生伪失败 |
 | `::R19` | 原片 SHA-256 与源目录列表不变（C1/C7） |
 | 反向验证 | 恢复 `parent.parent` 且取消派生前登记 → R16、R17 双红 |
+
+### TSB-341 能力探测可移植性与证据强度
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_probe_clip_portability.py::test_the_probe_clip_builds_without_drawtext` | 探测短片在**无 freetype** 的 FFmpeg 上也能生成（修复前崩溃） |
+| `::test_the_probe_clip_carries_a_checkable_colour_sequence` | 逐帧采样验证三段颜色确实不同且顺序为红/绿/蓝 |
+| `::test_the_probe_asks_for_the_observed_order` | prompt 必须点名颜色并要求顺序 |
+| `::test_a_correct_order_is_recognised_and_a_wrong_one_is_not` | 顺序说反必须判否 |
+| `::test_the_old_keyword_heuristic_could_not_fail_this_way` | 回归守卫：流利但顺序错误不得通过 |
+| 反向验证 | 放回 `drawtext` → 前两项转红 |
+| `test_video_clip.py` 测试源 | 改用核心滤镜 `hue`；本机 38/38（原 12 failed） |

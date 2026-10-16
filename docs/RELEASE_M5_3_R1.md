@@ -1,10 +1,10 @@
-# M5.3-R1 发布记录（批次 R1-A：TSB-333、TSB-334；批次 R1-B：TSB-335、TSB-336）
+# M5.3-R1 发布记录（R1-A：TSB-333/334；R1-B：TSB-335/336；TSB-341 环境阻塞修复）
 
 **基线 commit：** `main@6649b6f`（任务书审阅基线）
 本批起点：`5f62709`（仅在其后追加了一篇 docs 记录，**未改动任何代码**，
 见"范围声明"）。代码基线等价于 `6649b6f`。
 
-**批次：** R1-A（TSB-333、TSB-334）→ R1-B（TSB-335、TSB-336）
+**批次：** R1-A（TSB-333、TSB-334）→ R1-B（TSB-335、TSB-336）→ TSB-341（drawtext 可移植性）
 **机器：** macOS 15.7.7 arm64 / Python 3.12.14 / FFmpeg 9.0.2（Homebrew）
 **结论：** **代码级整改通过（本机），跨平台 CI 与发布门禁未完成。**
 四条缺陷（R1-A 两条 P0、R1-B 一条 P0 + 一条 P1）已修复并有
@@ -292,12 +292,77 @@ caps = capabilities if capabilities is not None else unverified_capabilities(...
 
 ---
 
+## 二·补三、TSB-341 — 能力探测不再依赖 drawtext（环境阻塞修复）
+
+### 为什么单列一条
+
+这一条不属于任务书原有编号，是本次执行中**实测发现**并修复的缺陷。
+它必须单列，因为**早先的发布记录把它误判为"纯环境问题"**，
+而这个误判会让整条原生视频闭环在部分机器上永久不可用。
+
+### 问题（RED）
+
+`tools/probe_video_capability.py` 构造探测短片时使用 `drawtext`：
+
+```
+drawtext=text='%{eif\:n\:d}':x=10:y=10:fontsize=48:fontcolor=white
+```
+
+`drawtext` 需要编译期 freetype 依赖，最小构建（含 Homebrew formula）没有。
+本机实测直接崩溃：
+
+```
+[AVFilterGraph @ ...] No such filter: 'drawtext'
+Error opening output files: Filter not found
+FFmpegError: Command failed (8)
+```
+
+**后果与缺陷规模不成比例**：该工具是**唯一**能产出 TSB-335 所读能力记录的
+入口。因此在缺少 freetype 的 FFmpeg 上，探测在还没能说出"不可用"之前就
+以 `FFmpegError` 崩溃 —— 视频通道**永远无法启用**，无论端点多么可用；
+TSB-335 辛苦打通的闭环**根本不可达**。它也让本机 12 项
+`test_video_clip.py` 失败，并使工具**恰好在操作者最需要它时**（想确认端点
+是否可用）不可用。
+
+**同时发现第二个问题**：判定"模型是否真的看了视频"的 `_looks_temporal`
+只是关键词匹配 —— 任何含 `then` / `first` / `from` 的文本都算通过，
+**包括把顺序说反的回答**。证据标准形同虚设。
+
+### 修复（GREEN）
+
+1. 探测短片改为**三段纯色相位**（`PROBE_PHASE_ORDER = ("red","green","blue")`），
+   只用 `color` 与 `drawbox` —— 任何被项目接受的构建都有。画面仍随时间变化，
+   因此只解码一帧的服务答不对。
+2. 新增 `build_probe_prompt()`：明确要求报告**观测到的颜色顺序**。
+3. 新增 `evaluate_probe_answer()`：把回答与**实际发出的短片**比对，
+   顺序说反即判否。**删除** `_looks_temporal` 并在原处留言禁止再引入
+   仅关键词的判定。这比原启发式**更强**：流利但错误的答案现在能被判否。
+4. `test_video_clip.py` 的测试源同样去掉 `drawtext`，改用核心滤镜 `hue`
+   旋转色相，保留"颜色随时间变化"这一被测属性。
+
+### 反向验证
+
+把 `drawtext` 放回短片滤镜 → **前两项立刻转红**；恢复后 6/6 全绿。
+
+### 修复效果
+
+| 指标 | 修复前 | 修复后 |
+| --- | --- | --- |
+| 后端全量失败数 | 12 | **0** |
+| `test_video_clip.py` | 26 passed / 12 failed | **38 / 0 failed** |
+| 探测工具在无 freetype 机器上 | 崩溃（不可用） | **可运行并给出结论** |
+| 仓库内 `drawtext` 实际使用 | 2 处 | **0 处**（仅注释提及） |
+
+---
+
 ## 三、验证结果（本机 macOS）
 
 | 检查 | 命令 | 结果 |
 | --- | --- | --- |
-| 后端全量 | `pytest -q --junitxml` | **1129 collected / 12 failed / 0 errors / 44 skipped** |
-| 视频与能力相关 6 套件 | `pytest` | **133 collected / 0 failed** |
+| 后端全量 | `pytest -q --junitxml` | **1135 collected / 0 failed / 0 errors / 44 skipped** |
+| 强制媒体作业（ci.yml 原样 58 文件） | `TSB_REQUIRE_FFMPEG=1 pytest` | **1051 collected / 0 failed / 0 errors / 44 skipped** |
+| TSB-341 探测可移植性 | `pytest test_probe_clip_portability.py` | **6 / 0 failed**（反向断开后 2 failed） |
+| test_video_clip（原 12 failed） | `pytest` | **38 / 0 failed** |
 | TSB-335 能力闭环 | `pytest test_video_capability_store.py` | **20 / 0 failed**（反向断开后 2 failed） |
 | TSB-336 暂存回收 | `pytest test_video_provider_wiring.py` | **8 / 0 failed**（反向断开后 2 failed） |
 | TSB-333 目标套件 | `pytest test_native_video_provider.py` | **30 / 0 failed**（修复前 15 failed） |
@@ -308,24 +373,25 @@ caps = capabilities if capabilities is not None else unverified_capabilities(...
 | 前端 lint | `eslint .` | 通过 |
 | 前端 test | `vitest run` | **65 passed** |
 
-### 关于那 12 项失败（必须说清，否则会被误读为回归）
+### 关于那 12 项失败 —— 已修正结论
 
-**全部集中**于 `tests/test_video_clip.py`，根因是**本机 ffmpeg 构建缺
-`drawtext` 滤镜**（该滤镜需编译期 `libfreetype`；Homebrew 的 ffmpeg
-formula 依赖列表中**没有** freetype，故任何 Homebrew ffmpeg 9.0.2 都缺）。
+**早先记录把它们判为"纯环境问题（缺 drawtext）"，这个结论是错的。**
+经 TSB-341 复核，它们是**真实的可移植性缺陷**，现已修复：
 
-- `drawtext` 在 `backend/app/` 中**零引用**，仅测试夹具用于合成素材；
-- 反证：`--ignore=tests/test_video_clip.py` 时
-  **1058 collected / 0 failed**，即这 12 项是唯一阻塞点；
-- CI 用 Ubuntu apt / Windows 自带件，二者均带 `drawtext`，不受影响。
+- `backend/app/` 中确实**零引用** `drawtext`，但
+  **`tools/probe_video_capability.py` 用了它** —— 而那是产出 TSB-335
+  所读能力记录的**唯一**入口。缺 freetype 的 FFmpeg 上，探测在能报告
+  "不可用"之前就崩溃，整条原生视频闭环不可达。
+- `tests/test_video_clip.py` 的测试源构建器同样依赖它。
+- 修复后本机全量 **0 failed**（详见 TSB-341 章节）。
 
-完整分析与复现命令见
-[docs/validation/v2.1.3/MACOS_PULL_NOTES.md](../validation/v2.1.3/MACOS_PULL_NOTES.md)。
+当时把范围仅限定在 `tests/` 就下了"环境问题"的结论，漏掉了
+`tools/` 里的生产工具。教训记在此处以免重犯。
 
 ### 数字口径（AGENTS.md §3.5）
 
-`1129` 为 **collected（收集数）**，含 skip。
-本机非跳过项为 `1129 - 44 = 1085`。**不得**把 collected 写成 "passed"。
+`1135` 为 **collected（收集数）**，含 skip。
+本机非跳过项为 `1135 - 44 = 1091`。**不得**把 collected 写成 "passed"。
 上一轮曾犯此错，已在 `MACOS_PULL_NOTES.md` 更正。
 
 ---
@@ -391,10 +457,8 @@ formula 依赖列表中**没有** freetype，故任何 Homebrew ffmpeg 9.0.2 都
      本机不复现，**未验证**；
    - `test_vision_commit_races` 的 **Ubuntu 偶发竞态**本机无 Linux
      环境，**未验证**（5 次本机全绿不构成证据）。
-2. **本机 12 项 `drawtext` 失败**未消除（环境限制，非代码）。
-   是否为缺失滤镜加 `skipif` 守卫属**产品决策**；
-   若加，必须同步登记到 `conftest._EXPECTED_SKIP_REASONS`，
-   否则在 `TSB_REQUIRE_FFMPEG=1` 下会被判为意外 skip 而使作业失败。
+2. ~~本机 12 项 `drawtext` 失败~~ —— **已由 TSB-341 修复**，本机全量
+   0 failed，`drawtext` 在仓库内已无任何实际使用（仅注释提及）。
 3. **真实 PAI-EAS 视频能力仍未验证** —— 端点现持续 503（第五节）。
    需部署所有者恢复服务后重新探测。**不得**用本批的 loopback Mock
    通过冒充"真实视频可用"。
