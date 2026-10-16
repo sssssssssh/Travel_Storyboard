@@ -14,6 +14,7 @@ import { Badge, Button, Card, Field, inputClass } from '../components/ui'
 
 import ReviewRequestCard from '../components/ReviewRequestCard'
 import VisionPanel from '../components/VisionPanel'
+import VideoUnderstandingPanel from '../components/VideoUnderstandingPanel'
 
 export default function AIDirector() {
   const { id = '' } = useParams()
@@ -168,6 +169,13 @@ export default function AIDirector() {
           configured model. */}
       <div className="mb-6">
         <VisionPanel projectId={id} />
+      </div>
+
+      {/* M5.3 · native-video understanding (TSB-331). Experimental and default
+          off: it renders its own capability state and refuses to imply a mode
+          that did not run. */}
+      <div className="mb-6">
+        <VideoUnderstandingPanel projectId={id} />
       </div>
 
       {/* Round 2: import review requests */}

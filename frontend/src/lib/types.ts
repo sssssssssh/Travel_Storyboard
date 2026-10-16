@@ -125,6 +125,12 @@ export interface JobOut {
     forced_reprobe?: number; skipped_unchanged?: number; hash_passes?: number; hash_restarts?: number; needs_review?: number; source_changed?: number; files_generated?: number; bytes?: number;
     skipped_budget?: number; requested_duration_sec?: number; output_duration_sec?: number;
     analyzed?: number; images_sent?: number; calls?: number;
+    /** TSB-329: the mode the caller asked for and the one that actually ran.
+     *  Both are rendered, because showing only one would let a fallback
+     *  multi-frame reading look like a native-video result. */
+    mode_requested?: string; mode_effective?: string; fallback_reason?: string;
+    capability_state?: string; events?: number; clip_bytes?: number;
+    clip_seconds?: number; cached?: number;
     usage?: Record<string, number>;
     coverage?: CoverageOut;
     cleanup?: { ok: boolean; remediated?: boolean; had_failure?: boolean; error_code?: string; retryable?: boolean; removed_files?: number;
@@ -391,4 +397,87 @@ export interface MotionReviewOut {
   error_code: string
   created_at: string
   updated_at: string
+}
+
+/** One timestamped event candidate from a native-video reading (TSB-328/331).
+ *
+ *  `confidence` is the model's own number and `confidence_is_calibrated` is
+ *  always false: the UI must not present it as an accuracy figure. Both relative
+ *  (clip) and absolute (source) seconds are shown, because the two answer
+ *  different questions and mixing them up misplaces an event. */
+export interface VideoEventOut {
+  event_type: string
+  start_rel_sec: number
+  end_rel_sec: number
+  start_abs_sec: number | null
+  end_abs_sec: number | null
+  description: string
+  confidence: number
+  confidence_is_calibrated?: boolean
+  evidence?: string[]
+  limitations?: string[]
+}
+
+/** A native-video observation (TSB-328).
+ *
+ *  The honesty flags are required, not optional: a consumer must never have to
+ *  infer "audio was not analysed" from a missing key. `method` distinguishes this
+ *  family from the still-image and multi-frame readings, and the UI shows all
+ *  three side by side so the input mode is never implied. */
+export interface VideoObservationOut {
+  id: string
+  segment_id: string
+  asset_id: string
+  status: string
+  method: string
+  is_current: boolean
+  model_id: string
+  prompt_version: string
+  schema_version: string
+  protocol: string
+  summary: string
+  events: VideoEventOut[]
+  limitations: string[]
+  dropped: Array<{ index?: number; reason?: string; message?: string }>
+  clip: {
+    start_sec?: number
+    end_sec?: number
+    duration_sec?: number
+    size_bytes?: number
+    sha256?: string
+  }
+  segment_window: { start_sec?: number; end_sec?: number }
+  audio_analyzed: boolean
+  color_unverified: boolean
+  observed_temporal_quality: string
+  request_usage: Record<string, unknown>
+  error_code: string
+  error_message: string
+  created_at: string
+  updated_at: string
+}
+
+/** Coverage of the video channel, reported as a subset of the library. */
+export interface VideoCoverageOut {
+  library_segments: number
+  segments_with_video_reading: number
+  segments_not_covered: number
+  failed_attempts: number
+  event_candidates: number
+  complete: boolean
+  method: string
+  audio_analyzed: boolean
+}
+
+/** Why a video request was refused before it could be enqueued (TSB-329).
+ *
+ *  Carries the capability state and an actionable remedy, so the UI can explain
+ *  the situation instead of showing a generic failure. */
+export interface VideoRefusalOut {
+  error_code: string
+  message: string
+  capability_state: string
+  verified: boolean
+  requested_mode: string
+  remedy?: string
 }

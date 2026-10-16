@@ -152,6 +152,13 @@ export const endpoints = {
   motionReview: (id: string) => `/api/projects/${id}/jobs/motion_review`,
   motionReviews: (id: string) => `/api/projects/${id}/motion-reviews`,
   motionVerdict: (segmentId: string) => `/api/segments/${segmentId}/motion-review/verdict`,
+  // --- M5.3 native video (TSB-328/329/331) ---
+  videoAnalyze: (id: string) => `/api/projects/${id}/jobs/video_analyze`,
+  videoObservations: (id: string) => `/api/projects/${id}/video-observations`,
+  videoObservation: (segmentId: string) => `/api/segments/${segmentId}/video-observation`,
+  videoObservationHistory: (segmentId: string) =>
+    `/api/segments/${segmentId}/video-observation/history`,
+  videoCoverage: (id: string) => `/api/projects/${id}/video-coverage`,
   editPlan: (id: string) => `/api/projects/${id}/edit-plan`,
   exportJson: (id: string) => `/api/projects/${id}/export/json`,
   exportCsv: (id: string) => `/api/projects/${id}/export/csv`,
