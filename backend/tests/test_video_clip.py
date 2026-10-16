@@ -562,17 +562,64 @@ def test_a_clip_shorter_than_its_shot_uses_the_first_seconds(tmp_path, clip_env)
 
 
 @needs_ffmpeg
-def test_hdr_source_is_flagged_color_unverified(tmp_path, clip_env):
-    """V10: never present a tone-mapped guess as accurate colour."""
+def test_an_hdr_transfer_characteristic_is_flagged_color_unverified(tmp_path, clip_env, monkeypatch):
+    """V10: never present a tone-mapped guess as accurate colour.
+
+    The flag is driven by the source's transfer characteristic, so the decision is
+    asserted directly by feeding the classifier the characteristics it must react
+    to. An earlier version of this test skipped when the local FFmpeg did not
+    preserve an HDR tag -- which the skip guard correctly rejected as an
+    *unregistered* skip, because "this build tags HDR differently" is not a
+    platform fact and must not be allowed to silently remove the only test of the
+    COLOR_UNVERIFIED path.
+    """
     require_ffmpeg()
+    from app.services.vision import video_clip as vc
+
+    class _Info:
+        def __init__(self, transfer):
+            self.video = type("V", (), {"color_transfer": transfer})()
+
+    for transfer in ("smpte2084", "arib-std-b67", "SMPTE2084"):
+        assert vc._is_hdr(_Info(transfer)) is True, transfer
+    for transfer in ("bt709", "", "smpte170m"):
+        assert vc._is_hdr(_Info(transfer)) is False, transfer
+
+
+@needs_ffmpeg
+def test_an_hdr_flagged_clip_carries_the_note_and_the_flag(tmp_path, clip_env, monkeypatch):
+    """The flag must also reach the artifact, not only the classifier.
+
+    ``_is_hdr`` is forced True here because whether a given FFmpeg build preserves
+    the transfer tag is an environment detail; the behaviour under test -- that an
+    HDR source produces ``color_unverified`` plus an explanatory note -- must hold
+    regardless.
+    """
+    require_ffmpeg()
+    from app.services.vision import video_clip as vc
+
+    monkeypatch.setattr(vc, "_is_hdr", lambda info: True)
     source = _make_source(tmp_path / "hdr.mp4", duration=8.0, hdr=True)
-    info = probe_media(source)
-    if "smpte2084" not in (info.video.color_transfer or "").lower():
-        pytest.skip("this FFmpeg build did not preserve the HDR transfer tag")
     artifact = _derive(clip_env, source, start=0.0, end=4.0)
     try:
         assert artifact.color_unverified is True
-        assert any(COLOR_UNVERIFIED in n for n in artifact.notes)
+        assert any(COLOR_UNVERIFIED in note for note in artifact.notes)
+    finally:
+        _cleanup(clip_env, "seg-1")
+
+
+@needs_ffmpeg
+def test_an_sdr_clip_is_not_flagged_color_unverified(tmp_path, clip_env, monkeypatch):
+    """The flag must not be permanently on, or it would stop meaning anything."""
+    require_ffmpeg()
+    from app.services.vision import video_clip as vc
+
+    monkeypatch.setattr(vc, "_is_hdr", lambda info: False)
+    source = _make_source(tmp_path / "sdr.mp4", duration=8.0)
+    artifact = _derive(clip_env, source, start=0.0, end=4.0)
+    try:
+        assert artifact.color_unverified is False
+        assert not any(COLOR_UNVERIFIED in note for note in artifact.notes)
     finally:
         _cleanup(clip_env, "seg-1")
 

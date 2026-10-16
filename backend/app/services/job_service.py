@@ -23,7 +23,7 @@ from .runner import EXCLUSIVE_JOB_TYPES, EXCLUSIVE_STATUSES, project_lock, runne
 
 VALID_JOB_TYPES = {
     "scan", "detect", "package", "proxies", "roughcut",
-    "vision_analyze", "motion_review",
+    "vision_analyze", "motion_review", "video_analyze",
 }
 
 

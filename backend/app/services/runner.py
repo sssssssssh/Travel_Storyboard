@@ -68,7 +68,7 @@ TERMINAL_STATUSES = (STATUS_SUCCEEDED, STATUS_PARTIAL, STATUS_FAILED, STATUS_CAN
 # would otherwise race a re-detection (TSB-304).
 EXCLUSIVE_JOB_TYPES = {
     "scan", "detect", "package", "roughcut", "proxies",
-    "vision_analyze", "motion_review",
+    "vision_analyze", "motion_review", "video_analyze",
 }
 _PROJECT_LOCKS: dict[str, RLock] = {}
 _LOCKS_GUARD = Lock()

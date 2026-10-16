@@ -31,8 +31,10 @@ from app.services.runner import ACTIVE_STATUSES, TASK_REGISTRY, JobRunner
 #: Job types that mutate a project's cache and therefore must be mutually
 #: exclusive. `vision_analyze` and `motion_review` (TSB-304/307) joined this set:
 #: they write semantic/motion rows for the same shots and would otherwise race a
-#: re-detection.
-HEAVY = ("scan", "detect", "package", "proxies", "roughcut", "vision_analyze", "motion_review")
+#: re-detection. `video_analyze` (TSB-329) joins for the same reason, plus it
+#: derives clips into the project's staging area.
+HEAVY = ("scan", "detect", "package", "proxies", "roughcut", "vision_analyze",
+         "motion_review", "video_analyze")
 
 
 @pytest.fixture()
