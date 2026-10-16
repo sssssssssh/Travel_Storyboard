@@ -42,6 +42,32 @@ def mp4_bytes(payload: bytes = b"junk" * 200) -> bytes:
 # --------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _enable_model_switch_for_this_module(monkeypatch):
+    """TSB-333: turn the model switch on for the tests in *this* module only.
+
+    Every test below exercises a branch that sits **behind** the upload
+    authorization boundary: protocol registration, MIME sniffing, payload size,
+    HTTP status classification, retries, redaction. With the production default
+    ``TRAVELSB_MODEL_MODE=off``, ``authorize_upload`` refuses before any of those
+    branches is reached, and the suite reported 15 failures whose only real cause
+    was the switched-off default.
+
+    Enabling it here — not in ``ci.yml``, not in ``.env`` — keeps the guard intact
+    for the rest of the suite while letting these specific tests reach the code
+    they describe. ``monkeypatch`` restores the previous value at teardown.
+
+    ``test_video_model_switch_scope.py`` pins this contract, including a check that
+    ``ci.yml`` never exports a global ``on``. The off-path refusal itself is still
+    covered by ``test_missing_authorization_sends_nothing`` and R01.
+    """
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "model_mode", "on", raising=False)
+    monkeypatch.setattr(settings, "model_allow_insecure_http", True, raising=False)
+
+
 @pytest.fixture()
 def no_network(monkeypatch):
     """Make any real HTTP attempt fail loudly.
