@@ -1,35 +1,23 @@
-﻿TSB-325 / TSB-326 (v2.1.3 batch A) validation - Windows
-==============================================================
+﻿TSB-327 ~ TSB-332 (v2.1.3 batches B/C/D) validation - Windows
+================================================================
 Python: Python 3.13.7
 baseline: 664239ba16769e19c6e3564728953a39e213d4f4
 
 [1] full backend suite
-  cmd: pytest -q --junitxml
-  result: tests=911 failures=0 errors=0 skipped=1
-  baseline v2.1.2 = 828; new this round = 83 (21+32+30)
+  result: tests=1096 failures=0 errors=0 skipped=1
+  828 (v2.1.2) + 267 (new suites) + 1 (HEAVY parameterization) = 1096
 
-[2] mandatory media mode (TSB_REQUIRE_FFMPEG=1)
-  result: tests=273 failures=0 errors=0 skipped=0
+[2] mandatory media mode (ci.yml full list, 17 suites)
+  result: tests=457 failures=0 errors=0 skipped=0
 
-[3] reverse verification of TSB-326 guards
-baseline (all guards present):
-   ..............................                                           [100%]
+[3] reverse verification
+  TSB-326 guards: VERDICT: PASS - every guard is covered by a failing test
+  TSB-327 guards: VERDICT: PASS - every guard is covered by a failing test
 
-  OK   protocol-registry gate (accept any protocol name)
-         -> FAILED tests/test_native_video_provider.py::test_a_fetching_protocol_is_refused_as_an_ssrf_surface
-  OK   payload validation (skip content sniffing)
-         -> FAILED tests/test_native_video_provider.py::test_a_non_video_payload_sends_nothing
-  OK   authorization chokepoint
-         -> FAILED tests/test_native_video_provider.py::test_missing_authorization_sends_nothing
-  OK   capability_gate body
-         -> FAILED tests/test_native_video_provider.py::test_capability_gate_refuses_sampling_unknown
+[4] skip guard
+  VERDICT: PASS - Linux platform skips cannot fail the job
 
-VERDICT: PASS - every guard is covered by a failing test
-
-[4] capability probe - DEFINITIVE RESULT
-  text-only control : HTTP 200  (endpoint healthy)
-  image input       : HTTP 200  answer='Red' (correct) -> deployment IS multimodal
-  video (video_url) : HTTP 400  At most 0 video(s) per prompt; set --limit-mm-per-prompt
-  video (type=video): HTTP 400  Unsupported chat content part type
-  => state=unsupported; cause = SERVER-SIDE serving flag, not client protocol
-  => remedy: --limit-mm-per-prompt video=1 on the deployment, then restart
+[5] capability (unchanged this round)
+  endpoint: video HTTP 400 'At most 0 video(s) per prompt'
+  control : text 200, image 200 -> endpoint healthy, config blocks video
+  state   : unsupported; video_native disabled

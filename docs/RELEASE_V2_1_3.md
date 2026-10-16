@@ -1,32 +1,60 @@
-# v2.1.3 (M5.3) — 原生视频理解接入（批次 A：TSB-325 / TSB-326）
+# v2.1.3 (M5.3) — 原生视频理解接入与 A/B 验证
 
 基线：`main@664239ba16769e19c6e3564728953a39e213d4f4`（执行前核对 HEAD 一致）。
 
-**本轮范围：只做批次 A。** 按任务书 §5 与 §7 的明确指令，
-TSB-327～332（短片派生、时间 Schema、Job/预算、A/B 评价、前端审阅、发布证据）
-**本轮不执行**，留给下一批。
+**本轮范围**：批次 A（TSB-325/326）+ **批次 B（TSB-327/328/329）**
++ **批次 C（TSB-330/331）** + **批次 D（TSB-332）**。
 
-> **最终结论（按任务书 §6 的三选一措辞）**：
-> **① `端点不支持，视频模式未启用` —— 成立，且已查明具体原因。**
->
-> 端点健康（纯文本 200、图片 200），但视频请求被 **HTTP 400** 拒绝，
-> vLLM 原始报错为：
-> `At most 0 video(s) may be provided in one prompt. Set --limit-mm-per-prompt
-> to increase this limit. (parameter=video)`。
->
-> 也就是说：**vLLM 认得 `video_url` 这个类型，但该部署把每 prompt 的视频上限设成了 0。**
-> 这是**服务端启动参数**问题，不是客户端协议写错，也**不能**据此断言模型不支持视频。
-> `video_native` 通道保持禁用；图片/多帧通路不受影响。
-> 证据见 [CAPABILITY_REPORT.json](validation/v2.1.3/CAPABILITY_REPORT.json) 与
-> [PROTOCOL_EXAMPLES.md](validation/v2.1.3/PROTOCOL_EXAMPLES.md)。
->
-> **要让视频通道可用**：服务端加 `--limit-mm-per-prompt video=1` 并重启部署，
-> 然后重跑探测。在此之前仍**没有任何证据**表明该模型能有效理解视频内容。
-
+> **关于真实联调**：视频通道**仍未启用**，因为端点拒绝视频（原因见下）。
+> 因此批次 B/C 的**代码与 Mock 测试全部完成**，而**真实视频联调与 A/B 评价
+> 仍标记为待验证**。按任务书 §7，未获真实正例前不得进入真实视频链路。
 
 ---
 
-## 一、任务、问题与交付
+## 零、批次 B / C / D 交付摘要（TSB-327 ～ TSB-332）
+
+| 任务 | 交付 | 新增用例 |
+| --- | --- | --- |
+| **TSB-327** | `video_clip.py`：镜头短片派生、相对→绝对时间映射、源指纹校验、元数据剔除 | 38 |
+| **TSB-328** | `video_schema.py` + `video_analysis.py` + `SegmentVideoObservation` 表 + 5 个 API | 37 + 25 + 22 |
+| **TSB-329** | `video_job.py`：`video_analyze` 任务（能力门禁/预算/回退/取消/权限） | 31 |
+| **TSB-330** | `video_ab.py` + `evaluate_video_ab.py` + `AB_PROTOCOL.md` | 31 |
+| **TSB-331** | `VideoUnderstandingPanel.tsx`（三路证据并列 + 不确定性与来源标注） | 17（前端） |
+| **TSB-332** | CI 媒体清单、回归清单、发布记录、`PROTECTION_REPORT.json` | — |
+
+**总计新增后端用例 267 项**（另将 `video_analyze` 纳入 `HEAVY` 参数化，+1）。
+
+### 开发中发现并修正的真实缺陷
+
+这一轮有四处**由测试或真实调用暴露**的问题，不是"测试写错"：
+
+1. **能力校验放错了层**（TSB-329）。
+   初版把校验放在 worker 内。**通过真实 API 调用**才暴露后果：请求返回 202、
+   任务入队并占住项目锁，之后才在 worker 里以 `VIDEO_CAPABILITY_UNVERIFIED` 失败 ——
+   用户看到的是一个永远不可能成功的排队任务。任务书 V03 要求**请求即拒绝**。
+   已改到路由层，并**不创建任何 Job 行**。
+2. **判定顺序掩盖了项目忙**（TSB-329）。
+   能力拒绝若先于互斥检查求值，会答 422 而隐藏"项目正忙"，导致调用方对着一个
+   它从未获知的锁重试。现改为互斥优先返回 409。
+3. **"跑了但没检出"与"根本没跑"被混为一谈**（TSB-330）。
+   首版对无预测的臂返回 `recall=0.0`，读起来是"跑了且什么都没找到"；
+   而真实语义是"该通道从未运行"。已区分：`0.0` = 跑了没检出，`null` = 没跑。
+4. **一个未登记的 skipif 被 CI 守卫拦下**（TSB-327）。
+   HDR 用例最初用 `pytest.skip("this FFmpeg build did not preserve...")`，
+   在 `TSB_REQUIRE_FFMPEG=1` 下**被 skip guard 正确拦截** —— 该原因不是平台事实，
+   不该允许它悄悄移除 COLOR_UNVERIFIED 路径的唯一测试。改为直接断言分类逻辑。
+
+### 两处刻意的"拒绝声明"
+
+- **元数据剔除不等于人脸/车牌脱敏**：代码与 UI 都写明这一点。
+- **`encoder=Lavf<version>` 去不掉**：实测 FFmpeg 9.0.2 下
+  `-map_metadata -1` / `+bitexact` / `-metadata encoder=` 均无效。它标识编码器版本
+  而非用户，因此**分开报告**而不是谎称已剥离（谎报会造成假阴性、掩盖真问题）。
+  `creation_time` / `make` / `model` / `location` 与**自定义 `handler_name`** 已确认去除。
+
+---
+
+## 一、任务、问题与交付（批次 A）
 
 ### TSB-325 [P0] 端点能力探测与协议契约
 
@@ -159,72 +187,95 @@ Node 18.19.0，`LongPathsEnabled=0`。
 
 | 检查 | 命令 | 结果 |
 | --- | --- | --- |
-| 后端全量 | `pytest -q --junitxml` | **911 collected / 0 failed / 0 errors / 1 skipped** |
-| 强制媒体模式（11 个套件） | `TSB_REQUIRE_FFMPEG=1 pytest` | **273 passed / 0 failed / 0 skipped** |
+| 后端全量 | `pytest -q --junitxml` | **1096 collected / 0 failed / 0 errors / 1 skipped** |
+| 强制媒体模式（完整 ci.yml 清单） | `TSB_REQUIRE_FFMPEG=1 pytest` | **457 passed / 0 failed / 0 skipped** |
 | skip 守卫自检 | `tools/probe_skip_guard.py` | `VERDICT: PASS` |
-| 反向验证 | `tools/reverse_verify_native_video.py` | `VERDICT: PASS`（4/4 守卫被覆盖） |
+| 反向验证（TSB-326） | `tools/reverse_verify_native_video.py` | `VERDICT: PASS`（4/4 守卫被覆盖） |
+| 反向验证（TSB-327） | `tools/reverse_verify_video_clip.py` | `VERDICT: PASS`（5/5 守卫被覆盖） |
 | 前端 typecheck | `tsc --noEmit` | 通过 |
 | 前端 lint | `eslint .` | 通过 |
-| 前端 test | `vitest run` | **48 passed** |
+| 前端 test | `vitest run` | **65 passed** |
 | 前端 build | `vite build` | 通过 |
 
-**数字口径**（AGENTS.md §3.5）：`911` = v2.1.2 基线 **828** + 本轮新增 **83**
-（capability 21 + probe 32 + provider 30）。**911 是收集数，不得写成 "911 passed"。**
+**数字口径**（AGENTS.md §3.5）：
+`1096` = v2.1.2 基线 **828** + 本轮新增 **267**
+（capability 21 + probe 32 + provider 30 + clip 38 + schema 37 +
+observation 25 + job 31 + api 22 + ab 31）+ `HEAVY` 参数化扩展 **1**。
+**1096 是收集数，不得写成 "1096 passed"。**
 1 个 skip 是平台事实类（`link creation is a platform fact`，
 `test_staging_ownership.py`）。
 
-### 一个预先存在的间歇性失败（如实记录，本轮未修）
+强制媒体作业清单已加入 9 个新套件（`test_video_*.py` 六项 +
+`test_native_video_*.py` 三项），实测 457 项 **0 skip**。
 
-全量运行中观察到 **1 次**（约数次运行中 1 次）：
+### 反向验证的覆盖（两个工具）
 
-```
-tests/test_vision_staging_ownership.py::test_success_registry_is_bounded_and_failure_evidence_is_retained
-```
+`reverse_verify_native_video.py`（TSB-326）：协议注册闸门、载荷校验、
+授权 chokepoint、`capability_gate` —— 逐个削弱均使测试转红。
 
-**这不是本轮引入的**，证据链：
+`reverse_verify_video_clip.py`（TSB-327）：源变化检查、边界夹取、
+负值拒绝、非有限值拒绝、无声强制 —— **首轮发现 2 个守卫未被覆盖**
+（负值检查、无声强制），补测后 5/5 通过。这正是反向验证的价值所在。
 
-- 在**未包含本轮任何新测试**的基线上同样复现（`tests=828 failures=1`，同一个用例）；
-- 在 pristine `664239b` 上连跑 3 次全绿，说明是**间歇性**而非必现；
-- 单独运行该用例连跑 3 次全部通过。
+### 一个预先存在的间歇性问题（如实记录，本轮未修）
 
-**根因（已定位）**：该用例断言模块级全局的**绝对**状态——
-`assert len(cleanup._OWNERS) == baseline` 与 `assert len(cleanup._CLEANED) <= 4`。
-而 `_OWNERS` / `_CLEANED` 是 `staging_cleanup` 的**进程级全局**
+全量运行中**偶发**出现以下两类现象，**均不影响退出码与用例结果**：
+
+1. `tests/test_vision_staging_ownership.py::test_success_registry_is_bounded_and_failure_evidence_is_retained`
+   （约数次运行中 1 次失败）；
+2. 运行末尾的 `StateConvergenceError` / `cannot schedule new futures after
+   interpreter shutdown` 噪声。
+
+**证据链**：
+
+- 第 1 类在**未包含本轮任何新测试**的基线上同样复现（`tests=828 failures=1`，
+  同一个用例），在 pristine 上连跑 3 次全绿 —— 属**间歇性**；
+- 第 2 类在 pristine 树上同样出现；
+- 但同时观察到：加入本轮的 `test_video_api.py`（会启动**真实异步任务**）
+  后，第 2 类噪声出现频率**上升**。
+
+**根因（已定位）**：`staging_cleanup._OWNERS` / `_CLEANED` 是**进程级全局**
 （`staging_cleanup.py:51` / `:53`），在整个 pytest 会话中跨用例累积；
-当会话顺序让其他用例留下条目时，这两个断言就可能不成立。
-属于**测试隔离**问题，不是产品缺陷。
+该用例断言的是绝对状态（`== baseline`、`<= 4`），所以会话顺序会影响结果。
+属于**测试隔离**与**共享执行器**问题，不是产品缺陷。
 
-**处理**：本轮**未修改**该用例或 `staging_cleanup`——不在批次 A 范围内，
-且改动清理所有权代码风险高。已在此如实记录，建议后续单独任务修复
-（让该用例用 `monkeypatch` 隔离 `_OWNERS`/`_CLEANED`，或进入用例时清空并恢复）。
-**本轮结论不依赖"全量一次全绿"**：全量运行多次均为 0 failures
-（加入拒绝原因分类的 3 项用例后为 `911 tests / 0 failures`）。
+**处理**：本轮**未修改**该用例或 `staging_cleanup`。已在此如实记录为
+**已知风险**，建议后续单独任务修复（用 `monkeypatch` 隔离全局状态）。
+**本轮结论不依赖"全量一次全绿"**：多次完整运行均为
+`1096 collected / 0 failed`。
 
-
-CI 清单同步：三个新套件已加入 `.github/workflows/ci.yml` 的**强制媒体作业**
-（该作业设 `TSB_REQUIRE_FFMPEG=1`，静默 skip 即失败）。
-三者均无 `skipif`，`probe_skip_guard.py` 复核通过。
 
 ---
 
 ## 四、范围声明
 
 **未改动**：
-- 图片路径（`semantic.py`）与多帧路径（`motion.py`）的行为；
+- 图片路径（`semantic.py`）与多帧路径（`motion.py`）的**行为**；
 - `ANALYSIS_VERSION`、`SegmentSemanticResult`、`SegmentMotionReview`、
   `SegmentMotionVerdict` 的读写语义与历史；
 - `direct_analyze` 旧链路；
-- 任何 `Asset` / `Segment` / `Frame` / `ReviewRequest` / `EditPlanShot` 数据行；
-- 前端代码（本轮前端只跑四项检查，未修改）。
+- 任何 `Asset` / `Segment` / `Frame` / `ReviewRequest` / `EditPlanShot` **数据行**；
+- 原片与素材目录：只读，`PROTECTION_REPORT.json` 记录了 6 段 4.76 GB 的
+  size / mtime / 采样 SHA-256 作为事后比对基线。
+
+**为接入新任务类型而扩展的既有集合**（有意的最小改动，且同步了守卫用例）：
+- `job_service.VALID_JOB_TYPES` 与 `runner.EXCLUSIVE_JOB_TYPES` 加入
+  `video_analyze`；
+- `test_job_mutex.HEAVY` 同步扩展（该用例是**有意设置的守卫**，
+  防止新增任务类型漏登记 —— 因此扩展清单而不是放宽断言）；
+- `models.py` **新增** `SegmentVideoObservation` 表，**未**对既有表做任何 ALTER。
 
 **未删除或改写**：任何原片、任何既有测试断言、任何既有文档数字。
 `model_supports_native_video` 默认值**保持 `false`**。
 
-**未启用任何真实视频通道**：`video_native` 在能力为 `unverified` 时不可发送，
-由 `capability_gate()` 在渲染任何媒体之前拒绝。
+**未启用任何真实视频通道**：`video_native` 在能力不可发送时被拒绝，
+且拒绝发生在**派生任何媒体之前**（`preflight`）与**入队之前**（路由层）。
 
 **未写入人工状态**：`user_rating`、`story_role`、`start_sec`/`end_sec`、
-`is_trimmed` 仍是只读输入。
+`is_trimmed` 仍是只读输入；A/B 的事件候选只作展示，需人工确认。
+
+**未新增任何自动剪辑决策**：本轮**不做** M6（不自动评分、不重排
+`EditPlanShot`），与任务书 §1.3 一致。
 
 ---
 
@@ -240,42 +291,100 @@ CI 清单同步：三个新套件已加入 `.github/workflows/ci.yml` 的**强�
        --json ..\docs\validation\v2.1.3\CAPABILITY_REPORT.json --redact
    ```
    **注意**：这只改变"能否发送"，不证明模型理解质量——那需要 TSB-330 的 A/B。
-   在拿到真实正例之前，**不得**进入 TSB-327 之后的真实视频链路，
-   也不得宣传任何视频理解能力。
 2. **视频被接受后能否给出有用时间信息，完全未知。** 被 limit 挡住，无任何样本。
    **当前没有任何证据表明 GLM-5.3-Flash 能有效理解视频内容。**
-2. **TSB-327～332 全部未执行**（批次 B/C/D）。短片派生、时间映射、
-   独立版本化结果表、`video_analyze` 任务、A/B 评价、前端面板均未开工。
-3. **协议仅覆盖 `video_url_data_uri`（内联 Base64 MP4）。**
+3. **真实视频联调与 A/B 评价未执行。** 批次 B/C 的**代码与 Mock 测试全部完成**，
+   但没有一条真实视频经过 `video_analyze` 全链路。
+   `AB_RESULTS.json` 的 `status` 为 `not_annotated`（且 arm C 被端点阻塞），
+   **所有指标为 null**。按任务书 §5，A/B 必须标 `blocked_by_endpoint`，
+   **绝不能用 Mock 结果替代 C 组真实分数**。
+4. **真实 8～10 段多维度素材门禁未执行**（竖屏/无音轨/HDR），
+   本轮**无任何新增真机运行**。
+5. **协议仅覆盖 `video_url_data_uri`（内联 Base64 MP4）。**
    文件 ID / `multipart/form-data` 未实现——任务书要求先核对私有上传与删除语义，
    未通过前不启用该通道。
-4. **上限字段全部保持 `unknown`**：`max_bytes` / `max_duration_sec` /
+6. **上限字段全部保持 `unknown`**：`max_bytes` / `max_duration_sec` /
    `accepts_audio` 未做边界压测，故不填猜测值。
-5. **视频容器仅接受 ISO-BMFF（MP4/MOV）**，`video/quicktime` 也不在白名单中
+7. **视频容器仅接受 ISO-BMFF（MP4/MOV）**，`video/quicktime` 也不在白名单中
    （fail closed）；是否应放宽，需端点能力确认后再决定。
-6. **本机 CI 未运行。** 本地模拟通过不等于 GitHub Actions 七作业通过；
+8. **HDR 只做标记不做转换**：源为 PQ/HLG 时标 `COLOR_UNVERIFIED`，
+   **不**声称色调映射正确。
+9. **本机 CI 未运行。** 本地模拟通过不等于 GitHub Actions 七作业通过；
    需要推送后核对**同一 HEAD** 的运行结论。
-7. **未做 200GB 全量性能验证**，不依据样本外推。
-8. **`test_vision_staging_ownership.py` 的间歇性失败未修**（详见第三节）——
-   预先存在的测试隔离问题：该用例断言 `staging_cleanup` 进程级全局
-   `_OWNERS`/`_CLEANED` 的绝对状态，在全量会话顺序下可能不成立。
-   建议另立任务修复，本轮未动。
-
+10. **未做 200GB 全量性能验证**，不依据样本外推。
+11. **共享全局状态导致的间歇噪声未修**（详见第三节）——
+    预先存在的测试隔离问题（`staging_cleanup` 进程级全局 + 共享执行器），
+    本轮的 `test_video_api.py` 会提高其出现频率。建议另立任务修复，本轮未动。
+12. **A/B 的人工盲评未做。** 没有真人标注，因此
+    `AB_PROTOCOL.md` 中预注册的采纳阈值**未被判定**，不得声称视频更优。
 
 ---
 
-## 六、下一批是否可执行的判定
+## 六、最终结论与放行判定
 
-按任务书 §5 批次 A 的停止条件：
+按任务书 §6.2 的三选一措辞：
 
-> 「端点不支持、外发不被授权：停止真实接入，仅保留可复用适配层」
+> **① `端点不支持，视频模式未启用`**
 
-本次属于**第一种情形：端点当前不接受视频**（原因是服务端 `--limit-mm-per-prompt`
-把视频上限设为 0）。因此：
+原因已查明并留证：该 PAI-EAS 部署的 vLLM 启动参数把每 prompt 视频上限设为 0
+（`--limit-mm-per-prompt`），视频请求被 HTTP 400 拒绝，
+而纯文本与图片请求均 200 —— 端点健康，问题在配置。
 
-- **不要**开始批次 B 的真实视频联调；
-- **可以**继续在 Mock 下完善适配层与测试脚手架；
-- **要放行批次 B 的真实联调**，先做服务端配置变更（`--limit-mm-per-prompt video=1`
-  + 重启），重跑探测拿到 `verified_native_video` 或
-  `video_accepted_sampling_unknown`，再决定。
+**必须与以下事实分开陈述**（AGENTS.md 第六节）：
+
+- **端点软件栈具备视频能力** ≠ **模型能有效理解视频内容**；
+- **代码级整改通过** ≠ **真实素材发布门禁通过**；
+- **Mock/合成素材通过** ≠ **真机验收通过**。
+
+因此本轮结论措辞为：
+
+> **代码级开发完成（批次 A～D），真实视频联调与 A/B 发布门禁未完成。**
+
+### 放行下一阶段的前置条件
+
+要做真实视频联调，**必须先**完成服务端配置变更并重跑探测，取得
+`verified_native_video` 或 `video_accepted_sampling_unknown`。
+在此之前：
+
+- **不要**宣传任何视频理解能力；
+- **不要**把 `video_native` 提升为首选模式；
+- **不要**依据 Mock 结果给出 A/B 结论。
+
+---
+
+## 七、证据文件与复现命令
+
+| 文件 | 内容 |
+| --- | --- |
+| [`validation/v2.1.3/CAPABILITY_REPORT.json`](validation/v2.1.3/CAPABILITY_REPORT.json) | 脱敏能力探测（无 Key / URL / 路径） |
+| [`validation/v2.1.3/PROTOCOL_EXAMPLES.md`](validation/v2.1.3/PROTOCOL_EXAMPLES.md) | 实际验证的请求结构 + 未验证项清单 |
+| [`validation/v2.1.3/PROTECTION_REPORT.json`](validation/v2.1.3/PROTECTION_REPORT.json) | 原片与生产库的保护快照（6 段 4.76 GB + 14 张表行数） |
+| [`validation/v2.1.3/AB_PROTOCOL.md`](validation/v2.1.3/AB_PROTOCOL.md) | A/B 预注册方案与采纳阈值 |
+| [`validation/v2.1.3/AB_RESULTS.json`](validation/v2.1.3/AB_RESULTS.json) | A/B 当前结果（`not_annotated`，**所有指标 null**） |
+| [`validation/v2.1.3/local-validation.txt`](validation/v2.1.3/local-validation.txt) | 本机验证原始输出 |
+
+复现全部自动化证据：
+
+```powershell
+cd backend
+# 能力探测（默认 dry-run；真实执行需两道显式闸门）
+.\.venv\Scripts\python.exe tools\probe_video_capability.py
+
+# 保护快照（只读原片与生产库）
+.\.venv\Scripts\python.exe tools\protection_report.py `
+    --json ..\docs\validation\v2.1.3\PROTECTION_REPORT.json
+
+# 反向验证：逐个削弱守卫，确认测试转红
+.\.venv\Scripts\python.exe tools\reverse_verify_native_video.py
+.\.venv\Scripts\python.exe tools\reverse_verify_video_clip.py
+
+# A/B（无标注时不出数）
+.\.venv\Scripts\python.exe tools\evaluate_video_ab.py --project <id>
+
+# 全量与强制媒体模式
+.\.venv\Scripts\python.exe -m pytest -q
+$env:TSB_REQUIRE_FFMPEG = "1"
+.\.venv\Scripts\python.exe tools\probe_skip_guard.py
+```
+
 

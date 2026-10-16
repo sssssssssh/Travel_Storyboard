@@ -1,0 +1,135 @@
+{
+  "task": "TSB-332",
+  "generated_at": "2026-10-16T09:19:47+00:00",
+  "method": "Originals and the production database are opened read-only. Footage is identified by size, mtime and a sampled SHA-256 (first+last 4 MiB); a full-file digest is NOT used and is not claimed.",
+  "originals": {
+    "present": true,
+    "path_name": "video",
+    "file_count": 6,
+    "total_bytes": 4759917235,
+    "files": [
+      {
+        "name": "DJI_20261002163755_0001_D.MP4",
+        "size_bytes": 295597560,
+        "mtime_ns": 1790930298030000000,
+        "sampled_sha256": "ab68034da265423b3e4e199fd8475e4a2f0eeaf75ec1a607a07cdca3d1de76f4",
+        "sample_bytes_each_end": 4194304,
+        "digest_scope": "first+last sample only (not a full-file digest)"
+      },
+      {
+        "name": "DJI_20261003134833_0002_D.MP4",
+        "size_bytes": 678651296,
+        "mtime_ns": 1791006564300000000,
+        "sampled_sha256": "9acd15ed621a80db3791424593416b97dd38abbb204dbf6c31186d1b09986c6f",
+        "sample_bytes_each_end": 4194304,
+        "digest_scope": "first+last sample only (not a full-file digest)"
+      },
+      {
+        "name": "DJI_20261003153602_0004_D.MP4",
+        "size_bytes": 883027194,
+        "mtime_ns": 1791013025280000000,
+        "sampled_sha256": "eb39cb516a41c39c328ac8d54676ce0d4c3c4afbca7c6d35a7193091978332da",
+        "sample_bytes_each_end": 4194304,
+        "digest_scope": "first+last sample only (not a full-file digest)"
+      },
+      {
+        "name": "DJI_20261003161452_0005_D.MP4",
+        "size_bytes": 760297366,
+        "mtime_ns": 1791015345640000000,
+        "sampled_sha256": "f9eca18794f186be50dbaab1f902e275e4423fdac3680fa61d219a78b8424454",
+        "sample_bytes_each_end": 4194304,
+        "digest_scope": "first+last sample only (not a full-file digest)"
+      },
+      {
+        "name": "DJI_20261003164352_0007_D.MP4",
+        "size_bytes": 1988400562,
+        "mtime_ns": 1791017174980000000,
+        "sampled_sha256": "7904b5c29b9e62ae93243ec020bc6213b1f71b4d430ca0bc6091af3d36f45241",
+        "sample_bytes_each_end": 4194304,
+        "digest_scope": "first+last sample only (not a full-file digest)"
+      },
+      {
+        "name": "DJI_20261003165009_0008_D.MP4",
+        "size_bytes": 153943257,
+        "mtime_ns": 1791017422660000000,
+        "sampled_sha256": "6031ae0f3e3bb9345a18fc17536904e5af32f68e01c05cb7983d4689273cbf30",
+        "sample_bytes_each_end": 4194304,
+        "digest_scope": "first+last sample only (not a full-file digest)"
+      }
+    ],
+    "opened_read_only": true,
+    "note": "任何派生只写入项目工作区的 staging，绝不写回素材目录（C1）"
+  },
+  "database": {
+    "present": true,
+    "name": "travel_storyboard.db",
+    "size_bytes": 708608,
+    "mtime_ns": 1792137849406469900,
+    "tables": [
+      "assets",
+      "edit_plan_shots",
+      "frames",
+      "jobs",
+      "projects",
+      "review_packages",
+      "review_requests",
+      "segment_motion_reviews",
+      "segment_motion_verdicts",
+      "segment_semantic_attempts",
+      "segment_semantic_results",
+      "segment_video_observations",
+      "segments",
+      "user_annotations"
+    ],
+    "row_counts": {
+      "assets": 9,
+      "edit_plan_shots": 2,
+      "frames": 137,
+      "jobs": 48,
+      "projects": 7,
+      "review_packages": 1,
+      "review_requests": 1,
+      "segment_motion_reviews": 10,
+      "segment_motion_verdicts": 0,
+      "segment_semantic_attempts": 0,
+      "segment_semantic_results": 14,
+      "segment_video_observations": 0,
+      "segments": 102,
+      "user_annotations": 1
+    },
+    "tables_added_by_this_batch": [
+      "segment_video_observations"
+    ],
+    "tables_that_must_not_change": [
+      "segments",
+      "assets",
+      "projects",
+      "segment_semantic_results",
+      "segment_motion_reviews",
+      "segment_motion_verdicts",
+      "edit_plan_shots",
+      "review_requests"
+    ]
+  },
+  "human_state_preserved": {
+    "segments": 102,
+    "assets": 9,
+    "projects": 7,
+    "segment_semantic_results": 14,
+    "segment_motion_reviews": 10,
+    "segment_motion_verdicts": 0,
+    "edit_plan_shots": 2,
+    "review_requests": 1
+  },
+  "guarantees_verified_by_tests": [
+    "原片字节与 mtime 在派生前后不变（test_video_clip.py::test_the_source_file_is_never_modified）",
+    "派生片只落在 create_owned_staging 拥有的暂存目录（C7）",
+    "写入视频读数不触碰 semantic/motion 行与人工字段（V20，test_video_observation.py）",
+    "升级旧库时新表创建、既有行数据不变（init_db 幂等）"
+  ],
+  "not_verified": [
+    "未在真实 8~10 段多维度素材上执行端到端门禁",
+    "未做 60+ 段 / 200GB 全量性能验证",
+    "本报告是**本机现状快照**，用于事后比对；它本身不证明任何操作安全"
+  ]
+}

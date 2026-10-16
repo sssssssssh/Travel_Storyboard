@@ -666,7 +666,7 @@ T01/T04/T15/T17/T19/T23/T25 本轮补充记录见 `validation/v2.1.2/MAC_UI_E2E.
 ## v2.1.3 / M5.3 批次 A（TSB-325 / TSB-326）
 
 结果、范围声明与未完成项见 [RELEASE_V2_1_3.md](RELEASE_V2_1_3.md)。
-本轮**只做批次 A**；TSB-327～332 未执行。
+批次 A～D 均已完成；真实视频联调仍未执行（端点拒绝视频）。
 
 | 用例 | 任务 | 守护的行为 |
 | --- | --- | --- |
@@ -738,6 +738,140 @@ vLLM 原始报错为
 本次 `--execute` 确实外发了 48,829 字节**合成**短片（无用户素材），
 不应描述为"仅本地测试"。
 **视频被接受后能否给出有用时间信息仍完全未知**；拿到真实正例前不得进入
-TSB-327 之后的真实视频链路，也不得宣传视频理解能力。
+真实视频链路，也不得宣传视频理解能力。
+
+---
+
+## v2.1.3 / M5.3 批次 B + C + D（TSB-327 ～ TSB-332）
+
+结果、范围声明与未完成项见 [RELEASE_V2_1_3.md](RELEASE_V2_1_3.md)。
+用例 → 任务号 → 守护的行为：
+
+### TSB-327 镜头短片派生与时间映射（38 项）
+
+| 用例 | 任务 | 守护的行为 |
+| --- | --- | --- |
+| test_video_clip.py::test_a_window_maps_to_absolute_source_seconds | TSB-327/V11 | 绝对秒 = 短片起点 + 相对秒，不重新设定原点 |
+| ::test_mapping_uses_the_clip_offset_not_the_segment_start | TSB-327 | 预算裁剪后短片起点晚于片段起点时，以短片偏移为准 |
+| ::test_a_window_crossing_the_edited_boundary_is_rejected_not_clamped | TSB-327/C2 | **越界拒绝而非夹取** —— 夹取会悄悄挪动人工编辑边界 |
+| ::test_negative_times_are_refused_for_their_own_reason | TSB-327 | 隔离负值守卫：宽区间下只有它能拦住 |
+| ::test_non_finite_times_are_rejected[nan/inf/-inf] | TSB-327/V12 | NaN/Inf 不得入库为候选窗口 |
+| ::test_an_inverted_window_is_rejected | TSB-327/V12 | start ≥ end 不得成为"空事件" |
+| ::test_float_noise_within_tolerance_is_accepted | TSB-327 | 容差不为难模型的三位小数 |
+| ::test_a_long_shot_is_trimmed_to_the_budget_and_says_so | TSB-327 | 超预算取镜头**开头**并记录说明，不取中间 |
+| ::test_verify_source_detects_a_size_change / _an_mtime_change | TSB-327/V14 | 源被替换即 `SOURCE_CHANGED`，不静默重分析 |
+| ::test_the_source_file_is_never_modified | TSB-327/C1 | 派生前后原片字节与 mtime 不变（真实编码） |
+| ::test_personal_container_metadata_does_not_survive_derivation | TSB-327/V07/C5 | creation_time/make/model/location 确实消失（先验证曾植入） |
+| ::test_a_custom_handler_name_does_not_travel_into_the_clip | TSB-327/C5 | 相机写入的自定义 handler_name 不被带出 |
+| ::test_the_derived_clip_has_only_a_video_stream | TSB-327/V07 | 无音频/字幕/数据流 |
+| ::test_probe_clip_refuses_an_audio_bearing_artifact | TSB-327 | 无声假设在产物上强制，不只是请求 |
+| ::test_probe_clip_reports_the_measured_duration_not_the_requested_one | TSB-327 | 以 ffprobe 实测为准（AGENTS.md 5.2） |
+| ::test_an_hdr_transfer_characteristic_is_flagged_color_unverified | TSB-327/V10 | PQ/HLG 必须标 COLOR_UNVERIFIED，不冒称色彩准确 |
+| ::test_an_sdr_clip_is_not_flagged_color_unverified | TSB-327 | 标记不是恒真，否则失去意义 |
+| ::test_a_cancelled_derivation_stops_before_encoding | TSB-327/V17/C7 | 取消被真正执行且不发布产物 |
+
+**反向验证**：`tools/reverse_verify_video_clip.py` 削弱 5 个守卫并确认转红。
+**首轮发现 2 个守卫未被覆盖**（负值检查、无声强制），补测后 `VERDICT: PASS`。
+
+### TSB-328 时间事件 Schema 与版本化结果（62 项）
+
+| 用例 | 任务 | 守护的行为 |
+| --- | --- | --- |
+| test_video_schema.py::test_a_response_about_another_clip_is_rejected | TSB-328/C3 | 描述别的 clip 即拒绝，不自动重映射 |
+| ::test_a_response_about_another_segment_is_rejected | TSB-328/C3 | 同上，按 segment 维度 |
+| ::test_a_response_with_nothing_usable_is_rejected / _non_list_events_field_is_rejected | TSB-328/C6 | 信封不可用即报错，不落空结果 |
+| ::test_a_response_where_every_event_is_invalid_is_rejected_not_emptied | TSB-328/V12/C6 | 全废不得变成"空成功" |
+| ::test_an_out_of_range_event_is_dropped_and_reported | TSB-328/V12 | 单项畸形丢弃并留因，整批继续 |
+| ::test_audio_analysis_is_forced_false_even_if_the_model_claims_it | TSB-328/V21 | 无声片段下任何"听到音频"都是假，且该声明被记录 |
+| ::test_confidence_is_clamped_into_range / _non_numeric_becomes_zero | TSB-328 | 置信度是模型自报值，不是准确率 |
+| ::test_the_stored_dict_labels_confidence_as_uncalibrated | TSB-328 | 输出恒标 `confidence_is_calibrated=false` |
+| ::test_an_identity_claim_in_an_event_is_dropped | TSB-328 | 像素无法证明身份/地点 |
+| ::test_the_prompt_forbids_audio_claims_and_identity / ::test_the_prompt_permits_an_empty_answer | TSB-328 | 提示词声明非视频、禁音频、空答案合法 |
+| test_video_observation.py::test_an_identical_rerun_replaces_in_place_without_duplicating | TSB-328/V15 | 同输入重跑原地替换，唯一 current |
+| ::test_a_changed_input_appends_a_new_version_and_demotes_the_old | TSB-328/V15 | 变输入追加并降级旧行，历史保留 |
+| ::test_a_changed_trim_makes_a_different_version | TSB-328/C2 | 重新裁剪使缓存结论失效 |
+| ::test_a_stale_job_cannot_publish | TSB-328/V13 | 取消的 Job 不得提交迟到答案，且不留行 |
+| ::test_a_trim_that_changed_during_the_model_call_blocks_publication | TSB-328/V14/C2 | 事务内复查，人工编辑优先 |
+| ::test_a_failed_attempt_does_not_demote_the_last_good_reading | TSB-328/C6 | 失败重跑不摧毁上次好结果 |
+| ::test_a_failure_does_not_make_already_done_true | TSB-328 | 失败不算"已完成"，否则重试空转却报成功 |
+| ::test_already_done_is_false_for_a_different_clip_sha | TSB-328 | 不同派生字节是不同证据 |
+| ::test_storing_a_video_reading_does_not_touch_semantic_rows / _motion_rows / _human_columns | TSB-328/V20/C4 | 三路隔离，人工判定与编辑边界不被改写 |
+| ::test_coverage_reports_a_subset_as_a_subset | TSB-328 | 子集必须报成子集 |
+| ::test_coverage_does_not_count_failures_as_covered | TSB-328/C6 | 失败不计入覆盖率 |
+
+### TSB-329 video_analyze 任务（53 项：job 31 + api 22）
+
+| 用例 | 任务 | 守护的行为 |
+| --- | --- | --- |
+| test_video_job.py::test_unverified_video_is_refused_when_fallback_is_not_offered | TSB-329/V03 | 未验证即拒绝，不静默降级 |
+| ::test_fallback_records_its_reason_and_the_effective_mode | TSB-329/V18 | 回退必须可归因 |
+| ::test_a_fallback_never_claims_video | TSB-329/V18 | **核心**：回退后不得声称是视频 |
+| ::test_too_many_segments_is_refused / _seconds / _bytes | TSB-329 | 三类预算越限均 `MODEL_BUDGET_EXCEEDED` |
+| ::test_the_budget_defaults_are_local_guard_rails_not_endpoint_claims | TSB-329 | 本地护栏不得写成端点限制 |
+| ::test_preflight_refuses_without_consent / ::test_preflight_refuses_unverified_capability_even_with_consent | TSB-329/V01/V02 | 派生任何媒体之前即拒绝 |
+| ::test_a_job_without_consent_sends_nothing / ::test_a_job_without_verified_capability_sends_nothing | TSB-329/V01/V03 | **零出站**（最强形式的"没上传"） |
+| ::test_excluded_and_invalid_shots_are_not_candidates | TSB-329 | 排除/失效镜头不入队也不计入预算 |
+| ::test_a_later_settings_change_cannot_alter_a_running_plan | TSB-329 | 配置快照是权威，授权不可被事后放宽 |
+| ::test_a_fallback_does_not_produce_video_rows | TSB-329/V18 | 回退不产生任何 `video_native` 行 |
+| ::test_video_analyze_is_registered_in_all_three_places | TSB-329 | 可派发（VALID_JOB_TYPES + TASK_REGISTRY + EXCLUSIVE_JOB_TYPES 三者同步） |
+| test_video_api.py::test_an_unverified_video_channel_is_refused_before_enqueueing | TSB-329/V03 | **请求即拒绝**，且不留可排队 Job 行 |
+| ::test_a_running_job_is_reported_as_a_conflict_before_any_capability_verdict | TSB-329 | 互斥优先：答 422 会掩盖项目正忙 |
+| ::test_a_fallback_request_is_accepted_when_video_is_unavailable | TSB-329/V18 | 显式回退可通过 |
+| ::test_a_multiframe_request_is_never_blocked_by_video_capability | TSB-329/V03 | 图片/多帧通路不受影响 |
+| ::test_the_response_always_carries_the_honesty_flags | TSB-331/328 | 消费方无需从缺失字段推断"未分析音频" |
+| ::test_history_returns_superseded_versions / ::test_include_history_exposes_every_version | TSB-328/V15 | 历史可审计 |
+| ::test_a_failed_attempt_is_not_counted_as_coverage | TSB-328/C6 | 失败不是覆盖 |
+| ::test_video_endpoints_require_the_access_token / ::test_a_non_loopback_host_is_refused | TSB-329/C5 | 新端点同样受鉴权与 Host 守卫约束 |
+
+### TSB-330 A/B 评价（31 项）
+
+| 用例 | 任务 | 守护的行为 |
+| --- | --- | --- |
+| test_video_ab.py::test_without_labels_every_arm_reports_null_metrics | TSB-330/V19 | **核心**：无人工标注不出任何准确率 |
+| ::test_without_labels_adoption_is_not_decided | TSB-330/V19 | 无数据不判定采纳 |
+| ::test_a_report_without_labels_is_marked_not_annotated | TSB-330 | 状态如实 |
+| ::test_a_blocked_run_reports_blocked_by_endpoint | TSB-330 | arm C 缺失标 `blocked_by_endpoint` |
+| ::test_arm_c_is_never_filled_from_arm_b | TSB-330 | **绝不**用多帧读数冒充原生视频证据 |
+| ::test_mock_results_are_not_accepted_as_arm_c_evidence | TSB-330 | 数字齐全也不能让阻塞运行变"已评价" |
+| ::test_an_arm_that_ran_but_found_nothing_scores_zero_not_null | TSB-330 | `0.0`=跑了没检出；`null`=没跑（两者不可混淆） |
+| ::test_an_arm_with_no_reading_at_all_is_null_not_zero | TSB-330 | 镜像情形 |
+| ::test_a_label_is_never_matched_twice | TSB-330 | 重复使用标注会抬高召回 |
+| ::test_events_without_absolute_times_are_ignored_not_guessed | TSB-330 | 无绝对秒不猜 |
+| ::test_the_report_states_how_many_distinct_videos_the_segments_came_from | TSB-330 | 20 镜头≠20 个独立样本 |
+| ::test_the_report_refuses_to_compare_token_costs_across_shapes | TSB-330 | 不同计费形态不可比 |
+| ::test_the_adoption_thresholds_are_pre_registered | TSB-330 | 阈值执行前固定，防事后挑选 |
+| ::test_the_written_report_contains_no_local_paths / ::test_writing_refuses_a_report_that_leaked_a_path | TSB-330/C5 | 证据不含本机路径 |
+| ::test_a_malformed_label_file_yields_no_labels_rather_than_zero_scores | TSB-330 | 坏标注文件不得变成"评了 0 分" |
+
+### TSB-331 前端面板（17 项）
+
+| 用例 | 任务 | 守护的行为 |
+| --- | --- | --- |
+| VideoUnderstandingPanel.test.tsx::all three input modes are labelled with what they actually are | TSB-331 | 三路并列且各自标注真实输入模式 |
+| ::a fallback is shown with both requested and effective modes | TSB-331/V18 | 回退必须写明"不是视频分析" |
+| ::a capability refusal is explained with state and remedy | TSB-331 | 拒绝给出能力状态与可执行处理方式 |
+| ::a generic failure is not dressed up as a capability problem | TSB-331 | 普通失败不被伪装成能力问题 |
+| ::an event shows both clip-relative and absolute times | TSB-331 | 两套坐标各自标注，混用会放错事件位置 |
+| ::confidence is labelled as uncalibrated | TSB-331 | 出现"未校准"，不出现"准确率" |
+| ::events without absolute times omit the source line rather than showing NaN | TSB-331 | 无绝对秒不显示 NaN |
+| ::the honesty badges are rendered | TSB-331 | 音频未分析 / quality 可见 |
+| ::an HDR source shows the colour-unverified badge | TSB-331/V10 | 色彩未验证可见 |
+| ::dropped events are surfaced | TSB-331 | 被丢弃事件可见而非静默 |
+| ::a zero-event reading says so rather than looking empty | TSB-331 | 零事件≠空成功 |
+| ::coverage is reported as a subset, not a total | TSB-331 | "这不是已分析全库" |
+| ::the run button is disabled until per-call consent is given | TSB-331/V02 | 逐次同意门禁 |
+| ::a missing reading shows its reason instead of disappearing | TSB-331 | 缺失列显示原因 |
+
+### TSB-332 证据边界
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `tools/protection_report.py` → `PROTECTION_REPORT.json` | 原片（6 段 4.76 GB）与生产库的只读快照，作为事后比对基线；**明确声明**采样摘要≠全文件摘要 |
+| `ci.yml` 强制媒体清单 | 9 个新套件登记；实测 457 项 **0 skip** |
+| `RELEASE_V2_1_3.md` | 结论措辞、范围声明、未完成项 |
+
+**手动门禁（未完成）**：真实视频联调、A/B 人工盲评、8～10 段多维度素材验收、
+60+ 段/200GB 性能 —— 均未执行，不得由上述自动化替代。
+A/B 报告 `AB_RESULTS.json` 的 `status` 为 `not_annotated`，**所有指标为 null**。
 
 
