@@ -372,13 +372,21 @@ def _make_source(
     hdr: bool = False,
 ) -> Path:
     """Build a real test source. Colour changes over time so a clip of the wrong
-    window would be visibly different, not merely shorter."""
+    window would be visibly different, not merely shorter.
+
+    TSB-341: the colour-over-time effect used to come from ``drawtext``, which is
+    missing from FFmpeg builds without a compile-time freetype dependency (the
+    Homebrew formula is one). That made 12 tests here fail with
+    ``No such filter: 'drawtext'`` on such machines even though nothing under test
+    was wrong. ``hue`` is a core filter present in every build and rotates the
+    colours as time passes, which preserves the property these tests need.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [locate_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
            "-f", "lavfi", "-i", f"testsrc=size={size}:rate={fps}:duration={duration}"]
     if audio:
         cmd += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}"]
-    vf = "drawtext=text='%{eif\\:t\\:d}':x=20:y=20:fontsize=64:fontcolor=white"
+    vf = "hue=h=360*t/4:s=1.0"
     if rotate:
         vf += ",scale=1280:720"
     cmd += ["-vf", vf]

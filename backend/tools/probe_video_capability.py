@@ -74,6 +74,12 @@ def clip_source_is_real(clip: Path | None) -> bool:
 #: otherwise it stays a local guard rail.
 LOCAL_MAX_BYTES = 12_000_000
 
+#: The colour each third of the probe clip is painted, in order. A model that
+#: actually decoded the clip can report this sequence; one that saw a single
+#: frame (or only read the prompt) cannot. Kept as data so the prompt, the clip
+#: builder and the checker cannot drift apart.
+PROBE_PHASE_ORDER: tuple[str, str, str] = ("red", "green", "blue")
+
 
 # ---------------------------------------------------------------------------
 # synthetic test clip
@@ -85,21 +91,39 @@ def build_synthetic_clip(duration_sec: float = 3.0) -> Path:
     The content changes *over time* on purpose: a static clip could be answered
     correctly by a server that decoded exactly one frame, which would make the
     probe unable to distinguish "read the video" from "read a thumbnail".
+
+    TSB-341: this used to burn in a frame counter with ``drawtext``, which is
+    absent from FFmpeg builds without a compile-time freetype dependency. Since
+    this tool is the only way to produce the capability record TSB-335 consults,
+    such a build made the whole native-video closure unreachable -- the probe died
+    with an FFmpegError before it could even report "unavailable".
+
+    The replacement paints the clip in three distinct colour phases and asks the
+    model for the order. Only ``color`` and ``drawbox`` are used, both of which are
+    present in every build the project accepts. This is also *stronger* evidence
+    than the old keyword scan, because a wrong order can now be detected rather
+    than merely un-matched.
     """
     from app.ffmpeg import locate_ffmpeg, run
 
     out = Path(tempfile.mkdtemp(prefix="tsb-video-probe-")) / "probe.mp4"
-    # A moving box over a changing background, plus a burned-in counter so a
-    # temporal answer can be checked against real order.
+    third = max(duration_sec, 0.3) / 3.0
+    first, second, third_c = PROBE_PHASE_ORDER
+    # A moving box keeps the clip visibly dynamic; the colour phases give an
+    # orderable, checkable signal. `enable` windows select each phase by time.
     vf = (
-        "drawbox=x='mod(t*120,320)':y=100:w=80:h=80:color=red@1:t=fill,"
-        "drawtext=text='%{eif\\:n\\:d}':x=10:y=10:fontsize=48:fontcolor=white"
+        f"drawbox=x=0:y=0:w=320:h=240:color={first}@1:t=fill:enable='lt(t,{third:.3f})',"
+        f"drawbox=x=0:y=0:w=320:h=240:color={second}@1:t=fill"
+        f":enable='between(t,{third:.3f},{2 * third:.3f})',"
+        f"drawbox=x=0:y=0:w=320:h=240:color={third_c}@1:t=fill"
+        f":enable='gte(t,{2 * third:.3f})',"
+        "drawbox=x='mod(t*120,320)':y=100:w=80:h=80:color=white@1:t=fill"
     )
     cmd = [
         locate_ffmpeg(),
         "-hide_banner", "-loglevel", "error", "-y",
         "-f", "lavfi",
-        "-i", f"testsrc=size=320x240:rate=10:duration={duration_sec}",
+        "-i", f"color=c=black:size=320x240:rate=10:duration={duration_sec}",
         "-vf", vf,
         "-an",                      # no audio track at all
         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
@@ -108,6 +132,62 @@ def build_synthetic_clip(duration_sec: float = 3.0) -> Path:
     ]
     run(cmd, expect_output=out)
     return out
+
+
+def build_probe_prompt() -> str:
+    """The question asked about the probe clip.
+
+    It names the colours and asks for the order, so the reply is checkable
+    against ground truth instead of merely scanned for time-ish words.
+    """
+    first, second, third = PROBE_PHASE_ORDER
+    return (
+        "This is a short silent test clip. It is divided into three equal parts, "
+        f"each filled with one solid colour, in some order chosen from: {first}, "
+        f"{second}, {third}. Watch the whole clip and report the order in which "
+        "the colours appear. Reply with JSON only, using the key \"order\" whose "
+        f"value is the list of colour names in the order you observed them, for "
+        f"example: {{\"order\": [\"{first}\", \"{second}\", \"{third}\"]}}. "
+        "Also add a key \"motion\" (true/false) saying whether anything moved. "
+        "If you cannot watch video, reply exactly NO_VIDEO."
+    )
+
+
+def evaluate_probe_answer(text: str) -> tuple[bool, str]:
+    """Did the answer report the clip's *actual* colour order?
+
+    This is deliberately able to return ``False`` for a confident, fluent answer:
+    the previous ``_looks_temporal`` accepted any text containing "then" or
+    "from", so a model naming the phases backwards still scored as proof of
+    temporal understanding. The check is now against ground truth.
+    """
+    lowered = (text or "").lower()
+    if not lowered.strip():
+        return False, ""
+    if "no_video" in lowered:
+        return False, "model reported NO_VIDEO"
+
+    expected = list(PROBE_PHASE_ORDER)
+
+    # Preferred: an explicit ordered list of the colour names.
+    positions: list[tuple[int, str]] = []
+    for colour in PROBE_PHASE_ORDER:
+        idx = lowered.find(colour)
+        if idx < 0:
+            break
+        positions.append((idx, colour))
+    else:
+        observed = [colour for _, colour in sorted(positions)]
+        if observed == expected:
+            return True, "reported the clip's colour order correctly"
+        return False, f"reported order {observed} but the clip is {expected}"
+
+    # No full colour set: fall back to motion-only evidence, which is weaker and
+    # says so. It cannot establish order, so it is not "verified" material.
+    motion_markers = ("moving", "motion", "moves", "changing", "changes")
+    if any(m in lowered for m in motion_markers):
+        return True, "describes motion (order not established)"
+    return False, ""
 
 
 # ---------------------------------------------------------------------------
@@ -240,32 +320,11 @@ def classify_probe_outcome(outcome: ProbeOutcome) -> tuple[str, str]:
     )
 
 
-def _looks_temporal(text: str) -> tuple[bool, str]:
-    """Cheap, honest heuristic for "does this answer know about time?".
-
-    Deliberately conservative. It cannot prove the server decoded every frame, and
-    the returned basis string says so; it only distinguishes "the answer contains
-    time-ordered content" from "the answer is unrelated prose".
-    """
-    lowered = (text or "").lower()
-    if not lowered.strip():
-        return False, ""
-    markers = [
-        ("sequence", "mentions a sequence of changes"),
-        ("then", "describes ordered change"),
-        ("first", "describes ordered change"),
-        ("second", "describes ordered change"),
-        ("moving", "describes motion"),
-        ("motion", "describes motion"),
-        ("from", "describes a transition"),
-        ("changing", "describes change over time"),
-        ("frames", "mentions frames"),
-        ("timestamp", "mentions timestamps"),
-    ]
-    hits = [why for needle, why in markers if needle in lowered]
-    if hits:
-        return True, hits[0]
-    return False, ""
+# TSB-341 removed ``_looks_temporal``: it accepted any answer containing "then",
+# "first" or "from", so a model naming the clip's phases in the wrong order still
+# scored as proof of temporal understanding. ``evaluate_probe_answer`` checks the
+# reported order against the clip that was actually sent and *can* return False.
+# Do not reintroduce a keyword-only check here.
 
 
 # ---------------------------------------------------------------------------
@@ -398,10 +457,10 @@ def run_probe(
                 "content": [
                     {
                         "type": "text",
-                        "text": (
-                            "Describe what changes over time in this video, in order. "
-                            "If you cannot see a video, say exactly: NO_VIDEO."
-                        ),
+                        # TSB-341: ask for the clip's actual colour order, so the
+                        # answer can be checked against ground truth instead of
+                        # scanned for time-ish words.
+                        "text": build_probe_prompt(),
                     },
                     {
                         "type": "video_url",
@@ -452,9 +511,17 @@ def run_probe(
             outcome.temporal_signal_basis = "model reported NO_VIDEO"
             outcome.notes.append("model explicitly reported no video content")
         else:
-            found, basis = _looks_temporal(text)
+            # TSB-341: check the reported colour order against the clip that was
+            # actually sent. This can return False for a fluent wrong answer, which
+            # the previous keyword scan could not.
+            found, basis = evaluate_probe_answer(text)
             outcome.temporal_signal = found
             outcome.temporal_signal_basis = basis
+            if found and "order" not in basis:
+                outcome.notes.append(
+                    "temporal evidence is motion-only; the reported colour order "
+                    "was not established"
+                )
 
     return outcome
 
