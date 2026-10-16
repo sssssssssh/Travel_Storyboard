@@ -537,6 +537,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--protocol", default="video_url_data_uri")
     parser.add_argument("--json", type=Path, default=None, help="write the report here")
     parser.add_argument("--redact", action="store_true", help="strip endpoint host (for committed evidence)")
+    parser.add_argument(
+        "--record-capability",
+        action="store_true",
+        dest="record_capability",
+        help=(
+            "write the outcome to the local capability store so the video route can "
+            "stop answering 422; requires --execute (a dry run has no evidence), and "
+            "the record is never committed"
+        ),
+    )
     args = parser.parse_args(argv)
 
     settings = get_settings()
@@ -630,7 +640,87 @@ def main(argv: list[str] | None = None) -> int:
         args.json.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"\nreport written: {args.json}")
 
+    # TSB-335: close the probe -> load -> use loop. Without this the probe could
+    # succeed while the route kept answering 422 forever, because nothing ever
+    # wrote the runtime record that ``current_capabilities()`` reads.
+    if args.record_capability:
+        _record_capability(report, plan=plan, executed=executed)
+
     return 0
+
+
+def _record_capability(report: dict, *, plan, executed: bool) -> None:
+    """Persist the probe outcome as the runtime capability record.
+
+    Only a probe that actually ran can be recorded: a dry run has no evidence, so
+    writing one would be exactly the "assume it works" mistake this task exists to
+    prevent. ``unsupported`` and ``video_accepted_sampling_unknown`` are recorded
+    too, so the UI can explain *why* the channel is closed instead of showing a
+    blank "unverified".
+    """
+    import hashlib
+
+    from app.services.vision.capability_store import (
+        EndpointIdentity,
+        build_record,
+        save_record,
+    )
+
+    if not executed:
+        print()
+        print("NOT RECORDED: a dry run produces no evidence; re-run with --execute first.")
+        print("              (recording an unproven positive would defeat the guard)")
+        return
+
+    caps = report.get("capabilities") or {}
+    state = caps.get("state", "unverified")
+    if state == "unverified":
+        print()
+        print("NOT RECORDED: the probe did not establish a usable capability state.")
+        return
+
+    scope = caps.get("verification_scope", "")
+    # Evidence over the machine-readable outcome, so a hand-edited report cannot
+    # masquerade as probe output.
+    digest_material = json.dumps(
+        {
+            "state": state,
+            "protocol": caps.get("protocol", ""),
+            "model_id": caps.get("model_id", ""),
+            "scope": scope,
+            "temporal_sampling_disclosed": caps.get("temporal_sampling_disclosed", False),
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+
+    from app.config import get_settings
+
+    identity = EndpointIdentity(
+        base_url=(get_settings().model_base_url or "").rstrip("/"),
+        model_name=caps.get("model_id", "") or plan.model_id,
+        protocol=caps.get("protocol", "") or plan.protocol,
+        deployment_id="",
+    )
+
+    record = build_record(
+        identity=identity,
+        state=state,
+        protocol=caps.get("protocol", "") or plan.protocol,
+        model_id=caps.get("model_id", "") or plan.model_id,
+        verification_scope=scope,
+        evidence_digest=hashlib.sha256(digest_material.encode("utf-8")).hexdigest(),
+        evidence_summary=str(report.get("verification_scope", "") or scope)[:500],
+        max_duration_sec=caps.get("max_duration_sec"),
+        max_bytes=caps.get("max_bytes"),
+        accepts_audio=caps.get("accepts_audio"),
+        temporal_sampling_disclosed=bool(caps.get("temporal_sampling_disclosed", False)),
+    )
+    path = save_record(record, identity=identity)
+    print()
+    print(f"capability recorded: {path}")
+    print(f"  state bound to endpoint: {state}")
+    print("  the record is local and outside the repository; it is never committed.")
 
 
 if __name__ == "__main__":

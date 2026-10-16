@@ -214,6 +214,9 @@ jobs:
           # than the job where a missing tool would skip silently.
           tests/test_video_model_switch_scope.py
           tests/test_video_provider_wiring.py
+          # TSB-335: the capability store decides whether user video may be sent
+          # at all; its refusals must not be able to turn into silent skips.
+          tests/test_video_capability_store.py
       - name: Record exact commit and platform evidence
         if: always()
         working-directory: backend

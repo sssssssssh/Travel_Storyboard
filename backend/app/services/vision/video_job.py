@@ -211,9 +211,12 @@ def plan_video_job(job_id: str, *, capabilities: VideoCapabilities | None = None
         config = dict(job.config_snapshot or {})
 
     requested = str(config.get("mode") or "video_native")
-    caps = capabilities if capabilities is not None else unverified_capabilities(
-        model_id=settings.model_name or ""
-    )
+    # TSB-335: this defaulted to a hardcoded ``unverified_capabilities()``, so even
+    # a probe that had established real video support could never reach execution
+    # -- the channel was closed twice over. Resolve through the store, and re-check
+    # it here (execute time) as well as at enqueue time, so switching the endpoint
+    # or model after a job was queued cannot ride on the older positive.
+    caps = capabilities if capabilities is not None else current_capabilities()
 
     effective, fallback_reason = resolve_mode(
         requested_mode=requested,
@@ -376,15 +379,31 @@ def video_capability_refusal(
 def current_capabilities() -> VideoCapabilities:
     """The capability record this process knows about.
 
-    Returns ``unverified`` unless a probe result has been loaded, which is the
-    honest and safe answer: "no probe on record" means the channel may not send.
-    Callers holding a probe report pass it in explicitly via ``capabilities``.
+    TSB-335: this used to return ``unverified`` unconditionally, so a probe that
+    had genuinely succeeded could never enable the channel and the route answered
+    422 forever. The record is now read from a local, operator-controlled store
+    (see ``capability_store``) that is bound to the full endpoint identity.
+
+    It is deliberately *not* read from the committed
+    ``CAPABILITY_REPORT.json``: that file is public and forgeable, and granting
+    upload permission from it would turn a privacy guard into a rubber stamp.
+    Any missing, damaged, mismatched or expired record still answers
+    ``unverified`` -- the safe direction. Callers holding a probe report pass it
+    in explicitly via ``capabilities``.
     """
-    settings = get_settings()
-    return unverified_capabilities(
-        model_id=settings.model_name or "",
-        reason="no capability probe result is loaded in this process",
-    )
+    from .capability_store import load_capabilities
+
+    try:
+        return load_capabilities()
+    except Exception:  # noqa: BLE001 - never let a store fault grant or crash
+        # An unexpected fault must degrade to "not allowed", never to "allowed",
+        # and must not take down the route that needs to explain the state.
+        logger.exception("capability store read failed; treating the channel as unverified")
+        settings = get_settings()
+        return unverified_capabilities(
+            model_id=settings.model_name or "",
+            reason="能力记录读取失败；已按未验证处理",
+        )
 
 
 def register_video_tasks() -> None:
