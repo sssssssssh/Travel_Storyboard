@@ -662,3 +662,67 @@ T01/T04 手动增加：应用/帮助/API/发布包版本一致；旧库启动不
 | v2.1.2 MAC_UI_E2E / UI_JOB_AUDIT / UI_CLEANUP_RETRY / UI_TRIM_CONFLICT / UI_EXPORT_PROBE | TSB-323/324 | 实际产品界面扫描/检测/HTTPS 模型/缓存/取消/清理故障与补救/旧页 409/代理/导出；API/SQLite/ffprobe 仅核验产物，不冒充界面操作 |
 
 T01/T04/T15/T17/T19/T23/T25 本轮补充记录见 `validation/v2.1.2/MAC_UI_E2E.md` 与 `RELEASE_GATE.md`：本轮 UI 使用现有 6 段中的 2 段、17 镜头；8 个镜头不等于 8 个视频。确认/拒绝自动化点选不冒充真人审阅。真人播放/判定尚待用户完成，浏览器安全策略拒绝鉴权媒体导航；ffprobe/完整解码不能替代实际播放。新增独立多类型实片、HDR 人工色彩对比及 200GB 性能未完成。
+
+## v2.1.3 / M5.3 批次 A（TSB-325 / TSB-326）
+
+结果、范围声明与未完成项见 [RELEASE_V2_1_3.md](RELEASE_V2_1_3.md)。
+本轮**只做批次 A**；TSB-327～332 未执行。
+
+| 用例 | 任务 | 守护的行为 |
+| --- | --- | --- |
+| test_native_video_capability.py::test_default_state_is_unverified_not_permission | TSB-325 | 默认 `unverified` 不是"可以试试"的许可 |
+| ::test_only_verified_native_video_is_sendable | TSB-325 | 四态中只有 `verified_native_video` 可发送 |
+| ::test_acceptance_without_temporal_evidence_is_not_sendable | TSB-325/V04 | 接受但无时间证据 ≠ 已验证，不得花用户素材 |
+| ::test_limits_default_to_unknown_not_to_a_plausible_number | TSB-325 | 未测量的上限保持 unknown，不填猜测值 |
+| ::test_to_dict_names_the_unknown_fields_explicitly | TSB-325 | 消费方无需读文档即可区分 null 与 0 |
+| ::test_a_measured_zero_is_not_reported_as_unknown | TSB-325 | `False` 是知识，只有 `None` 才是未知 |
+| ::test_verified_requires_a_protocol_and_a_scope | TSB-325 | "调用成功了"不构成验证证据 |
+| ::test_record_verification_stamps_time_and_keeps_unknowns_unknown | TSB-325 | 已验证不等于上限已测量 |
+| ::test_a_capability_object_has_no_credential_fields | TSB-325/C5 | 能力对象不含 key/url/path 字段 |
+| ::test_protocol_selection_is_by_registration_not_by_model_name | TSB-325 | 协议按注册选择，不嗅探模型名（任务书点名的反模式） |
+| ::test_a_duplicate_protocol_name_is_refused / _without_mime_types_is_refused | TSB-325 | 注册表 fail closed |
+| ::test_an_unregistered_protocol_raises_rather_than_guessing | TSB-325 | 未注册协议报错而不是猜 |
+| ::test_the_builtin_protocol_is_registered_and_carries_mp4 | TSB-325 | 内联协议不触发服务端取 URL |
+| test_native_video_probe.py::test_a_2xx_without_temporal_content_is_sampling_unknown_not_verified | TSB-325/V04 | 200 但无时间内容 ≠ 已验证（核心规则） |
+| ::test_a_dead_endpoint_cannot_be_reported_as_unsupported | TSB-325 | **实测场景**：网关全 503 不得被伪造为"不支持视频" |
+| ::test_a_control_500_also_poisons_the_video_verdict | TSB-325 | 连视频形状的 415 在端点全挂时也无意义 |
+| ::test_a_healthy_control_lets_a_video_rejection_stand | TSB-325 | 对照正常时才采信视频被拒 |
+| ::test_a_dry_run_report_is_unverified_even_with_a_good_observation | TSB-325 | dry-run 不能凭空产生验证 |
+| ::test_a_synthetic_clip_is_not_labelled_as_operator_footage | TSB-325 | **回归**：曾把合成片误标为运行者素材 |
+| ::test_the_plan_states_when_mode_on_means_a_real_send | TSB-325 | mode=on 时明确告知请求会离开本机 |
+| ::test_the_plan_flags_cleartext_non_loopback | TSB-325/V06 | 非回环明文端点风险可见 |
+| ::test_the_report_carries_no_credentials | TSB-325/C5 | 报告不含 Bearer/api_key/sk- |
+| ::test_dry_run_exits_zero_and_sends_nothing | TSB-325 | 默认 dry-run 零外发 |
+| ::test_execute_without_explicit_consent_is_refused | TSB-325/C5 | 一个 flag 不足以打开真实上传 |
+| ::test_a_missing_clip_is_refused_rather_than_silently_substituted | TSB-325 | 指定素材缺失时报错而非静默换用合成片 |
+| test_native_video_provider.py::test_missing_authorization_sends_nothing | TSB-326/C5 | 无授权上下文零出站 |
+| ::test_an_unregistered_protocol_sends_nothing / _empty_protocol_sends_nothing | TSB-326/V05 | 协议未定不发送，不自动猜协议重试 |
+| ::test_a_non_video_payload_sends_nothing | TSB-326 | 声明 video/mp4 的 HTML 不得上线 |
+| ::test_an_oversize_payload_sends_nothing | TSB-326/V07 | 超限在上线前拒绝 |
+| ::test_a_fetching_protocol_is_refused_as_an_ssrf_surface | TSB-326 | 需服务端取 URL 的协议被拒（无 SSRF 面） |
+| ::test_video_part_requires_a_server_issued_clip_id | TSB-326/C3 | clip 必须由服务端签发 |
+| ::test_video_part_refuses_an_audio_bearing_clip | TSB-326/V07 | 派生片默认静音，带音轨需显式决定 |
+| ::test_video_part_maps_source_coordinates | TSB-326 | 源坐标映射（为 TSB-328 绝对秒做准备） |
+| ::test_capability_gate_refuses_none_and_unverified / _sampling_unknown / _allows_verified | TSB-326/V03 | 能力门禁：不可用时不启视频，图片模式不受影响 |
+| ::test_a_successful_call_sends_a_video_url_data_uri | TSB-326 | 实际发出 `video_url` + data URI |
+| ::test_the_uploaded_body_carries_no_local_path | TSB-326/C5 | 出站体不含本机路径 |
+| ::test_an_empty_content_response_is_a_failure_not_a_success | TSB-326/C6 | 200 空 content = 失败，不是空成功 |
+| ::test_error_statuses_are_classified[401/404/413] | TSB-326 | 稳定错误码分类 |
+| ::test_the_api_key_is_never_in_the_error_message | TSB-326/C5 | 供应商回显密钥也不泄露 |
+| ::test_a_cancel_before_send_makes_no_request | TSB-326/C7 | 取消后零出站 |
+| ::test_sampling_disclosure_is_only_reported_when_the_server_says_so | TSB-325/326 | 抽帧机制未披露不得反推为已知 |
+| ::test_retry_after_is_honoured_without_sleeping_too_long | TSB-326/V22 | 有界重试并尊重 Retry-After |
+
+**反向验证**：`tools/reverse_verify_native_video.py` 逐个削弱守卫并确认测试转红——
+协议注册闸门 → `test_a_fetching_protocol_is_refused_as_an_ssrf_surface` 失败；
+载荷校验 → `test_a_non_video_payload_sends_nothing` 失败；
+授权 chokepoint → `test_missing_authorization_sends_nothing` 失败；
+`capability_gate` → `test_capability_gate_refuses_sampling_unknown` 失败。
+`VERDICT: PASS`，脚本在每次变异后恢复原文件。
+
+**手动门禁（本轮未完成）**：端点视频能力**未验证**（探测时端点 503，纯文本对照同样 503）。
+证据见 `docs/validation/v2.1.3/CAPABILITY_REPORT.json` 与 `PROTOCOL_EXAMPLES.md`。
+本次 `--execute` 确实外发了 48,829 字节**合成**短片（无用户素材），但端点未给出任何视频相关信息，
+因此结论为 `unverified`，`video_native` 通道保持禁用。
+拿到真实正例前不得进入 TSB-327 之后的真实视频链路。
+

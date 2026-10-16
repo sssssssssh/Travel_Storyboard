@@ -199,6 +199,9 @@ jobs:
           tests/test_release_version.py
           tests/test_media_format_matrix.py
           tests/test_vision_compat.py
+          tests/test_native_video_capability.py
+          tests/test_native_video_probe.py
+          tests/test_native_video_provider.py
       - name: Record exact commit and platform evidence
         if: always()
         working-directory: backend

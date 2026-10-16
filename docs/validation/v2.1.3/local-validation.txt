@@ -1,0 +1,37 @@
+﻿TSB-325 / TSB-326 (v2.1.3 batch A) validation - Windows
+==============================================================
+Python: Python 3.13.7
+baseline: 664239ba16769e19c6e3564728953a39e213d4f4
+
+[1] full backend suite
+  cmd: pytest -q --junitxml
+  result: tests=908 failures=0 errors=0 skipped=1  (two consecutive runs)
+  baseline v2.1.2 = 828; new this round = 80 (21+29+30)
+
+[2] mandatory media mode (TSB_REQUIRE_FFMPEG=1), 11 suites
+  result: tests=270 failures=0 errors=0 skipped=0
+
+[3] skip guard self-check (last 3 lines)
+
+whitelist = ('long-path behaviour is Windows-specific', 'MAX_PATH only constrains Windows', 'requires Windows', 'link creation is a platform fact')
+VERDICT: PASS - Linux platform skips cannot fail the job
+
+[4] reverse verification of TSB-326 guards
+baseline (all guards present):
+   ..............................                                           [100%]
+
+  OK   protocol-registry gate (accept any protocol name)
+         -> FAILED tests/test_native_video_provider.py::test_a_fetching_protocol_is_refused_as_an_ssrf_surface
+  OK   payload validation (skip content sniffing)
+         -> FAILED tests/test_native_video_provider.py::test_a_non_video_payload_sends_nothing
+  OK   authorization chokepoint
+         -> FAILED tests/test_native_video_provider.py::test_missing_authorization_sends_nothing
+  OK   capability_gate body
+         -> FAILED tests/test_native_video_provider.py::test_capability_gate_refuses_sampling_unknown
+
+VERDICT: PASS - every guard is covered by a failing test
+
+[5] capability probe (real, synthetic 48829-byte clip)
+  video request  -> HTTP 503 'no healthy upstream'
+  text-only CTRL -> HTTP 503 'no healthy upstream'
+  => state=unverified (endpoint unhealthy; video ability UNKNOWN)

@@ -1,0 +1,65 @@
+{
+  "task": "TSB-325",
+  "executed": true,
+  "mode": "real_probe",
+  "plan": {
+    "protocol": "video_url_data_uri",
+    "transport": "chat_completions_content_part",
+    "mime": "video/mp4",
+    "clip_source": "synthetic_testsrc",
+    "clip_bytes": 48829,
+    "clip_duration_sec": 3.0,
+    "has_audio": false,
+    "endpoint_scheme": "http",
+    "endpoint_host_redacted": "(redacted for committed evidence)",
+    "model_id": "GLM-5.3-Flash",
+    "model_mode": "on",
+    "risks": [
+      "真实执行会把派生短片发送到远端模型服务；dry-run 不会发送任何字节。",
+      "本工具只做能力探测，不会把结果写成对模型的信任；未通过时 video 通道保持禁用。",
+      "探测结论只覆盖本次所用协议与模型 ID，不推断其他部署。",
+      "端点是明文 http:// 且非回环：图片与令牌在网络上不加密，需显式 insecure 例外。",
+      "TRAVELSB_MODEL_MODE=on：授权边界允许本次外发，请求会真正离开本机。",
+      "默认使用合成的静音测试图样，不含任何用户素材。"
+    ]
+  },
+  "observation": {
+    "attempted": true,
+    "http_status": 503,
+    "error_code": "",
+    "temporal_signal": false,
+    "temporal_signal_basis": "",
+    "usage_present": false,
+    "latency_ms": 1965,
+    "notes": [],
+    "control_http_status": 503,
+    "control_excerpt": "no healthy upstream",
+    "response_excerpt": "no healthy upstream"
+  },
+  "capabilities": {
+    "state": "unverified",
+    "protocol": "video_url_data_uri",
+    "max_duration_sec": null,
+    "max_bytes": null,
+    "accepts_audio": null,
+    "temporal_sampling_disclosed": false,
+    "model_id": "GLM-5.3-Flash",
+    "probe_time": "2026-10-16T01:11:17+00:00",
+    "verification_scope": "endpoint unhealthy: text-only control also returned HTTP 503; the video attempt is inconclusive",
+    "detail": {
+      "temporal_signal_basis": ""
+    },
+    "verified": false,
+    "sendable": false,
+    "unknown_fields": [
+      "accepts_audio",
+      "max_bytes",
+      "max_duration_sec"
+    ]
+  },
+  "not_verified": [
+    "不得由本报告推断其他模型/部署的视频能力",
+    "服务端抽帧 fps/上限未确认时保持 temporal_sampling_disclosed=false",
+    "未做边界压测，故 max_bytes / max_duration_sec 保持 unknown"
+  ]
+}
