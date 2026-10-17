@@ -939,3 +939,99 @@ A/B 报告 `AB_RESULTS.json` 的 `status` 为 `not_annotated`，**所有指标�
 | `::test_the_old_keyword_heuristic_could_not_fail_this_way` | 回归守卫：流利但顺序错误不得通过 |
 | 反向验证 | 放回 `drawtext` → 前两项转红 |
 | `test_video_clip.py` 测试源 | 改用核心滤镜 `hue`；本机 38/38（原 12 failed） |
+
+---
+
+## M5.3-R2 补充整改（TSB-342 / 343 / 344 / 337 / 338 / 339 / 340）
+
+发布记录：[docs/RELEASE_M5_3_R2.md](RELEASE_M5_3_R2.md)
+证据目录：[docs/validation/m5.3-r2/](validation/m5.3-r2/)
+
+### TSB-342 探测证据不可伪造
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_probe_temporal_evidence.py::V01/V01b/V01c` | 提示词不含任何颜色顺序、无填充示例；每轮顺序随机且互不相同 |
+| `::V02/V05/V06/V06b` | 严格 JSON 解析；顺序必须与本轮隐藏真值一致（每轮独立判定） |
+| `::V03/V03b` | 纯提示词对照答对即判否（含回抄 prompt） |
+| `::V04` | 仅含 motion/moving/changing 的文本**不得**作为时间证据（修复前误判通过） |
+| `::V07/V07b` | HTTP 200 但无有效顺序 → `video_accepted_sampling_unknown`；单帧对照答对亦不得升级 |
+| `::V08/V08b` | 401/403/413/429/500/503 与超时永不 `verified` |
+| `::A3/A3b/A3c/A3d/A3e` | 需 ≥3 轮全对、顺序互异、对照确实执行且答错 |
+| `::W1–W4` | **接线**：驱动确实传入每轮顺序与 `probe_id` 并确实跑了两项对照 |
+| 反向验证 | 写回示例 → V01b 红；恢复 motion 回退 → V04/V03/V06 三红 |
+
+### TSB-343 CI 虚拟模型环境与 Windows CLI 编码
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_ci_environment_isolation.py::V11/V12/V13` | Mock 契约完整（`model_mode`+URL+Key）；缺 URL/Key 时确为 `MODEL_NOT_CONFIGURED`；teardown 复原，不泄漏全局开关 |
+| `::V14/V14b/V14c` | cp1252/cp936/ascii/latin-1 下 dry-run 均 exit 0，`--ascii` 输出纯 ASCII，JSON 报告仍写出 |
+| `::V15/V15b/V16` | dry-run 零外发；无 URL/Key 也能出计划；`--execute` 单独不发送 |
+| `::V16b/V16c` | 生产默认仍 `off`；`ci.yml` 不导出全局 `TRAVELSB_MODEL_MODE` |
+| 反向验证 | 移走 `backend/.env` 复现 17 项失败（改前），改后 0 |
+
+### TSB-344 暂存叶子替换与链接拒绝
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_staging_leaf_substitution.py::V17/V17b` | 悬空链接必须失败关闭（不得静默跳过）；指向项目外的链接绝不跟随 |
+| `::V18/V18b/V18c/V18d` | 同路径换成别的目录、目录链接、伪造 inode、伪造祖先链身份 → 一律拒绝且文件存活 |
+| `::V19/V19b/V19c` | 父目录、更深子路径、他人 job_id 均无删除权 |
+| `::V20/V20b` | 正常叶子仍能清理、二次清理幂等（防过度拒绝） |
+| `::V21` | 被拒绝时项目外受害目录与邻居目录均不受影响 |
+| 反向验证 | `_is_link` 恒 False → 6 红；删除身份比对 → V18d 红且错误删除了文件 |
+
+### TSB-337 回退多帧不得空跑成功
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_video_fallback_execution.py::V22/V22b/V22c/V22d` | 未同意回退即拒绝；同意则明确命名模式与原因；可发送态不回退；`multiframe` 不被改道 |
+| `::V23/V23b` | 回退必须真的分析、或给出稳定错误码——**不得** `phase=complete` + `total=0`（修复前正是此形态） |
+| `::V23c` | 反向：未发送则不得声称已分析 |
+| `::V24/V24b` | 必须指明工作落到哪个 job 类型；且不得伪造 video 行 |
+| 反向验证 | 恢复空跑成功 → V23/V23b/V24 三红 |
+
+### TSB-338 预算逐次生效与审计台账
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_video_budget_ledger.py::V25/V25b` | `max_calls` 真正生效（修复前是死配置）；重试计为一次尝试 |
+| `::V26/V26b` | 每次尝试**前**校验字节，含首次；被拒尝试不计数 |
+| `::V27/V27b` | 台账可审计、可序列化、不含路径/端点/凭据 |
+| `::V28/V28b/V28c/V28d` | 计划级上限不回退；**实际派生**时长复核 |
+| `::W5/W6/W7` | **接线**：`note_attempt` 出现在 `_analyze_one` 且早于 `complete_video`；计费含 Base64 膨胀 |
+| 反向验证 | 删除发送点 charge → W5 红 |
+
+### TSB-339 前端结构化错误与证据匿名化
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `api-error-structure.test.ts::V29/V29c/V29f` | `ApiError.code` 保留稳定错误码；不可重试的错误如实标注；嵌套 detail 被展开而非字符串化 |
+| `::V29b/V29e` | `retryable`/`retry_after`/`status` 保留；无法解析的 body 不退化为解析错误 |
+| `::V29d` | 服务器未给 code 时**不臆造**（`undefined`） |
+| `test_evidence_anonymisation.py::V30b/V30c/V30d` | `--redact` 清除 prose 中的端点主机、本机绝对路径、Bearer 令牌 |
+| `::V30e/V30f` | 幂等、保留结构、不修改入参 |
+| `::V30g` | 公开摘要不含顺序/端点/路径 |
+| 反向验证 | 改回单字段 redactor → 3 红 |
+
+### TSB-340 正式 API 端到端
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_video_e2e_formal_api.py::V31` | 全链路：API 受理 → Mock 收到含 video 的请求 → Observation 落库 → 清理无失败 → **原片 sha256 与 inode 未变（C1）** |
+| `::V32` | 取消不得落库、不得记成完成 |
+| `::V33/V33b` | 项目互斥在 API 层生效；6 并发最多 1 个被接受，拒绝均为 409/422 而非 500 |
+| `::V34/V34b` | 重跑不删历史观测（降级 `is_current=False`）、不覆盖 `user_rating`/`content_tags`（C2/C4）；至多一行 current |
+| `::V35/V35b` | 未验证端点 422 拒绝且请求**未到达模型** |
+| `::V36` | 覆盖率接口返回真实计数 |
+| 由本测试暴露的真实缺陷 | `CLIP_FAILED` 未定义（NameError）；预登记与 `derive_clip` 二次创建冲突（FileExistsError）；预登记只记路径未建目录 |
+
+### R2 手动确认项（建议纳入 T01–T25）
+
+| 编号 | 场景 | 期望 |
+| --- | --- | --- |
+| T-R2-01 | 未验证能力的端点上点击「原生视频分析」 | 按钮禁用；若强行请求返回 422 且带稳定错误码，且**无任何外发** |
+| T-R2-02 | 提交一份可提交的证据（`--redact`） | 文件中搜不到端点主机、本机路径、令牌；协议/字节数等审计字段保留 |
+| T-R2-03 | 对同一项目并发触发两次视频分析 | 至多一个受理，另一个 409 且提示正在运行的任务 |
+| T-R2-04 | 重跑已有分析的项目 | 历史观测仍在（被降级而非删除），人工评分与备注不变 |

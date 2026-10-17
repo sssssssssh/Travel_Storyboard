@@ -1,0 +1,378 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="26" skipped="0" tests="34" time="0.930" timestamp="2026-10-17T09:33:03.568860+08:00" hostname="shukedeMacBook-Air.local"><testcase classname="tests.test_probe_temporal_evidence" name="test_v01_the_prompt_never_contains_a_colour_order" time="0.694"><failure message="AttributeError: module 'tools.probe_video_capability' has no attribute 'PROBE_COLOURS'">def test_v01_the_prompt_never_contains_a_colour_order():
+        """No filled order may appear anywhere in the prompt."""
+        prompt = probe.build_probe_prompt()
+        lowered = prompt.lower()
+    
+        # The model must still be told which colours exist -- that is not the secret.
+&gt;       for colour in probe.PROBE_COLOURS:
+                      ^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'tools.probe_video_capability' has no attribute 'PROBE_COLOURS'
+
+tests/test_probe_temporal_evidence.py:52: AttributeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v01b_the_prompt_does_not_use_a_real_round_as_its_example" time="0.000"><failure message="AttributeError: module 'tools.probe_video_capability' has no attribute 'choose_probe_order'">def test_v01b_the_prompt_does_not_use_a_real_round_as_its_example():
+        """A concrete example must not double as a passable answer."""
+        for _ in range(20):
+&gt;           order = probe.choose_probe_order()
+                    ^^^^^^^^^^^^^^^^^^^^^^^^
+E           AttributeError: module 'tools.probe_video_capability' has no attribute 'choose_probe_order'
+
+tests/test_probe_temporal_evidence.py:70: AttributeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v01c_orders_are_randomised_across_rounds" time="0.000"><failure message="AttributeError: module 'tools.probe_video_capability' has no attribute 'choose_probe_order'">def test_v01c_orders_are_randomised_across_rounds():
+        """Consecutive rounds must not reuse a fixed order.
+    
+        A constant order is guessable and, worse, would make the "3 different
+        permutations" requirement vacuous.
+        """
+&gt;       seen = {probe.choose_probe_order() for _ in range(60)}
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'tools.probe_video_capability' has no attribute 'choose_probe_order'
+
+tests/test_probe_temporal_evidence.py:83: AttributeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v04_motion_only_is_not_temporal_evidence" time="0.000"><failure message="TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'">def test_v04_motion_only_is_not_temporal_evidence():
+        """V04: describing movement without an order proves nothing."""
+        for text in (
+            "There is motion in this clip.",
+            "things are changing over time",
+            "The clip shows movement and changing content.",
+            "I see motion, changes, and moving objects.",
+        ):
+&gt;           ok, basis = probe.evaluate_probe_answer(text, expected_order=("red", "green", "blue"))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'
+
+tests/test_probe_temporal_evidence.py:98: TypeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v03_a_prompt_echo_is_not_evidence" time="0.000"><failure message="TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'">def test_v03_a_prompt_echo_is_not_evidence():
+        """V03: repeating the question back cannot be credited."""
+        echo = probe.build_probe_prompt()
+&gt;       ok, basis = probe.evaluate_probe_answer(echo, expected_order=("red", "green", "blue"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'
+
+tests/test_probe_temporal_evidence.py:107: TypeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v02_a_correct_order_passes" time="0.000"><failure message="TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'">def test_v02_a_correct_order_passes():
+&gt;       ok, basis = probe.evaluate_probe_answer(
+            '{"order": ["red", "green", "blue"], "motion": true}',
+            expected_order=("red", "green", "blue"),
+        )
+E       TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'
+
+tests/test_probe_temporal_evidence.py:115: TypeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v05_a_wrong_order_fails" time="0.000"><failure message="TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'">def test_v05_a_wrong_order_fails():
+&gt;       ok, basis = probe.evaluate_probe_answer(
+            '{"order": ["blue", "green", "red"]}', expected_order=("red", "green", "blue")
+        )
+E       TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'
+
+tests/test_probe_temporal_evidence.py:123: TypeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v06_invalid_answers_are_never_evidence[{&quot;order&quot;: [&quot;red&quot;, &quot;green&quot;]}]" time="0.000"><failure message="TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'">answer = '{"order": ["red", "green"]}'
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            '{"order": ["red", "green"]}',                      # missing a colour
+            '{"order": ["red", "red", "green"]}',               # duplicated
+            '{"order": ["red", "green", "blue", "red"]}',       # extra
+            '{"order": ["red", "green", "yellow"]}',            # invalid colour
+            '{"order": "red green blue"}',                      # wrong type
+            '{"order": []}',                                    # empty
+            "not json at all",
+            "",
+            '{"motion": true}',                                 # no order key
+        ],
+    )
+    def test_v06_invalid_answers_are_never_evidence(answer):
+&gt;       ok, basis = probe.evaluate_probe_answer(answer, expected_order=("red", "green", "blue"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'
+
+tests/test_probe_temporal_evidence.py:144: TypeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v06_invalid_answers_are_never_evidence[{&quot;order&quot;: [&quot;red&quot;, &quot;red&quot;, &quot;green&quot;]}]" time="0.000"><failure message="TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'">answer = '{"order": ["red", "red", "green"]}'
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            '{"order": ["red", "green"]}',                      # missing a colour
+            '{"order": ["red", "red", "green"]}',               # duplicated
+            '{"order": ["red", "green", "blue", "red"]}',       # extra
+            '{"order": ["red", "green", "yellow"]}',            # invalid colour
+            '{"order": "red green blue"}',                      # wrong type
+            '{"order": []}',                                    # empty
+            "not json at all",
+            "",
+            '{"motion": true}',                                 # no order key
+        ],
+    )
+    def test_v06_invalid_answers_are_never_evidence(answer):
+&gt;       ok, basis = probe.evaluate_probe_answer(answer, expected_order=("red", "green", "blue"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'
+
+tests/test_probe_temporal_evidence.py:144: TypeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v06_invalid_answers_are_never_evidence[{&quot;order&quot;: [&quot;red&quot;, &quot;green&quot;, &quot;blue&quot;, &quot;red&quot;]}]" time="0.000"><failure message="TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'">answer = '{"order": ["red", "green", "blue", "red"]}'
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            '{"order": ["red", "green"]}',                      # missing a colour
+            '{"order": ["red", "red", "green"]}',               # duplicated
+            '{"order": ["red", "green", "blue", "red"]}',       # extra
+            '{"order": ["red", "green", "yellow"]}',            # invalid colour
+            '{"order": "red green blue"}',                      # wrong type
+            '{"order": []}',                                    # empty
+            "not json at all",
+            "",
+            '{"motion": true}',                                 # no order key
+        ],
+    )
+    def test_v06_invalid_answers_are_never_evidence(answer):
+&gt;       ok, basis = probe.evaluate_probe_answer(answer, expected_order=("red", "green", "blue"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'
+
+tests/test_probe_temporal_evidence.py:144: TypeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v06_invalid_answers_are_never_evidence[{&quot;order&quot;: [&quot;red&quot;, &quot;green&quot;, &quot;yellow&quot;]}]" time="0.000"><failure message="TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'">answer = '{"order": ["red", "green", "yellow"]}'
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            '{"order": ["red", "green"]}',                      # missing a colour
+            '{"order": ["red", "red", "green"]}',               # duplicated
+            '{"order": ["red", "green", "blue", "red"]}',       # extra
+            '{"order": ["red", "green", "yellow"]}',            # invalid colour
+            '{"order": "red green blue"}',                      # wrong type
+            '{"order": []}',                                    # empty
+            "not json at all",
+            "",
+            '{"motion": true}',                                 # no order key
+        ],
+    )
+    def test_v06_invalid_answers_are_never_evidence(answer):
+&gt;       ok, basis = probe.evaluate_probe_answer(answer, expected_order=("red", "green", "blue"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'
+
+tests/test_probe_temporal_evidence.py:144: TypeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v06_invalid_answers_are_never_evidence[{&quot;order&quot;: &quot;red green blue&quot;}]" time="0.000"><failure message="TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'">answer = '{"order": "red green blue"}'
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            '{"order": ["red", "green"]}',                      # missing a colour
+            '{"order": ["red", "red", "green"]}',               # duplicated
+            '{"order": ["red", "green", "blue", "red"]}',       # extra
+            '{"order": ["red", "green", "yellow"]}',            # invalid colour
+            '{"order": "red green blue"}',                      # wrong type
+            '{"order": []}',                                    # empty
+            "not json at all",
+            "",
+            '{"motion": true}',                                 # no order key
+        ],
+    )
+    def test_v06_invalid_answers_are_never_evidence(answer):
+&gt;       ok, basis = probe.evaluate_probe_answer(answer, expected_order=("red", "green", "blue"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'
+
+tests/test_probe_temporal_evidence.py:144: TypeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v06_invalid_answers_are_never_evidence[{&quot;order&quot;: []}]" time="0.000"><failure message="TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'">answer = '{"order": []}'
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            '{"order": ["red", "green"]}',                      # missing a colour
+            '{"order": ["red", "red", "green"]}',               # duplicated
+            '{"order": ["red", "green", "blue", "red"]}',       # extra
+            '{"order": ["red", "green", "yellow"]}',            # invalid colour
+            '{"order": "red green blue"}',                      # wrong type
+            '{"order": []}',                                    # empty
+            "not json at all",
+            "",
+            '{"motion": true}',                                 # no order key
+        ],
+    )
+    def test_v06_invalid_answers_are_never_evidence(answer):
+&gt;       ok, basis = probe.evaluate_probe_answer(answer, expected_order=("red", "green", "blue"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'
+
+tests/test_probe_temporal_evidence.py:144: TypeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v06_invalid_answers_are_never_evidence[not json at all]" time="0.000"><failure message="TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'">answer = 'not json at all'
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            '{"order": ["red", "green"]}',                      # missing a colour
+            '{"order": ["red", "red", "green"]}',               # duplicated
+            '{"order": ["red", "green", "blue", "red"]}',       # extra
+            '{"order": ["red", "green", "yellow"]}',            # invalid colour
+            '{"order": "red green blue"}',                      # wrong type
+            '{"order": []}',                                    # empty
+            "not json at all",
+            "",
+            '{"motion": true}',                                 # no order key
+        ],
+    )
+    def test_v06_invalid_answers_are_never_evidence(answer):
+&gt;       ok, basis = probe.evaluate_probe_answer(answer, expected_order=("red", "green", "blue"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'
+
+tests/test_probe_temporal_evidence.py:144: TypeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v06_invalid_answers_are_never_evidence[]" time="0.000"><failure message="TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'">answer = ''
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            '{"order": ["red", "green"]}',                      # missing a colour
+            '{"order": ["red", "red", "green"]}',               # duplicated
+            '{"order": ["red", "green", "blue", "red"]}',       # extra
+            '{"order": ["red", "green", "yellow"]}',            # invalid colour
+            '{"order": "red green blue"}',                      # wrong type
+            '{"order": []}',                                    # empty
+            "not json at all",
+            "",
+            '{"motion": true}',                                 # no order key
+        ],
+    )
+    def test_v06_invalid_answers_are_never_evidence(answer):
+&gt;       ok, basis = probe.evaluate_probe_answer(answer, expected_order=("red", "green", "blue"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'
+
+tests/test_probe_temporal_evidence.py:144: TypeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v06_invalid_answers_are_never_evidence[{&quot;motion&quot;: true}]" time="0.000"><failure message="TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'">answer = '{"motion": true}'
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            '{"order": ["red", "green"]}',                      # missing a colour
+            '{"order": ["red", "red", "green"]}',               # duplicated
+            '{"order": ["red", "green", "blue", "red"]}',       # extra
+            '{"order": ["red", "green", "yellow"]}',            # invalid colour
+            '{"order": "red green blue"}',                      # wrong type
+            '{"order": []}',                                    # empty
+            "not json at all",
+            "",
+            '{"motion": true}',                                 # no order key
+        ],
+    )
+    def test_v06_invalid_answers_are_never_evidence(answer):
+&gt;       ok, basis = probe.evaluate_probe_answer(answer, expected_order=("red", "green", "blue"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'
+
+tests/test_probe_temporal_evidence.py:144: TypeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v06b_the_check_is_per_round_not_global" time="0.000"><failure message="TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'">def test_v06b_the_check_is_per_round_not_global():
+        """The same answer must pass only for its own round."""
+        answer = '{"order": ["red", "green", "blue"]}'
+&gt;       ok_own, _ = probe.evaluate_probe_answer(answer, expected_order=("red", "green", "blue"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: evaluate_probe_answer() got an unexpected keyword argument 'expected_order'
+
+tests/test_probe_temporal_evidence.py:151: TypeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v07_http_200_without_a_valid_order_is_not_verified" time="0.000" /><testcase classname="tests.test_probe_temporal_evidence" name="test_v07b_a_single_frame_control_blocks_verification" time="0.000"><failure message="AssertionError: a still frame that answers the same question means the probe cannot tell video from a thumbnail&#10;assert 'verified_native_video' != 'verified_native_video'">def test_v07b_a_single_frame_control_blocks_verification():
+        """V07: if a still frame also "passes", the endpoint is not reading time."""
+        from tools.probe_video_capability import ProbeOutcome, classify_probe_outcome
+    
+        out = ProbeOutcome(attempted=True, http_status=200)
+        out.temporal_signal = True
+        out.temporal_signal_basis = "reported the clip's colour order correctly"
+        # A still-frame control that also answered correctly means the result is not
+        # attributable to the video.
+        out.frame_control_signal = True
+        state, reason = classify_probe_outcome(out)
+&gt;       assert state != "verified_native_video", (
+            "a still frame that answers the same question means the probe cannot tell "
+            "video from a thumbnail"
+        )
+E       AssertionError: a still frame that answers the same question means the probe cannot tell video from a thumbnail
+E       assert 'verified_native_video' != 'verified_native_video'
+
+tests/test_probe_temporal_evidence.py:182: AssertionError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v03b_a_prompt_only_control_that_passes_blocks_verification" time="0.000"><failure message="AssertionError: if the model answers the same question without the video, the answer cannot be attributed to the video&#10;assert 'verified_native_video' != 'verified_native_video'">def test_v03b_a_prompt_only_control_that_passes_blocks_verification():
+        """V03: the decisive control -- no video, same question."""
+        from tools.probe_video_capability import ProbeOutcome, classify_probe_outcome
+    
+        out = ProbeOutcome(attempted=True, http_status=200)
+        out.temporal_signal = True
+        out.temporal_signal_basis = "reported the clip's colour order correctly"
+        out.control_signal = True  # the prompt-only control guessed it right
+        state, reason = classify_probe_outcome(out)
+&gt;       assert state != "verified_native_video", (
+            "if the model answers the same question without the video, the answer "
+            "cannot be attributed to the video"
+        )
+E       AssertionError: if the model answers the same question without the video, the answer cannot be attributed to the video
+E       assert 'verified_native_video' != 'verified_native_video'
+
+tests/test_probe_temporal_evidence.py:198: AssertionError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_v08_error_statuses_are_never_verified[401]" time="0.000" /><testcase classname="tests.test_probe_temporal_evidence" name="test_v08_error_statuses_are_never_verified[403]" time="0.000" /><testcase classname="tests.test_probe_temporal_evidence" name="test_v08_error_statuses_are_never_verified[413]" time="0.000" /><testcase classname="tests.test_probe_temporal_evidence" name="test_v08_error_statuses_are_never_verified[429]" time="0.000" /><testcase classname="tests.test_probe_temporal_evidence" name="test_v08_error_statuses_are_never_verified[500]" time="0.000" /><testcase classname="tests.test_probe_temporal_evidence" name="test_v08_error_statuses_are_never_verified[503]" time="0.000" /><testcase classname="tests.test_probe_temporal_evidence" name="test_v08b_a_timeout_is_never_verified" time="0.000" /><testcase classname="tests.test_probe_temporal_evidence" name="test_a3_a_three_round_pass_is_required_to_verify" time="0.000"><failure message="AttributeError: module 'tools.probe_video_capability' has no attribute 'RoundEvidence'">def test_a3_a_three_round_pass_is_required_to_verify():
+        """V02: &gt;= 3/3 independent rounds, each with its own order."""
+        orders = [("red", "green", "blue"), ("blue", "red", "green"), ("green", "blue", "red")]
+        rounds = [
+&gt;           probe.RoundEvidence(
+            ^^^^^^^^^^^^^^^^^^^
+                round_index=r,
+                probe_id=f"probe-{r}",
+                order=o,
+                passed=True,
+                basis="reported the clip's colour order correctly",
+            )
+            for r, o in enumerate(orders)
+        ]
+E       AttributeError: module 'tools.probe_video_capability' has no attribute 'RoundEvidence'
+
+tests/test_probe_temporal_evidence.py:233: AttributeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_a3b_two_of_three_is_not_enough" time="0.000"><failure message="AttributeError: module 'tools.probe_video_capability' has no attribute 'ProbeEvidence'">def test_a3b_two_of_three_is_not_enough():
+&gt;       ev = probe.ProbeEvidence(
+             ^^^^^^^^^^^^^^^^^^^
+            rounds=[
+                probe.RoundEvidence(0, "p0", ("red", "green", "blue"), True, "correct order"),
+                probe.RoundEvidence(1, "p1", ("blue", "red", "green"), True, "correct order"),
+                probe.RoundEvidence(2, "p2", ("green", "blue", "red"), False, "order mismatch"),
+            ],
+            control_answered_correctly=False, control_attempted=True,
+        )
+E       AttributeError: module 'tools.probe_video_capability' has no attribute 'ProbeEvidence'
+
+tests/test_probe_temporal_evidence.py:249: AttributeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_a3c_a_passing_control_blocks_even_three_correct_rounds" time="0.000"><failure message="AttributeError: module 'tools.probe_video_capability' has no attribute 'ProbeEvidence'">def test_a3c_a_passing_control_blocks_even_three_correct_rounds():
+&gt;       ev = probe.ProbeEvidence(
+             ^^^^^^^^^^^^^^^^^^^
+            rounds=[
+                probe.RoundEvidence(i, f"p{i}", o, True, "correct order")
+                for i, o in enumerate(
+                    [("red", "green", "blue"), ("blue", "red", "green"), ("green", "blue", "red")]
+                )
+            ],
+            control_answered_correctly=True, control_attempted=True,
+        )
+E       AttributeError: module 'tools.probe_video_capability' has no attribute 'ProbeEvidence'
+
+tests/test_probe_temporal_evidence.py:263: AttributeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_a3d_an_unrun_control_blocks_verification" time="0.000"><failure message="AttributeError: module 'tools.probe_video_capability' has no attribute 'ProbeEvidence'">def test_a3d_an_unrun_control_blocks_verification():
+        """The control must actually have been performed to count as absent."""
+&gt;       ev = probe.ProbeEvidence(
+             ^^^^^^^^^^^^^^^^^^^
+            rounds=[
+                probe.RoundEvidence(i, f"p{i}", o, True, "correct order")
+                for i, o in enumerate(
+                    [("red", "green", "blue"), ("blue", "red", "green"), ("green", "blue", "red")]
+                )
+            ],
+            control_answered_correctly=False, control_attempted=False,
+        )
+E       AttributeError: module 'tools.probe_video_capability' has no attribute 'ProbeEvidence'
+
+tests/test_probe_temporal_evidence.py:280: AttributeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_a3e_rounds_are_distinct_permutations" time="0.000"><failure message="AttributeError: module 'tools.probe_video_capability' has no attribute 'ProbeEvidence'">def test_a3e_rounds_are_distinct_permutations():
+&gt;       ev = probe.ProbeEvidence(
+             ^^^^^^^^^^^^^^^^^^^
+            rounds=[
+                probe.RoundEvidence(i, f"p{i}", ("red", "green", "blue"), True, "correct order")
+                for i in range(3)
+            ],
+            control_answered_correctly=False, control_attempted=True,
+        )
+E       AttributeError: module 'tools.probe_video_capability' has no attribute 'ProbeEvidence'
+
+tests/test_probe_temporal_evidence.py:295: AttributeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_the_evidence_record_is_structured_and_serialisable" time="0.000"><failure message="AttributeError: module 'tools.probe_video_capability' has no attribute 'ProbeEvidence'">def test_the_evidence_record_is_structured_and_serialisable():
+&gt;       ev = probe.ProbeEvidence(
+             ^^^^^^^^^^^^^^^^^^^
+            rounds=[probe.RoundEvidence(0, "p0", ("red", "green", "blue"), True, "correct order")],
+            control_answered_correctly=False, control_attempted=True,
+        )
+E       AttributeError: module 'tools.probe_video_capability' has no attribute 'ProbeEvidence'
+
+tests/test_probe_temporal_evidence.py:311: AttributeError</failure></testcase><testcase classname="tests.test_probe_temporal_evidence" name="test_the_public_summary_carries_no_order_or_endpoint" time="0.000"><failure message="AttributeError: module 'tools.probe_video_capability' has no attribute 'ProbeEvidence'">def test_the_public_summary_carries_no_order_or_endpoint():
+        """The committed report must not contain the answers or the private endpoint."""
+&gt;       ev = probe.ProbeEvidence(
+             ^^^^^^^^^^^^^^^^^^^
+            rounds=[
+                probe.RoundEvidence(i, f"p{i}", o, True, "correct order")
+                for i, o in enumerate(
+                    [("red", "green", "blue"), ("blue", "red", "green"), ("green", "blue", "red")]
+                )
+            ],
+            control_answered_correctly=False, control_attempted=True,
+        )
+E       AttributeError: module 'tools.probe_video_capability' has no attribute 'ProbeEvidence'
+
+tests/test_probe_temporal_evidence.py:328: AttributeError</failure></testcase></testsuite></testsuites>
