@@ -208,6 +208,15 @@ jobs:
           # path cannot turn into a silent skip.
           tests/test_probe_temporal_evidence.py
           tests/test_ci_environment_isolation.py
+          # TSB-344: staging leaf substitution / link refusal. Must not be
+          # downgraded to a silent skip, so it belongs in the mandatory job.
+          tests/test_staging_leaf_substitution.py
+          # TSB-337: a fallback must be an accounted outcome, never an empty
+          # success. Required, so the distinction cannot silently rot.
+          tests/test_video_fallback_execution.py
+          # TSB-338: the running budget ledger. Required so an unbudgeted send
+          # cannot slip through unnoticed.
+          tests/test_video_budget_ledger.py
           tests/test_video_clip.py
           tests/test_video_schema.py
           tests/test_video_observation.py
