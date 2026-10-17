@@ -1,0 +1,18 @@
+{
+  "run_id": 39010176106,
+  "head_sha": "f6dcc3cdde0c07831d61a17af2996d7771876ed4",
+  "conclusion": "success",
+  "html_url": "https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39010176106",
+  "jobs_total": 7,
+  "jobs_success": 7,
+  "note": "Final R3 SHA (code + R3 release docs). Same 7/7 result as run 39009705787 on the code-only SHA 46c720f, which confirms the docs commit changed nothing observable.",
+  "jobs": [
+    {"name": "Backend (Python 3.11)", "os": "ubuntu-latest", "conclusion": "success"},
+    {"name": "Backend (Python 3.13)", "os": "ubuntu-latest", "conclusion": "success"},
+    {"name": "Backend (Python 3.11)", "os": "windows-latest", "conclusion": "success"},
+    {"name": "Backend (Python 3.13)", "os": "windows-latest", "conclusion": "success"},
+    {"name": "Required FFmpeg (ubuntu-latest)", "conclusion": "success"},
+    {"name": "Required FFmpeg (windows-latest)", "conclusion": "success"},
+    {"name": "Frontend", "conclusion": "success"}
+  ]
+}

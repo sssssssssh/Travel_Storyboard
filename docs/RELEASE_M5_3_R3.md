@@ -1,9 +1,11 @@
 # M5.3-R3 稳定性与安全收尾发布记录（TSB-345 / 346 / 347 / 348 / 349 / 350）
 
 **审阅基线 commit：** `main@65fd605`（R3 任务书基线，与本批起点一致）
-**本批终态 commit：** `main@46c720f`
+**本批终态 commit：** `main@f6dcc3c`（代码终态 `46c720f`，其后仅追加本记录）
 **机器（本机测量）：** macOS 15.7.7 arm64 / Python 3.12.14 / FFmpeg 9.0.2（Homebrew）
-**CI：** GitHub Actions [run 39009705787](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39009705787) @ `46c720f` — **7/7 success**
+**CI：** GitHub Actions **7/7 success**，两个 SHA 各跑一次：
+[run 39009705787](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39009705787) @ 代码终态 `46c720f`；
+[run 39010176106](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39010176106) @ 文档终态 `f6dcc3c`
 **批次：** R3-A（TSB-345、TSB-346）→ R3-B（TSB-347）→ R3-C（TSB-348）→ R3-D（TSB-349、TSB-350）
 
 ---
@@ -15,7 +17,7 @@
 | 门禁 | 内容 | 状态 |
 | --- | --- | --- |
 | **G1** | 静态检查 + 单元测试（0 failure） | **PASS** — 后端 1266/0/0/44；前端 typecheck+lint+71 测试 |
-| **G2** | 同一 SHA 的 CI 7/7 | **PASS** — `46c720f`，[run 39009705787](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39009705787) |
+| **G2** | 同一 SHA 的 CI 7/7 | **PASS** — `46c720f` [run 39009705787](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39009705787) 与 `f6dcc3c` [run 39010176106](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39010176106)，均 7/7 |
 | **G3** | Mock E2E（API → Mock → Observation → Cleanup） | **PASS** — 9/9 |
 | **G4** | 数据安全（原片只读、历史与人工判定不覆盖） | **PASS** |
 | **G5** | 真实端点视频能力 | **`blocked_by_endpoint`** — 见第五节 |
@@ -33,6 +35,7 @@
 | 1 | `c448922` | TSB-345、TSB-346 | 暂存叶子的代际身份与防接管，清理不得静默跳过链接 |
 | 2 | `9292ce1` | TSB-347 | 预算在每次真实 HTTP 尝试前预留，派生时长逐镜头累计 |
 | 3 | `46c720f` | TSB-348 | `allow_fallback` 真正调度多帧任务 |
+| 4 | `f6dcc3c` | TSB-349、TSB-350 | 发布记录、回归清单与 CI 证据（仅文档） |
 
 起点 `65fd605` 与任务书基线逐字符一致，工作树干净。
 
@@ -187,7 +190,8 @@ Ubuntu 后端 Python 3.11/3.13 均失败于
 | --- | --- |
 | 后端全量（本机，含 `.env`） | **1266 collected / 0 failed / 0 error / 44 skipped** |
 | 后端全量（**移走 `.env`**，CI 真实条件） | **1266 / 0 / 0 / 44** |
-| CI @ `46c720f` | **7/7 success** |
+| CI @ `46c720f`（代码终态） | **7/7 success** |
+| CI @ `f6dcc3c`（文档终态） | **7/7 success** |
 
 CI 作业明细（[run 39009705787](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39009705787)）：
 
@@ -299,6 +303,7 @@ HTTP 503; the video attempt is inconclusive`，保持 `unverified`/`sendable: Fa
 | --- | --- |
 | `docs/validation/m5.3-r3/backend-full-46c720f.xml` | 本机全量 junitxml |
 | `docs/validation/m5.3-r3/backend-full-CI-conditions-no-env.xml` | 无 `.env`（CI 真实条件） |
-| `docs/validation/m5.3-r3/ci-run-39009705787.json` | CI 7/7 作业明细 |
+| `docs/validation/m5.3-r3/ci-run-39009705787.json` | CI 7/7 作业明细（`46c720f`） |
+| `docs/validation/m5.3-r3/ci-run-39010176106.json` | CI 7/7 作业明细（`f6dcc3c`） |
 
 详见 [docs/validation/m5.3-r3/README.md](validation/m5.3-r3/README.md)。

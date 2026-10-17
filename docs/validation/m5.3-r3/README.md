@@ -1,8 +1,8 @@
 # M5.3-R3 验证证据
 
-**终态 commit：** `main@46c720f`　**审阅基线：** `main@65fd605`
+**终态 commit：** `main@f6dcc3c`（代码终态 `46c720f`）　**审阅基线：** `main@65fd605`
 **机器（本机测量）：** macOS 15.7.7 arm64 / Python 3.12.14 / FFmpeg 9.0.2（Homebrew）
-**CI：** [run 39009705787](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39009705787) — **7/7 success**
+**CI：** **7/7 success**，两个 SHA 各跑一次：[39009705787](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39009705787) @ `46c720f`、[39010176106](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39010176106) @ `f6dcc3c`
 
 本目录保存 R3 的**原始 junitxml 与 CI 运行记录**，不是转录数字。
 发布记录中的每个计数都可在此复核。
@@ -15,7 +15,8 @@
 | --- | --- | --- |
 | `backend-full-46c720f.xml` | 后端全量（本机，含 `backend/.env`） | tests=1266 failures=0 errors=0 skipped=44 |
 | `backend-full-CI-conditions-no-env.xml` | 后端全量，**移走 `backend/.env`**（CI 真实条件） | tests=1266 failures=0 errors=0 skipped=44 |
-| `ci-run-39009705787.json` | GitHub Actions 运行记录与作业明细 | 7 jobs / 7 success |
+| `ci-run-39009705787.json` | GitHub Actions 运行记录（`46c720f`） | 7 jobs / 7 success |
+| `ci-run-39010176106.json` | GitHub Actions 运行记录（`f6dcc3c`，终态） | 7 jobs / 7 success |
 
 复核命令（`cd backend`）：
 
