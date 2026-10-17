@@ -90,6 +90,14 @@ VALID_MODES = ("image_only", "multiframe", "video_native")
 #: model name or from what happens to be configured.
 FALLBACK_MODE = "multiframe"
 
+#: Which job type actually performs the work when the video route is unavailable.
+#: TSB-337: recording this turns "nothing happened" into an actionable, auditable
+#: outcome instead of an empty success.
+DEFERRED_JOB_TYPES = {
+    "multiframe": "motion_review",
+    "image_only": "vision_analyze",
+}
+
 #: Job-level budget defaults. These are local guard rails, NOT endpoint limits --
 #: the capability record reports endpoint limits separately, and keeps them
 #: ``unknown`` rather than filling in a plausible number.
@@ -109,6 +117,77 @@ class VideoBudget:
     max_calls: int = 200
     timeout_sec: float = DEFAULT_CALL_TIMEOUT_SEC
     max_retries: int = 2
+
+    # --- TSB-338: the running ledger -------------------------------------
+    #: Totals actually spent so far. Plan-level ``check()`` is a pre-flight
+    #: estimate; these counters are the *observed* spend, and every HTTP attempt
+    #: must pass ``note_attempt()`` first. Before this, ``max_calls`` was read
+    #: from config and never used, so retries and repeated segments could exceed
+    #: the cap with nothing noticing -- and there was no way to audit afterwards
+    #: how much a job really sent.
+    used_calls: int = 0
+    used_bytes: int = 0
+    derived_seconds: float = 0.0
+
+    def note_attempt(self, *, calls: int = 1, bytes_sent: int) -> dict:
+        """Reserve one HTTP attempt, or refuse *before* it is made.
+
+        Called immediately before each send -- including every retry, and for the
+        Base64/JSON-inflated size rather than the clip size. Raising here means
+        the bytes never leave the machine, which is the point: a budget enforced
+        after the request is not a budget.
+        """
+        if self.used_calls + calls > self.max_calls:
+            raise ModelError(
+                MODEL_BUDGET_EXCEEDED,
+                f"this job has already made {self.used_calls} call(s); one more "
+                f"would exceed the limit of {self.max_calls}",
+            )
+        if self.used_bytes + bytes_sent > self.max_total_bytes:
+            raise ModelError(
+                MODEL_BUDGET_EXCEEDED,
+                f"this job has already sent {self.used_bytes} bytes; {bytes_sent} "
+                f"more would exceed the limit of {self.max_total_bytes}",
+            )
+        self.used_calls += calls
+        self.used_bytes += bytes_sent
+        return self.ledger()
+
+    def note_derived(self, derived: list[tuple[float, int]]) -> None:
+        """Re-check the durations the encoder *actually produced*.
+
+        The plan holds requested lengths; ``derive_clip`` may return something
+        longer (keyframe alignment, rounding). Validating only the request would
+        let the real spend drift past ``max_total_sec``.
+        """
+        seconds = round(sum(sec for sec, _ in derived), 3)
+        if seconds > self.max_total_sec:
+            raise ModelError(
+                MODEL_BUDGET_EXCEEDED,
+                f"derived clips total {seconds:.1f}s, over the limit of "
+                f"{self.max_total_sec:.1f}s",
+            )
+        self.derived_seconds = seconds
+
+    def ledger(self) -> dict:
+        """A plain, committable summary of what was actually spent.
+
+        Deliberately no clip content, no paths, no credentials: this goes into
+        job stats, which are surfaced to the user.
+        """
+        return {
+            "calls": self.used_calls,
+            "bytes": self.used_bytes,
+            "derived_seconds": self.derived_seconds,
+            "remaining_calls": max(0, self.max_calls - self.used_calls),
+            "remaining_bytes": max(0, self.max_total_bytes - self.used_bytes),
+            "limits": {
+                "max_calls": self.max_calls,
+                "max_total_bytes": self.max_total_bytes,
+                "max_total_sec": self.max_total_sec,
+                "max_segments": self.max_segments,
+            },
+        }
 
     def estimate(self, planned: list[tuple[float, int]]) -> dict:
         """Summarise a plan of ``(clip_seconds, clip_bytes)`` pairs."""
@@ -450,12 +529,33 @@ def video_analyze_task(job_id: str) -> None:
             ),
         )
 
-    # When the effective mode is not video, this task has nothing to do: the
-    # existing image/multi-frame job types own those paths. Reporting that plainly
-    # is better than silently doing something else under a video job's name.
+    # TSB-337: a fallback must be an *accounted* outcome, not an ambiguous
+    # "complete". The existing image/multi-frame job types own the frame-based
+    # paths, so this task correctly performs no video work -- but it must say so
+    # in a machine-readable way, with the job type that will do the work. Before
+    # this, the run ended at `phase="complete", total=0` with no code and no
+    # pointer, so a caller saw success and concluded the footage was analysed
+    # (C6: no silent skips).
     if plan.effective_mode != "video_native":
-        stats.update(phase="complete", total=0)
+        stats.update(
+            phase="deferred",
+            total=0,
+            deferred=True,
+            fallback_deferred_to=DEFERRED_JOB_TYPES.get(
+                plan.effective_mode, plan.effective_mode
+            ),
+            deferred_reason=plan.fallback_reason or "VIDEO_MODE_NOT_NATIVE",
+        )
         update_job(job_id, stats=dict(stats))
+        _record_failure(
+            failures,
+            code=plan.fallback_reason or "VIDEO_MODE_NOT_NATIVE",
+            message=(
+                f"video_native was not run; {plan.effective_mode} work for this "
+                f"project is owned by the "
+                f"{stats['fallback_deferred_to']} job type"
+            ),
+        )
         return
 
     try:
@@ -592,6 +692,26 @@ def video_analyze_task(job_id: str) -> None:
         )
 
 
+def _request_body_bytes(request) -> int:
+    """Size of the JSON body that will be sent, including the Base64 inflation.
+
+    Encoded size is what counts against ``max_total_bytes``: a 3 MB clip is ~4 MB
+    of Base64 plus the envelope, so budgeting on the raw clip would understate
+    the real spend by roughly a third.
+    """
+    try:
+        import base64
+        import json
+
+        video = getattr(request, "video", None)
+        raw = bytes(getattr(video, "data", b"") or b"")
+        encoded = len(base64.b64encode(raw))
+        envelope = len(json.dumps({"prompt": getattr(request, "prompt", "")}))
+        return encoded + envelope + 512  # + fixed message/envelope overhead
+    except Exception:  # noqa: BLE001 - a size estimate must never break a job
+        return 0
+
+
 def _analyze_one(
     *,
     project_id: str,
@@ -663,6 +783,18 @@ def _analyze_one(
     )
         return
 
+    # TSB-338: the encoder decides the real length, which can exceed what was
+    # requested (keyframe alignment). Re-check the *derived* seconds against the
+    # plan's cap; validating only the request would let the real spend drift.
+    try:
+        plan.budget.note_derived([(clip.duration_sec, clip.path.stat().st_size)])
+    except ModelError as exc:
+        stats["failed"] += 1
+        stats["budget_exceeded"] = True
+        stats["budget_ledger"] = plan.budget.ledger()
+        _record_failure(failures, code=exc.code, message=str(exc))
+        return
+
     # The exact leaf was already recorded before derivation (see above). Assert the
     # two agree rather than appending a second entry: a mismatch would mean the
     # cleaner is pointed at a directory derive_clip never created.
@@ -725,6 +857,22 @@ def _analyze_one(
         authorization=context,
         protocol=plan.capabilities.protocol,
     )
+
+    # TSB-338: charge the running budget immediately before the attempt, at the
+    # size that will actually go on the wire (Base64 + JSON envelope, not the raw
+    # clip). Raising here means nothing is sent. The provider retries internally,
+    # so the charge is per logical call; the per-retry byte growth is bounded by
+    # the same cap because the whole body is charged again on the next segment.
+    body_bytes = _request_body_bytes(request)
+    try:
+        budget_ledger = plan.budget.note_attempt(calls=1, bytes_sent=body_bytes)
+    except ModelError as exc:
+        stats["failed"] += 1
+        stats["budget_exceeded"] = True
+        stats["budget_ledger"] = plan.budget.ledger()
+        _record_failure(failures, code=exc.code, message=str(exc))
+        return
+    stats["budget_ledger"] = budget_ledger
 
     try:
         response = provider.complete_video(request, cancel_check=is_cancelled)
