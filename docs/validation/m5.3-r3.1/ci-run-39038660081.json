@@ -1,0 +1,52 @@
+{
+  "run_id": 39038660081,
+  "head_sha": "01e522ce1959a417319046acfd92b831ec9adef1",
+  "conclusion": "success",
+  "html_url": "https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39038660081",
+  "jobs_total": 7,
+  "jobs_success": 7,
+  "jobs": [
+    {
+      "name": "Required FFmpeg (windows-latest)",
+      "conclusion": "success",
+      "started_at": "2026-10-17T13:57:14Z",
+      "completed_at": "2026-10-17T14:01:36Z"
+    },
+    {
+      "name": "Backend (Python 3.13)",
+      "conclusion": "success",
+      "started_at": "2026-10-17T13:57:14Z",
+      "completed_at": "2026-10-17T14:01:56Z"
+    },
+    {
+      "name": "Backend (Python 3.13)",
+      "conclusion": "success",
+      "started_at": "2026-10-17T13:57:14Z",
+      "completed_at": "2026-10-17T14:02:17Z"
+    },
+    {
+      "name": "Backend (Python 3.11)",
+      "conclusion": "success",
+      "started_at": "2026-10-17T13:57:14Z",
+      "completed_at": "2026-10-17T14:01:48Z"
+    },
+    {
+      "name": "Required FFmpeg (ubuntu-latest)",
+      "conclusion": "success",
+      "started_at": "2026-10-17T13:57:14Z",
+      "completed_at": "2026-10-17T14:01:02Z"
+    },
+    {
+      "name": "Backend (Python 3.11)",
+      "conclusion": "success",
+      "started_at": "2026-10-17T13:57:14Z",
+      "completed_at": "2026-10-17T14:02:18Z"
+    },
+    {
+      "name": "Frontend",
+      "conclusion": "success",
+      "started_at": "2026-10-17T13:57:14Z",
+      "completed_at": "2026-10-17T13:57:45Z"
+    }
+  ]
+}
