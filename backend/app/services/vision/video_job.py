@@ -60,6 +60,7 @@ from .errors import (
     MODEL_UPLOAD_DENIED,
     ModelError,
 )
+from ..job_service import VALID_JOB_TYPES
 from .verdicts import source_identity
 from .video_capabilities import (
     UNSUPPORTED,
@@ -553,23 +554,37 @@ def video_analyze_task(job_id: str) -> None:
     # pointer, so a caller saw success and concluded the footage was analysed
     # (C6: no silent skips).
     if plan.effective_mode != "video_native":
+        target_type = DEFERRED_JOB_TYPES.get(plan.effective_mode, plan.effective_mode)
+        # TSB-348: the user asked for analysis and accepted a fallback, so the
+        # fallback must actually be *scheduled*. TSB-337 made the deferral
+        # visible, but a visible "deferred" that nobody ever picks up is still a
+        # silent no-op from the user's point of view -- the project simply never
+        # gets analysed and nothing says why (C6).
+        scheduled, schedule_error = _schedule_fallback(
+            project_id=project_id, target_type=target_type, plan=plan,
+            upload_acknowledged=plan.upload_acknowledged,
+            current_job_id=job_id,
+        )
         stats.update(
             phase="deferred",
             total=0,
             deferred=True,
-            fallback_deferred_to=DEFERRED_JOB_TYPES.get(
-                plan.effective_mode, plan.effective_mode
-            ),
+            fallback_deferred_to=target_type,
+            fallback_scheduled=scheduled,
             deferred_reason=plan.fallback_reason or "VIDEO_MODE_NOT_NATIVE",
         )
+        if schedule_error:
+            stats["fallback_schedule_error"] = schedule_error
         update_job(job_id, stats=dict(stats))
         _record_failure(
             failures,
             code=plan.fallback_reason or "VIDEO_MODE_NOT_NATIVE",
             message=(
                 f"video_native was not run; {plan.effective_mode} work for this "
-                f"project is owned by the "
-                f"{stats['fallback_deferred_to']} job type"
+                f"project was handed to the {target_type} job type"
+                if scheduled
+                else f"video_native was not run and the {target_type} fallback "
+                     f"could not be queued ({schedule_error})"
             ),
         )
         return
@@ -731,6 +746,61 @@ def path_occupies_disk(stage: str | Path) -> bool:
         # Unreadable is not absent: let the cleaner report the real problem.
         return True
     return True
+
+
+def _schedule_fallback(
+    *,
+    project_id: str,
+    target_type: str,
+    plan: "VideoJobPlan",
+    upload_acknowledged: bool,
+    current_job_id: str = "",
+) -> tuple[bool, str]:
+    """Queue the job type that owns the fallback analysis. Never raises.
+
+    TSB-348: called from inside the ``video_analyze`` worker, which **already
+    holds this project's lock**, so this goes through the lock-free
+    ``_create_locked`` body rather than ``create_project_job`` (which would try to
+    take the same non-reentrant lock and report a spurious conflict).
+
+    Returns ``(scheduled, error)``. A failure to queue is reported to the caller
+    as a stable reason rather than swallowed, because "fallback did not happen"
+    must stay visible (C6).
+    """
+    if target_type not in VALID_JOB_TYPES:
+        return False, f"{target_type} is not a valid job type"
+
+    from ...database import session_scope
+    from ...api.vision import _motion_config
+    from ..job_service import JobRequest, _create_locked
+
+    builders = {"motion_review": _motion_config}
+    builder = builders.get(target_type)
+    if builder is None:
+        return False, f"no config builder is registered for {target_type}"
+
+    request = JobRequest(
+        job_type=target_type,
+        options={
+            # Carry the plan's own selection so the fallback analyses the same
+            # shots the user asked about, not the whole project.
+            "segment_ids": list(plan.segment_ids or []),
+            "limit": int(plan.limit or 0),
+            "upload_acknowledged": bool(upload_acknowledged),
+        },
+        force=bool(plan.force),
+    )
+    try:
+        with session_scope() as session:
+            # The current video_analyze job is the fallback's own predecessor, so
+            # it must not be read as a blocking conflict.
+            _create_locked(
+                session, project_id, request, builder,
+                allow_own_job_id=current_job_id,
+            )
+    except Exception as exc:  # noqa: BLE001 - reported, never swallowed
+        return False, f"{type(exc).__name__}: {exc}"
+    return True, ""
 
 
 def _request_body_bytes(request) -> int:

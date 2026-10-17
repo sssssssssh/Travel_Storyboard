@@ -316,3 +316,161 @@ def test_v37d_the_cleanup_site_uses_the_link_aware_check():
     assert "if not Path(stage).exists():" not in source, (
         "Path.exists() 会跟随链接，无法区分「悬空链接」与「从未创建」"
     )
+
+
+# ---------------------------------------------------------------------------
+# TSB-348 — allow_fallback 必须**真正调度**多帧任务，而不只是记一个 deferred
+#
+# 修复前：回退分支记录 phase="deferred" 与 fallback_deferred_to 后直接 return，
+# 没有任何东西被排队。从用户视角这仍是静默空转：项目永远不会被分析，
+# 也没有任何地方说得出"接下来会发生什么"（C6）。
+# ---------------------------------------------------------------------------
+
+
+class _FakePlan:
+    def __init__(self, **kw):
+        self.segment_ids = kw.get("segment_ids", ["seg-a"])
+        self.limit = kw.get("limit", 7)
+        self.force = kw.get("force", True)
+        self.upload_acknowledged = kw.get("upload_acknowledged", True)
+
+
+def _project_with_running_video_job(client):
+    """A project plus a `running` video_analyze job (the fallback's predecessor)."""
+    import uuid as _uuid
+
+    from app.database import session_scope
+    from app.models import Job, Project
+
+    pid = str(_uuid.uuid4())
+    with session_scope() as s:
+        s.add(Project(id=pid, name="tsb348", source_roots=[], output_dir="/tmp/o"))
+        s.flush()
+        job = Job(
+            project_id=pid, job_type="video_analyze", status="running",
+            config_snapshot={}, stats={}, failures={"count": 0, "items": []},
+        )
+        s.add(job)
+        s.flush()
+        return pid, job.id
+
+
+def test_v39_a_fallback_actually_schedules_the_motion_review_job(client):
+    """V39: 回退必须真的排出一个 motion_review 任务（修复前一个都没有）。"""
+    from sqlalchemy import select
+
+    import app.services.vision.video_job as vj
+    from app.database import session_scope
+    from app.models import Job
+
+    pid, jid = _project_with_running_video_job(client)
+    scheduled, error = vj._schedule_fallback(
+        project_id=pid, target_type="motion_review", plan=_FakePlan(),
+        upload_acknowledged=True, current_job_id=jid,
+    )
+    assert scheduled, f"回退必须真正排队，实际失败：{error}"
+
+    with session_scope() as s:
+        rows = s.scalars(
+            select(Job).where(Job.project_id == pid, Job.job_type == "motion_review")
+        ).all()
+    assert len(rows) == 1, (
+        f"回退必须恰好排出一个 motion_review 任务，实际 {len(rows)}（修复前为 0）"
+    )
+
+
+def test_v39b_the_scheduled_fallback_carries_the_plan_selection(client):
+    """V39b: 排出的任务必须分析同一批镜头，而不是整个项目。"""
+    from sqlalchemy import select
+
+    import app.services.vision.video_job as vj
+    from app.database import session_scope
+    from app.models import Job
+
+    pid, jid = _project_with_running_video_job(client)
+    vj._schedule_fallback(
+        project_id=pid, target_type="motion_review",
+        plan=_FakePlan(segment_ids=["s1", "s2"], limit=3),
+        upload_acknowledged=True, current_job_id=jid,
+    )
+    with session_scope() as s:
+        row = s.scalars(
+            select(Job).where(Job.project_id == pid, Job.job_type == "motion_review")
+        ).one()
+        config = dict(row.config_snapshot)
+    assert config["segment_ids"] == ["s1", "s2"], "必须沿用计划选中的镜头"
+    assert config["limit"] == 3
+
+
+def test_v39c_a_foreign_live_job_still_blocks_the_fallback(client):
+    """V39c: 只有自己的前驱可以豁免；其他活跃互斥任务仍必须冲突。
+
+    这是防止 TSB-348 的豁免被滥用的关键断言 —— 互斥语义不得被削弱。
+    """
+    import uuid as _uuid
+
+    from sqlalchemy import select
+
+    import app.services.vision.video_job as vj
+    from app.database import session_scope
+    from app.models import Job
+
+    pid, jid = _project_with_running_video_job(client)
+    with session_scope() as s:
+        s.add(
+            Job(
+                project_id=pid, job_type="vision_analyze", status="running",
+                config_snapshot={}, stats={}, failures={"count": 0, "items": []},
+            )
+        )
+    scheduled, error = vj._schedule_fallback(
+        project_id=pid, target_type="motion_review", plan=_FakePlan(),
+        upload_acknowledged=True, current_job_id=jid,
+    )
+    assert not scheduled, "存在其他活跃互斥任务时必须冲突，而不是照常排队"
+    assert "JobConflict" in error
+
+    with session_scope() as s:
+        rows = s.scalars(
+            select(Job).where(Job.project_id == pid, Job.job_type == "motion_review")
+        ).all()
+    assert rows == [], "冲突时不得留下半排队的任务"
+
+
+def test_v39d_only_the_own_predecessor_is_exempted(client):
+    """V39d: 豁免必须精确到单个 job id，不能放宽成"任意 video_analyze"。"""
+    import inspect
+
+    from app.services import job_service
+
+    source = inspect.getsource(job_service._create_locked)
+    assert "allow_own_job_id" in source, "必须显式命名可豁免的前驱"
+    assert "j.id != allow_own_job_id" in source, (
+        "豁免必须按 job id 精确匹配，不能按 job_type 放宽"
+    )
+
+
+def test_v39e_an_unknown_fallback_target_is_reported_not_swallowed(client):
+    """V39e: 无法排队的回退必须报告原因，而不是静默失败（C6）。"""
+    import app.services.vision.video_job as vj
+
+    pid, jid = _project_with_running_video_job(client)
+    scheduled, error = vj._schedule_fallback(
+        project_id=pid, target_type="not_a_real_job_type", plan=_FakePlan(),
+        upload_acknowledged=True, current_job_id=jid,
+    )
+    assert not scheduled
+    assert error, "必须给出可读的失败原因"
+
+
+def test_v39f_the_worker_threads_its_own_job_id_into_the_scheduler():
+    """V39f (接线): 调用点必须把自己的 job id 传进去，否则会自锁冲突。"""
+    import inspect
+
+    import app.services.vision.video_job as vj
+
+    source = inspect.getsource(vj.video_analyze_task)
+    assert "_schedule_fallback(" in source, "回退分支必须调用调度函数"
+    assert "current_job_id=job_id" in source, (
+        "必须传入自己的 job id，否则会被自己的 running 状态判为冲突而永远排不出来"
+    )

@@ -176,8 +176,18 @@ def _create_locked(
     project_id: str,
     request: JobRequest,
     config_builder,
+    *,
+    allow_own_job_id: str | None = None,
 ) -> Job:
-    """The check-and-insert body; callers must already hold the project lock."""
+    """The check-and-insert body; callers must already hold the project lock.
+
+    ``allow_own_job_id`` names a job that is allowed to be the active exclusive
+    job without causing a conflict. It exists solely for TSB-348: the
+    ``video_analyze`` worker queues its own fallback while its row still reads
+    ``running``, and that predecessor must not be mistaken for a foreign blocker.
+    Passing it removes only that single job id from consideration; any other live
+    exclusive job still raises ``JobConflict`` as before.
+    """
     # Serialize the whole check-and-insert at the database level.
     _begin_immediate(db)
     try:
@@ -195,6 +205,13 @@ def _create_locked(
             )
         ).all()
         blocking = [j for j in active if j.job_type in EXCLUSIVE_JOB_TYPES]
+        # TSB-348: a *fallback* is queued by the job it falls back from, so the
+        # only active exclusive job at that moment is its own predecessor. It must
+        # not be read as a conflict -- otherwise "accept the fallback" could never
+        # schedule anything. Only a job that is genuinely a different, still-live
+        # predecessor blocks; the caller vouches for its own job id here.
+        if allow_own_job_id:
+            blocking = [j for j in blocking if j.id != allow_own_job_id]
         if blocking and request.job_type in EXCLUSIVE_JOB_TYPES:
             raise JobConflict(blocking[0])
 
