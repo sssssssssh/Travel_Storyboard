@@ -1,0 +1,9 @@
+{
+  "run_id": 39039301986,
+  "head_sha": "9401297",
+  "conclusion": "success",
+  "html_url": "https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39039301986",
+  "jobs_total": 7,
+  "jobs_success": 7,
+  "note": "Final R3.1 SHA (code + release docs). Same 7/7 as run 39038660081 on the code-only SHA 01e522c, confirming the docs commit changed nothing observable."
+}

@@ -1,9 +1,9 @@
 # M5.3-R3.1 模型预算与回退闭环补丁发布记录（TSB-351 / 352 / 353 / 354 / 355）
 
 **审阅基线 commit：** `main@f7ed5d349a0b1366f941eb40e84415cdf9fa67fd`（与任务书冻结基线逐字符一致）
-**本批终态 commit：** `main@01e522c`
+**本批终态 commit：** `main@9401297`（代码终态 `01e522c`，其后仅追加本记录）
 **机器（本机测量）：** macOS 15.7.7 arm64 / Python 3.12.14 / FFmpeg 9.0.2（Homebrew）
-**CI：** [run 39038660081](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39038660081) @ `01e522c` — **7/7 success**
+**CI：** **7/7 success**，两个 SHA 各跑一次：[39038660081](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39038660081) @ 代码终态 `01e522c`、[39039301986](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39039301986) @ 文档终态 `9401297`
 **批次：** P1-A（TSB-351、352）→ P1-B（TSB-353）→ P1-C（TSB-354）→ P1-D（TSB-355）
 
 ---
@@ -290,6 +290,7 @@ G6 依赖 G5 ⇒ `not_evaluated`。
 | `docs/validation/m5.3-r3.1/backend-full-with-env.xml` | 本机全量（含 `.env`） |
 | `docs/validation/m5.3-r3.1/backend-full-no-env.xml` | 无 `.env`（CI 真实条件） |
 | `docs/validation/m5.3-r3.1/media-job-67-files.xml` | CI 媒体作业（67 文件） |
-| `docs/validation/m5.3-r3.1/ci-run-39038660081.json` | CI 7/7 作业明细 |
+| `docs/validation/m5.3-r3.1/ci-run-39038660081.json` | CI 7/7 作业明细（`01e522c`） |
+| `docs/validation/m5.3-r3.1/ci-run-39039301986.json` | CI 7/7 作业明细（`9401297`，终态） |
 
 详见 [docs/validation/m5.3-r3.1/README.md](validation/m5.3-r3.1/README.md)。

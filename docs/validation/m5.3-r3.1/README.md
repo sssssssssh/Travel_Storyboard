@@ -1,9 +1,9 @@
 # M5.3-R3.1 验证证据
 
-**终态 commit：** `main@01e522c`
+**终态 commit：** `main@9401297`（代码终态 `01e522c`）
 **审阅基线：** `main@f7ed5d349a0b1366f941eb40e84415cdf9fa67fd`（与任务书冻结基线一致）
 **机器（本机测量）：** macOS 15.7.7 arm64 / Python 3.12.14 / FFmpeg 9.0.2（Homebrew）
-**CI：** [run 39038660081](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39038660081) — **7/7 success**
+**CI：** **7/7 success**：[39038660081](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39038660081) @ `01e522c`、[39039301986](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39039301986) @ `9401297`
 
 本目录保存 R3.1 的**原始 junitxml 与 CI 运行记录**，不是转录数字。
 发布记录中的每个计数都可在此复核。
@@ -17,7 +17,8 @@
 | `backend-full-with-env.xml` | 后端全量（本机，含 `backend/.env`） | tests=1306 failures=0 errors=0 skipped=44 |
 | `backend-full-no-env.xml` | 后端全量，**移走 `backend/.env`**（CI 真实条件） | tests=1306 failures=0 errors=0 skipped=44 |
 | `media-job-67-files.xml` | CI 媒体作业清单（**67 个文件**，`TSB_REQUIRE_FFMPEG=1`） | tests=1222 failures=0 errors=0 skipped=44 |
-| `ci-run-39038660081.json` | GitHub Actions 运行记录与 7 个作业明细 | 7 jobs / 7 success |
+| `ci-run-39038660081.json` | GitHub Actions 运行记录（`01e522c`） | 7 jobs / 7 success |
+| `ci-run-39039301986.json` | GitHub Actions 运行记录（`9401297`，终态） | 7 jobs / 7 success |
 
 复核命令（`cd backend`）：
 
