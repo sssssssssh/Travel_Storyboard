@@ -60,12 +60,19 @@ def _enable_model_switch_for_this_module(monkeypatch):
     ``test_video_model_switch_scope.py`` pins this contract, including a check that
     ``ci.yml`` never exports a global ``on``. The off-path refusal itself is still
     covered by ``test_missing_authorization_sends_nothing`` and R01.
-    """
-    from app.config import get_settings
 
-    settings = get_settings()
-    monkeypatch.setattr(settings, "model_mode", "on", raising=False)
-    monkeypatch.setattr(settings, "model_allow_insecure_http", True, raising=False)
+    TSB-343: the *whole* Mock contract is installed, not just the switch. On a
+    machine without a developer ``.env`` -- i.e. CI -- an empty ``model_base_url``
+    or ``model_api_key`` makes ``authorize_upload()`` refuse with
+    ``MODEL_NOT_CONFIGURED`` first, which pre-empted the error codes these tests
+    assert (17 failures on CI, none locally). ``apply_mock_model_contract`` sets a
+    loopback base URL and a placeholder key, so the suite no longer depends on the
+    developer's environment. No guard is relaxed: the endpoint is loopback and the
+    switch is enabled only for this module.
+    """
+    from tests.conftest import apply_mock_model_contract
+
+    apply_mock_model_contract(monkeypatch)
 
 
 @pytest.fixture()

@@ -127,3 +127,42 @@ def db_session(_app_ready):
 
     with session_scope() as s:
         yield s
+
+
+# ---------------------------------------------------------------------------
+# TSB-343: the complete Mock model contract
+# ---------------------------------------------------------------------------
+
+#: A base URL that is loopback on purpose. The provider recognises loopback, so
+#: authorization is satisfied without ever touching a real network, and no test
+#: can accidentally depend on a developer's `.env`.
+MOCK_MODEL_BASE_URL = "http://127.0.0.1:9/v1"
+MOCK_MODEL_API_KEY = "test-only-not-a-real-key"
+MOCK_MODEL_NAME = "mock-video-model"
+
+
+def apply_mock_model_contract(monkeypatch, *, base_url: str | None = None):
+    """Install the full set of settings a validated call needs.
+
+    TSB-343: a fixture that set only ``model_mode='on'`` was not enough. On a
+    machine with no ``.env`` -- which is what CI is -- ``model_base_url`` and
+    ``model_api_key`` are empty, so ``authorize_upload()`` refused with
+    ``MODEL_NOT_CONFIGURED`` *before* the branch under test, masking the real
+    expected error code (17 failures on CI, 0 locally where ``.env`` existed).
+
+    Setting all of them here means the suite behaves the same with or without a
+    developer's ``.env``. This does **not** relax any guard: the upload switch is
+    enabled only inside the calling test, the endpoint is loopback, and the key is
+    an obvious placeholder that no real service accepts.
+    """
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "model_mode", "on", raising=False)
+    monkeypatch.setattr(
+        settings, "model_base_url", base_url or MOCK_MODEL_BASE_URL, raising=False
+    )
+    monkeypatch.setattr(settings, "model_api_key", MOCK_MODEL_API_KEY, raising=False)
+    monkeypatch.setattr(settings, "model_name", MOCK_MODEL_NAME, raising=False)
+    monkeypatch.setattr(settings, "model_allow_insecure_http", True, raising=False)
+    return settings

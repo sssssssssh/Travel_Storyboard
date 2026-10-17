@@ -203,6 +203,11 @@ jobs:
           tests/test_native_video_probe.py
           tests/test_native_video_provider.py
           tests/test_probe_clip_portability.py
+          # TSB-342/343: the probe's evidence standard and the CI isolation
+          # contract. Registration in the mandatory-media job means a refusal
+          # path cannot turn into a silent skip.
+          tests/test_probe_temporal_evidence.py
+          tests/test_ci_environment_isolation.py
           tests/test_video_clip.py
           tests/test_video_schema.py
           tests/test_video_observation.py

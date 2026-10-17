@@ -95,13 +95,15 @@ def model_switch_on(monkeypatch):
     ``get_settings`` is lru_cached and reads the environment on first call, so the
     cached object is mutated and monkeypatch restores it at teardown. The
     production default in config/env is never touched.
-    """
-    from app.config import get_settings
 
-    settings = get_settings()
-    monkeypatch.setattr(settings, "model_mode", "on", raising=False)
-    monkeypatch.setattr(settings, "model_allow_insecure_http", True, raising=False)
-    return settings
+    TSB-343: the complete Mock contract is installed (switch **plus** a loopback
+    base URL and a placeholder key). Setting only the switch made this module fail
+    on CI, where there is no ``.env`` to supply the other two, and the resulting
+    ``MODEL_NOT_CONFIGURED`` hid the refusal code the tests assert.
+    """
+    from tests.conftest import apply_mock_model_contract
+
+    return apply_mock_model_contract(monkeypatch)
 
 
 def _request() -> VideoRequest:
