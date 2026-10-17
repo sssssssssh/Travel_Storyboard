@@ -437,6 +437,13 @@ def _video_config(project: Project, request: JobRequest) -> dict:
         "max_segments": int(options.get("max_segments") or 20),
         "max_total_sec": float(options.get("max_total_sec") or 300.0),
         "max_total_bytes": int(options.get("max_total_bytes") or 120_000_000),
+        # TSB-353: freeze the per-call HTTP limits in the snapshot. Without these
+        # the job's ``VideoBudget`` fell back to process-wide settings, so what the
+        # snapshot recorded and what the provider actually did could differ.
+        # ``None`` (absent) means "inherit the ceiling".
+        "max_calls": options.get("max_calls"),
+        "max_retries": options.get("max_retries"),
+        "timeout_sec": options.get("timeout_sec"),
         "prompt_version": VIDEO_PROMPT_VERSION,
         "schema_version": VIDEO_SCHEMA_VERSION,
     }

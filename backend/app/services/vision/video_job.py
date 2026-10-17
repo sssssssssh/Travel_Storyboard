@@ -344,8 +344,18 @@ def plan_video_job(job_id: str, *, capabilities: VideoCapabilities | None = None
         max_total_sec=float(config.get("max_total_sec") or DEFAULT_MAX_TOTAL_SEC),
         max_total_bytes=int(config.get("max_total_bytes") or DEFAULT_MAX_TOTAL_BYTES),
         max_calls=int(config.get("max_calls") or settings.model_max_calls_per_job),
-        timeout_sec=float(config.get("timeout_sec") or DEFAULT_CALL_TIMEOUT_SEC),
-        max_retries=int(config.get("max_retries", settings.model_max_retries)),
+        # TSB-353: an absent key means "inherit the ceiling", NOT "use the local
+        # default" -- otherwise a snapshot that omits the field would silently
+        # impose a different limit from the one the provider's ceiling implies.
+        timeout_sec=float(
+            config.get("timeout_sec") or settings.model_timeout_sec
+            or DEFAULT_CALL_TIMEOUT_SEC
+        ),
+        max_retries=int(
+            settings.model_max_retries
+            if config.get("max_retries") is None
+            else max(0, int(config["max_retries"]))
+        ),
     )
 
     return VideoJobPlan(
@@ -1046,9 +1056,18 @@ def _analyze_one(
         stats["budget_ledger"] = ledger
         stats["http_attempts"] = int(stats.get("http_attempts", 0)) + 1
 
+    # TSB-353: hand the job's own snapshot limits to this call. Passing them per
+    # call (rather than writing them onto the shared provider) is what keeps two
+    # concurrent jobs from overwriting each other's retry/timeout.
+    from .providers.native_video import CallOptions
+
     try:
         response = provider.complete_video(
-            request, cancel_check=is_cancelled, attempt_guard=charge_attempt
+            request, cancel_check=is_cancelled, attempt_guard=charge_attempt,
+            options=CallOptions.resolve(
+                max_retries=plan.budget.max_retries,
+                timeout_sec=plan.budget.timeout_sec,
+            ),
         )
     except JobCancelled:
         raise

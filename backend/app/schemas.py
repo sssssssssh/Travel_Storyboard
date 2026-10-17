@@ -515,6 +515,12 @@ class VideoAnalyzeRequest(_VisualJobRequest):
     max_segments: int | None = Field(default=None, ge=1, le=500)
     max_total_sec: float | None = Field(default=None, gt=0, le=3600)
     max_total_bytes: int | None = Field(default=None, ge=1, le=2_000_000_000)
+    #: TSB-353: per-call HTTP limits for this job. Bounded above by the deployment
+    #: ceiling at execution time -- the request can only ask for *less* spend, so
+    #: exposing these cannot enlarge cost.
+    max_calls: int | None = Field(default=None, ge=1, le=10_000)
+    max_retries: int | None = Field(default=None, ge=0, le=10)
+    timeout_sec: float | None = Field(default=None, gt=0, le=3600)
 
 
 class VideoObservationOut(ORMModel):

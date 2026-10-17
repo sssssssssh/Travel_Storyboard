@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import base64
 import json
+from dataclasses import dataclass
 import logging
 import time
 import uuid
@@ -118,6 +119,57 @@ def validate_video_payload(data: bytes, declared_mime: str, *, max_bytes: int) -
     return actual
 
 
+@dataclass(frozen=True)
+class CallOptions:
+    """Per-call retry/timeout limits.
+
+    TSB-353: these come from the *job's own snapshot*, not from process-wide
+    settings. They are passed per call rather than written onto the provider,
+    because a single provider instance is shared -- mutating ``self.max_retries``
+    would let two concurrently running jobs overwrite each other's limits.
+
+    ``server_max_retries`` / ``server_timeout_sec`` are the configured ceilings.
+    A job may ask for *less* (cheaper, quicker) but never more: the deployment's
+    limits bound what a request may spend, so ``min`` is the correct rule for
+    retries and ``min`` for timeout too (a longer timeout is more spend, and the
+    server ceiling is the authority).
+    """
+
+    max_retries: int
+    timeout_sec: float
+
+    @classmethod
+    def from_settings(cls) -> "CallOptions":
+        s = get_settings()
+        return cls(
+            max_retries=max(0, int(s.model_max_retries)),
+            timeout_sec=max(1.0, float(s.model_timeout_sec)),
+        )
+
+    @classmethod
+    def resolve(
+        cls,
+        *,
+        max_retries: int | None = None,
+        timeout_sec: float | None = None,
+    ) -> "CallOptions":
+        """Clamp a job's request against the server ceilings.
+
+        Negative or missing values fall back to the ceiling; requests above the
+        ceiling are clamped down. A job therefore cannot enlarge its own budget by
+        asking for more retries.
+        """
+        ceiling = cls.from_settings()
+        retries = ceiling.max_retries if max_retries is None else max(0, int(max_retries))
+        timeout = ceiling.timeout_sec if timeout_sec is None else float(timeout_sec)
+        if timeout < 1.0:
+            timeout = 1.0
+        return cls(
+            max_retries=min(retries, ceiling.max_retries),
+            timeout_sec=min(timeout, ceiling.timeout_sec),
+        )
+
+
 class NativeVideoVisionProvider:
     """Provider for the ``video_native`` channel."""
 
@@ -142,6 +194,9 @@ class NativeVideoVisionProvider:
         #: ``(attempt_number, exact_body_bytes)``; called immediately before every
         #: real ``httpx.post``. Raising from it prevents the send (TSB-351/352).
         attempt_guard: Callable[[int, int], None] | None = None,
+        #: Per-call retry/timeout, taken from the job snapshot (TSB-353). ``None``
+        #: means "use the server ceiling".
+        options: "CallOptions | None" = None,
     ) -> VideoResponse:
         # Gate 1: authorization (TSB-312 chokepoint, shared with the image path).
         from ..authorization import require_context
@@ -227,7 +282,14 @@ class NativeVideoVisionProvider:
         last: ModelError | None = None
         started = time.monotonic()
 
-        for attempt in range(1, self.max_retries + 2):
+        # TSB-353: the job's snapshot decides retries and timeout, clamped to the
+        # server ceiling. Resolved once per call so a concurrent job cannot change
+        # what this call is doing.
+        effective = options or CallOptions.from_settings()
+        max_retries = effective.max_retries
+        call_timeout = effective.timeout_sec
+
+        for attempt in range(1, max_retries + 2):
             self._raise_if_cancelled(cancel_check)
             # TSB-347: the caller's budget is charged *here*, immediately before
             # every real HTTP attempt. Charging once at the job layer could not
@@ -244,7 +306,7 @@ class NativeVideoVisionProvider:
                     url,
                     content=body_bytes,
                     headers=headers,
-                    timeout=self.timeout_sec,
+                    timeout=call_timeout,
                 )
             except httpx.TimeoutException as exc:
                 last = ModelError(MODEL_TIMEOUT, f"request timed out: {exc}", request_id=request_id)
@@ -271,7 +333,7 @@ class NativeVideoVisionProvider:
                     request_id=request_id,
                 )
 
-            if last is None or not last.retryable or attempt > self.max_retries:
+            if last is None or not last.retryable or attempt > max_retries:
                 raise last
             delay = self._backoff(attempt, last.retry_after)
             logger.warning(

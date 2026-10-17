@@ -406,3 +406,179 @@ def test_b09b_the_old_estimate_was_not_authoritative(monkeypatch):
         "计费必须使用 Provider 真实序列化后的 Body 长度；"
         "保留独立估算函数会产生两套算法，二者不保证相等"
     )
+
+
+# ---------------------------------------------------------------------------
+# B13 / B14 / B15 — 任务级重试与超时必须真正生效，且任务之间不串扰
+#
+# 修复前：`NativeVideoVisionProvider.__init__` 从 `Settings` 读
+# `model_max_retries` / `model_timeout_sec`，而 Job 快照里的值只进了
+# `VideoBudget`，从未传给 Provider。于是快照记录 0 次重试、实际仍按 settings
+# 重试；快照记录 7.5 秒超时、实际仍用 settings 的 120 秒。
+# ---------------------------------------------------------------------------
+
+
+def _options(max_retries, timeout_sec):
+    from app.services.vision.providers.native_video import CallOptions
+
+    return CallOptions.resolve(max_retries=max_retries, timeout_sec=timeout_sec)
+
+
+def test_b13_zero_retries_sends_exactly_one_post(model_server, monkeypatch):
+    """B13: 快照 max_retries=0 ⇒ 最多 1 次 POST，即使模型持续 503。"""
+    _init_provider(monkeypatch)
+    server = _CountingModel(responses=[(503, {"error": "unavailable"})]).start()
+    try:
+        budget = _budget(max_calls=50)
+        guard = _Guard(budget)
+        provider = _provider_for(server, max_retries=99)  # provider's own value
+        from app.services.vision.errors import ModelError
+
+        with pytest.raises(ModelError):
+            provider.complete_video(
+                _request(), attempt_guard=lambda a, n: guard(a, n),
+                options=_options(0, 5.0),  # the JOB's value must win
+            )
+        assert server.posts == 1, (
+            f"max_retries=0 必须只发 1 个 POST，实际 {server.posts}"
+            f"（修复前会按 settings 的 2 次重试共发 3 个）"
+        )
+        assert budget.ledger()["calls"] == 1
+    finally:
+        server.stop()
+
+
+def test_b14_two_retries_send_three_posts(model_server, monkeypatch):
+    """B14: 快照 max_retries=2 ⇒ 最多 3 次 POST（配额足够时）。"""
+    _init_provider(monkeypatch)
+    server = _CountingModel(responses=[(503, {"error": "unavailable"})]).start()
+    try:
+        budget = _budget(max_calls=50)
+        guard = _Guard(budget)
+        provider = _provider_for(server, max_retries=0)  # provider's own value
+        from app.services.vision.errors import ModelError
+
+        with pytest.raises(ModelError):
+            provider.complete_video(
+                _request(), attempt_guard=lambda a, n: guard(a, n),
+                options=_options(2, 5.0),  # the JOB's value must win
+            )
+        assert server.posts == 3, (
+            f"max_retries=2 必须发 3 个 POST，实际 {server.posts}"
+            f"（修复前会按 settings 的 0 次重试只发 1 个）"
+        )
+        assert budget.ledger()["calls"] == 3
+    finally:
+        server.stop()
+
+
+def test_b15_two_jobs_with_different_timeouts_do_not_interfere(
+    model_server, monkeypatch
+):
+    """B15: A/B 两个任务超时值不同 ⇒ 每次 httpx.post 的 timeout 确实不同。"""
+    _init_provider(monkeypatch)
+    seen_timeouts: list[float] = []
+
+    import httpx
+
+    real_post = httpx.post
+
+    def spy(url, **kw):
+        seen_timeouts.append(kw.get("timeout"))
+        return real_post(url, **kw)
+
+    monkeypatch.setattr(httpx, "post", spy)
+
+    server = _CountingModel().start()
+    try:
+        provider = _provider_for(server, max_retries=0)
+        # Job A: 3s
+        provider.complete_video(
+            _request(), attempt_guard=_Guard(_budget(max_calls=5)),
+            options=_options(0, 3.0),
+        )
+        # Job B: 11s
+        provider.complete_video(
+            _request(), attempt_guard=_Guard(_budget(max_calls=5)),
+            options=_options(0, 11.0),
+        )
+    finally:
+        server.stop()
+
+    assert seen_timeouts == [3.0, 11.0], (
+        f"每个任务必须用自己的超时：实际 {seen_timeouts}"
+    )
+
+
+def test_b15b_reversed_order_gives_the_same_result(model_server, monkeypatch):
+    """B15: 运行次序互换结果一致 —— 证明没有共享可变状态被污染。"""
+    _init_provider(monkeypatch)
+    seen_timeouts: list[float] = []
+
+    import httpx
+
+    real_post = httpx.post
+    monkeypatch.setattr(
+        httpx, "post",
+        lambda url, **kw: (seen_timeouts.append(kw.get("timeout")), real_post(url, **kw))[1],
+    )
+
+    server = _CountingModel().start()
+    try:
+        provider = _provider_for(server, max_retries=0)
+        provider.complete_video(  # B first this time
+            _request(), attempt_guard=_Guard(_budget(max_calls=5)),
+            options=_options(0, 11.0),
+        )
+        provider.complete_video(  # then A
+            _request(), attempt_guard=_Guard(_budget(max_calls=5)),
+            options=_options(0, 3.0),
+        )
+    finally:
+        server.stop()
+
+    assert seen_timeouts == [11.0, 3.0], (
+        f"次序互换后仍应是各自的值：实际 {seen_timeouts}"
+    )
+
+
+def test_b15c_a_job_cannot_raise_the_server_ceiling(monkeypatch):
+    """B15c: 任务参数不得越过服务端上限（不能靠请求放大费用）。"""
+    from app.config import get_settings
+    from app.services.vision.providers.native_video import CallOptions
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "model_max_retries", 1, raising=False)
+    monkeypatch.setattr(settings, "model_timeout_sec", 30.0, raising=False)
+
+    got = CallOptions.resolve(max_retries=99, timeout_sec=9999)
+    assert got.max_retries == 1, "重试次数必须被服务端上限钳制"
+    assert got.timeout_sec == 30.0, "超时必须被服务端上限钳制"
+
+
+def test_b15d_the_shared_provider_is_never_mutated(model_server, monkeypatch):
+    """B15d: 不得把任务参数写进共享 Provider 的实例属性（否则并发互相污染）。"""
+    import inspect
+
+    import app.services.vision.providers.native_video as nv
+
+    source = inspect.getsource(nv.NativeVideoVisionProvider.complete_video)
+    assert "self.max_retries =" not in source, (
+        "不得在调用中改写共享实例的 max_retries"
+    )
+    assert "self.timeout_sec =" not in source, (
+        "不得在调用中改写共享实例的 timeout_sec"
+    )
+
+
+def test_b15e_the_job_call_site_passes_its_snapshot_options():
+    """B15e (接线): Job 调用点必须把快照里的重试/超时传给本次调用。"""
+    import inspect
+
+    import app.services.vision.video_job as vj
+
+    source = inspect.getsource(vj._analyze_one)
+    assert "options=CallOptions.resolve(" in source, (
+        "调用点必须传入 CallOptions，否则 Provider 仍按 settings 执行"
+    )
+    assert "plan.budget.max_retries" in source and "plan.budget.timeout_sec" in source
