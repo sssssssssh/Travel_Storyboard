@@ -134,6 +134,25 @@ class VideoBudget:
     #: Cumulative size of every clip the encoder actually produced.
     derived_bytes: int = 0
 
+    def can_attempt(self, *, calls: int = 1, bytes_sent: int) -> tuple[bool, str]:
+        """Would one more attempt fit? **Pure** -- changes no counters.
+
+        TSB-351: a pre-flight refusal must not consume budget, otherwise the check
+        itself becomes the thing that exhausts the allowance. Returns
+        ``(False, reason)`` instead of raising so callers can decide how to report.
+        """
+        if self.used_calls + calls > self.max_calls:
+            return False, (
+                f"this job has already made {self.used_calls} call(s); one more "
+                f"would exceed the limit of {self.max_calls}"
+            )
+        if self.used_bytes + bytes_sent > self.max_total_bytes:
+            return False, (
+                f"this job has already sent {self.used_bytes} bytes; {bytes_sent} "
+                f"more would exceed the limit of {self.max_total_bytes}"
+            )
+        return True, ""
+
     def note_attempt(self, *, calls: int = 1, bytes_sent: int) -> dict:
         """Reserve one HTTP attempt, or refuse *before* it is made.
 
@@ -1011,32 +1030,21 @@ def _analyze_one(
         protocol=plan.capabilities.protocol,
     )
 
-    # TSB-338/TSB-347: charge the running budget immediately before the attempt,
-    # at the size that will actually go on the wire (Base64 + JSON envelope, not
-    # the raw clip).
+    # TSB-351: there is exactly ONE billing point, and it lives in the provider,
+    # immediately before each real ``httpx.post``. The previous version also ran a
+    # side-effecting ``charge_attempt(0)`` here "as an early check", which charged
+    # the very same attempt twice: with ``max_calls=1`` the pre-charge consumed the
+    # whole allowance and the first request was refused before it could be sent
+    # (POST=0 while the ledger read calls=1). A pre-flight check must be *pure*.
     #
-    # TSB-347: the provider retries internally, so charging only here bounded
-    # *logical calls*, not *HTTP attempts* -- with max_retries=3 a single segment
-    # could put four requests on the wire while the ledger recorded one. The
-    # charge is therefore moved into ``attempt_guard``, which the provider invokes
-    # before every real attempt, and this pre-charge is kept only as an early
-    # check so an already-exhausted budget fails before any work is done.
-    body_bytes = _request_body_bytes(request)
-
-    def charge_attempt(attempt: int) -> None:
+    # TSB-352: the size charged is the provider's own ``len(body_bytes)``, so the
+    # ledger and the bytes actually transmitted are equal by construction. The
+    # former local estimator is no longer consulted on the billing path.
+    def charge_attempt(attempt: int, body_bytes: int) -> None:
         """Reserve budget for one real HTTP attempt (raises => nothing is sent)."""
         ledger = plan.budget.note_attempt(calls=1, bytes_sent=body_bytes)
         stats["budget_ledger"] = ledger
         stats["http_attempts"] = int(stats.get("http_attempts", 0)) + 1
-
-    try:
-        charge_attempt(0)
-    except ModelError as exc:
-        stats["failed"] += 1
-        stats["budget_exceeded"] = True
-        stats["budget_ledger"] = plan.budget.ledger()
-        _record_failure(failures, code=exc.code, message=str(exc))
-        return
 
     try:
         response = provider.complete_video(

@@ -224,6 +224,11 @@ jobs:
           # -> cleanup). Required: this is the only test that exercises every link
           # together, and it has already caught three real integration defects.
           tests/test_video_e2e_formal_api.py
+          # TSB-351/352: budget must equal real HTTP attempts and real Body bytes,
+          # asserted against a live loopback server's received requests. Required:
+          # this is what caught the double-charge that made max_calls=1 send
+          # nothing at all.
+          tests/test_video_budget_http_contract.py
           tests/test_video_clip.py
           tests/test_video_schema.py
           tests/test_video_observation.py

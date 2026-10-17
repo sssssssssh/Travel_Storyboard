@@ -139,7 +139,9 @@ class NativeVideoVisionProvider:
         request: VideoRequest,
         *,
         cancel_check: Callable[[], bool] | None = None,
-        attempt_guard: Callable[[int], None] | None = None,
+        #: ``(attempt_number, exact_body_bytes)``; called immediately before every
+        #: real ``httpx.post``. Raising from it prevents the send (TSB-351/352).
+        attempt_guard: Callable[[int, int], None] | None = None,
     ) -> VideoResponse:
         # Gate 1: authorization (TSB-312 chokepoint, shared with the image path).
         from ..authorization import require_context
@@ -233,7 +235,10 @@ class NativeVideoVisionProvider:
             # could exceed max_calls/max_total_bytes without the plan noticing.
             # Raising from the guard propagates as a ModelError and no bytes leave.
             if attempt_guard is not None:
-                attempt_guard(attempt)
+                # TSB-352: the *only* authoritative size is the serialized bytes
+                # this provider is about to put on the wire. Passing it here keeps
+                # the ledger and the real HTTP body identical by construction.
+                attempt_guard(attempt, len(body_bytes))
             try:
                 resp = httpx.post(
                     url,
