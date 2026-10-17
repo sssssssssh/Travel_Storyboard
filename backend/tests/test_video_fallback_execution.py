@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import tempfile
+
 import uuid
 
 import pytest
@@ -251,3 +253,66 @@ def test_v24b_a_fallback_leaves_no_video_observation(job_env, monkeypatch):
             )
         ).all()
     assert rows == [], "an image-based fallback must never write video rows"
+
+
+# ---------------------------------------------------------------------------
+# TSB-346 — 悬空链接不得被当作「从未创建」而静默跳过
+# ---------------------------------------------------------------------------
+
+
+def test_v37_a_dangling_link_is_not_reported_as_never_created():
+    """V37: 悬空链接占用着路径 => 不得记为 "stage was never created"。
+
+    旧实现用 ``Path(stage).exists()``，它会**跟随链接**：指向不存在目标的
+    符号链接返回 False，于是被归类为「路径从未出现」并以
+    ``{'ok': True, 'note': 'stage was never created'}`` 略过 —— 既是 C6 的
+    静默跳过，也让这个残留链接永远无人清理、无人报告。
+    """
+    import os
+    from pathlib import Path
+
+    import app.services.vision.video_job as vj
+
+    tmp = Path(tempfile.mkdtemp())
+    dangling = tmp / "staging-dangling"
+    os.symlink(tmp / "does-not-exist", dangling)
+
+    assert not Path(dangling).exists(), "前提：Path.exists() 跟随链接，悬空时为 False"
+    assert vj.path_occupies_disk(dangling), (
+        "悬空链接占用着路径，必须交给清理器处理，而不是记为从未创建"
+    )
+
+
+def test_v37b_an_absent_path_is_still_reported_as_never_created():
+    """V37b: 真正不存在的路径仍记为「从未创建」（不把审计本身弄坏）。"""
+    from pathlib import Path
+
+    import app.services.vision.video_job as vj
+
+    tmp = Path(tempfile.mkdtemp())
+    assert not vj.path_occupies_disk(tmp / "never-created")
+
+
+def test_v37c_a_real_directory_is_reported_as_occupying_disk():
+    """V37c: 正常目录必须被交给清理器（防止过度跳过）。"""
+    from pathlib import Path
+
+    import app.services.vision.video_job as vj
+
+    tmp = Path(tempfile.mkdtemp())
+    (tmp / "real").mkdir()
+    assert vj.path_occupies_disk(tmp / "real")
+
+
+def test_v37d_the_cleanup_site_uses_the_link_aware_check():
+    """V37d (接线): 清理点必须用 link-aware 判断，而不是 Path.exists()。"""
+    import inspect
+
+    import app.services.vision.video_job as vj
+
+    source = inspect.getsource(vj)
+    assert "path_occupies_disk(" in source, "清理点必须使用 link-aware 判断"
+    # The old follow-the-link form must be gone from the cleanup loop.
+    assert "if not Path(stage).exists():" not in source, (
+        "Path.exists() 会跟随链接，无法区分「悬空链接」与「从未创建」"
+    )

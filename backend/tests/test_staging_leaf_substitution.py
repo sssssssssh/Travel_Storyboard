@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from pathlib import Path
@@ -309,3 +310,220 @@ def test_v18d_a_forged_ancestor_identity_blocks_cleanup(client):
         assert (stage / "ours.bin").exists()
     finally:
         cleanup._OWNERS[stage] = registered
+
+
+# ---------------------------------------------------------------------------
+# TSB-345 — 代际身份（generation identity）
+#
+# Ubuntu V18a 的真实失败：`rmtree` + `mkdir` 之后 ext4/overlayfs **立即复用**
+# 刚释放的 inode，于是 `_identity()` 返回与登记时完全相同的 (st_dev, st_ino)。
+# 只比较 dev/ino 的守卫因此认为"还是我们那个目录"，把替换目录里的
+# `someone_elses.bin` 删掉了。macOS 的 APFS 不复用 inode，所以这条缺陷在开发机
+# 上**永远测不出来** —— 这正是"仅本机通过"不能作为验收的原因（C8）。
+#
+# 下面的用例不依赖 inode 复用是否恰好发生，而是**直接把登记身份改写成与替换
+# 目录一致**，从而在任意平台上确定性地复现同一条件。断言的是可观测结果：
+# 替换目录里的文件是否存活、是否返回稳定错误码。
+# ---------------------------------------------------------------------------
+
+
+def test_v21_reused_inode_identity_cannot_authorise_deletion(client):
+    """V21 (TSB-345): 身份相等但代际不同 => 必须拒绝，且不得删除任何文件。
+
+    Ubuntu V18a 的确切条件：路径、dev、ino 全部相同，但目录是**另一个创建事件**
+    的产物。只靠 (dev, ino) 无法区分这两者，必须依赖创建时写入的代际标记。
+    """
+    o = _owned(client)
+    pid, jid, stage = o.pid, o.jid, o.stage
+    (stage / "ours.bin").write_bytes(b"x" * 10)
+
+    import shutil
+
+    shutil.rmtree(stage)
+    stage.mkdir(parents=True)
+    (stage / "someone_elses.bin").write_bytes(b"y" * 20)
+
+    # Force the Linux inode-reuse condition on any platform.
+    owner = cleanup._OWNERS[stage]
+    live = cleanup._identity(cleanup._lstat(stage))
+    cleanup._OWNERS[stage] = cleanup.StageOwner(
+        owner.project_id, owner.job_id, live, owner.ancestors,
+        owner.nonce, owner.marker,
+    )
+
+    result = cleanup.cleanup_owned_staging(pid, stage, owner_job_id=jid)
+    assert (stage / "someone_elses.bin").exists(), (
+        "相同 (dev, ino) 但不同创建事件的目录，绝不能因此获得删除权 "
+        "（Ubuntu CI 上真实删除了这个文件）"
+    )
+    assert not result.ok
+    assert result.error_code == cleanup.ERR_NOT_OWNED, (
+        f"必须给出稳定错误码，实际 {result.error_code!r}"
+    )
+
+
+def test_v21b_the_generation_marker_is_unforgeable_by_recreation(client):
+    """V21b: 重新创建目录无法复现代际标记（高熵 nonce）。"""
+    o = _owned(client)
+    stage, jid, pid = o.stage, o.jid, o.pid
+    marker = cleanup._OWNERS[stage].marker
+    nonce = cleanup._OWNERS[stage].nonce
+    assert marker and len(nonce) >= 32, "代际标记必须存在且高熵"
+
+    import shutil
+
+    shutil.rmtree(stage)
+    stage.mkdir(parents=True)
+    # Even an attempt to plant a marker file cannot guess the nonce.
+    (stage / marker).write_text("not-the-real-nonce")
+
+    result = cleanup.cleanup_owned_staging(pid, stage, owner_job_id=jid)
+    assert not result.ok, "伪造的代际标记不得被接受"
+    assert result.error_code == cleanup.ERR_NOT_OWNED
+    assert (stage / marker).exists(), "拒绝时不得删除任何内容"
+
+
+def test_v21c_a_missing_marker_fails_closed(client):
+    """V21c: 标记丢失/不可读 => 失败关闭，不退回路径或 inode 匹配。"""
+    o = _owned(client)
+    stage, jid, pid = o.stage, o.jid, o.pid
+    (stage / "ours.bin").write_bytes(b"x" * 10)
+    marker = cleanup._OWNERS[stage].marker
+    os.unlink(stage / marker)
+
+    result = cleanup.cleanup_owned_staging(pid, stage, owner_job_id=jid)
+    assert not result.ok, (
+        "代际标记缺失时必须失败关闭；退回 (dev, ino) 匹配会重新引入 V18a"
+    )
+    assert result.error_code == cleanup.ERR_NOT_OWNED
+    assert (stage / "ours.bin").exists(), "拒绝时不得删除内容"
+
+
+def test_v21d_a_linked_marker_is_not_proof(client):
+    """V21d: 标记文件是链接 => 不作为所有权证据（不跟随链接）。"""
+    o = _owned(client)
+    stage, jid, pid = o.stage, o.jid, o.pid
+    (stage / "ours.bin").write_bytes(b"x" * 10)
+    marker = cleanup._OWNERS[stage].marker
+    outside = stage.parent / "outside-marker"
+    outside.write_text("y" * 32)
+    os.unlink(stage / marker)
+    try:
+        os.symlink(outside, stage / marker)
+    except (OSError, NotImplementedError):  # pragma: no cover - platform fact
+        pytest.skip("link creation is a platform fact")
+
+    result = cleanup.cleanup_owned_staging(pid, stage, owner_job_id=jid)
+    assert not result.ok, "指向外部文件的链接标记不得作为所有权证据"
+    assert result.error_code == cleanup.ERR_NOT_OWNED
+    assert outside.exists(), "项目外目标不得被删除"
+
+
+def test_v21e_the_generation_token_never_reaches_public_output(client):
+    """V21e: 代际 nonce 不得泄露到时刻/结果等可公开输出。"""
+    o = _owned(client)
+    stage, jid, pid = o.stage, o.jid, o.pid
+    nonce = cleanup._OWNERS[stage].nonce
+    (stage / "ours.bin").write_bytes(b"x" * 10)
+    result = cleanup.cleanup_owned_staging(pid, stage, owner_job_id=jid)
+    assert result.ok, "正常清理必须成功（不因新增代际校验而退化）"
+
+    blob = repr(result) + str(result.message) + str(result.path)
+    assert nonce not in blob, "代际 nonce 泄露到了可公开的清理结果中"
+    # The absence receipt kept for idempotence must not carry the token either.
+    # (``_OWNERS`` is the private registry and legitimately holds it; what must
+    # not leak is any *public* surface: results, messages, stats or reports.)
+    assert nonce not in repr(cleanup._CLEANED.get(stage, ""))
+    public = json.dumps(
+        {
+            "result": str(result),
+            "message": result.message,
+            "path": result.path,
+            "error_code": result.error_code,
+        },
+        ensure_ascii=False,
+    )
+    assert nonce not in public
+
+
+def test_v21f_normal_cleanup_still_works_and_is_idempotent(client):
+    """V21f (D): 合法创建/清理必须继续通过，且保持幂等（不过度拒绝）。"""
+    o = _owned(client)
+    stage, jid, pid = o.stage, o.jid, o.pid
+    (stage / "ours.bin").write_bytes(b"x" * 10)
+
+    first = cleanup.cleanup_owned_staging(pid, stage, owner_job_id=jid)
+    assert first.ok, f"正常清理不得退化：{first.error_code} {first.message}"
+    assert first.removed_files == 1
+    assert first.removed_bytes == 10
+    assert not stage.exists(), "目录必须真的被删除"
+
+    second = cleanup.cleanup_owned_staging(pid, stage, owner_job_id=jid)
+    assert second.ok, "重复清理必须幂等"
+    assert second.removed_files == 0
+
+
+# ---------------------------------------------------------------------------
+# TSB-345 C — `FileExistsError` 不得裸 pass（不得接管他人目录）
+# ---------------------------------------------------------------------------
+
+
+def test_v22_an_unregistered_directory_at_the_leaf_path_is_never_adopted(client):
+    """V22: 路径上已有的、非本任务登记的目录 => 不得接管，更不得获得删除权。"""
+    o = _owned(client)
+    pid, aid, jid = o.pid, o.aid, o.jid
+    # A *different* segment token under the same asset: never registered here.
+    # This is the case the old bare ``pass`` would have adopted, because the
+    # existence of a directory at the deterministic path was taken as proof.
+    stage = cleanup.project_cache_dir(pid) / "staging" / aid / str(uuid.uuid4())
+    stage.mkdir(parents=True)
+    (stage / "not_ours.bin").write_bytes(b"z" * 8)
+
+    assert not cleanup.is_registered_leaf(pid, stage, owner_job_id=jid), (
+        "未登记的目录不得被报告为本任务拥有的叶子"
+    )
+    result = cleanup.cleanup_owned_staging(pid, stage, owner_job_id=jid)
+    assert not result.ok, "未登记的现有目录不得获得删除权"
+    assert result.error_code == cleanup.ERR_NOT_OWNED
+    assert (stage / "not_ours.bin").exists(), "他人目录的内容不得被删除"
+
+
+def test_v22b_a_registered_leaf_is_reported_as_owned(client):
+    """V22b (D): 真正由本任务登记的叶子仍被正确认可（不过度拒绝）。"""
+    o = _owned(client)
+    assert cleanup.is_registered_leaf(o.pid, o.stage, owner_job_id=o.jid), (
+        "本任务创建的叶子必须被认可，否则正常重用路径会退化为报错"
+    )
+
+
+def test_v22c_another_jobs_leaf_is_not_reusable(client):
+    """V22c: 同一路径若登记在别的 job 名下，本 job 不得复用。"""
+    o = _owned(client)
+    assert not cleanup.is_registered_leaf(o.pid, o.stage, owner_job_id="some-other-job"), (
+        "其他 job 的叶子不得被当前 job 复用或取得删除权"
+    )
+
+
+def test_v22d_a_replaced_leaf_is_not_reported_as_owned(client):
+    """V22d: 登记后代际身份被破坏 => 不再报告为拥有（与 V21 同一防线）。"""
+    o = _owned(client)
+    stage, pid, jid = o.stage, o.pid, o.jid
+    owner = cleanup._OWNERS[stage]
+    cleanup._OWNERS[stage] = cleanup.StageOwner(
+        owner.project_id, owner.job_id, owner.identity, owner.ancestors,
+        "deadbeef" * 8, owner.marker,
+    )
+    assert not cleanup.is_registered_leaf(pid, stage, owner_job_id=jid), (
+        "代际身份不符时不得报告为拥有，否则 FileExistsError 分支会接管被替换的目录"
+    )
+
+
+def test_v22e_a_retired_leaf_cannot_regain_deletion_rights(client):
+    """V22e: 已清理的叶子不得再次被报告为拥有（防止二次删除授权）。"""
+    o = _owned(client)
+    stage, pid, jid = o.stage, o.pid, o.jid
+    (stage / "ours.bin").write_bytes(b"x" * 4)
+    assert cleanup.cleanup_owned_staging(pid, stage, owner_job_id=jid).ok
+    assert not cleanup.is_registered_leaf(pid, stage, owner_job_id=jid), (
+        "清理后出现的新目录不能继承删除权"
+    )

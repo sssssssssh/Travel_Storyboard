@@ -32,6 +32,7 @@ reading as a video reading is forbidden.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -48,7 +49,7 @@ from ..runner import (
     register_task,
     update_job,
 )
-from ..staging_cleanup import cleanup_staging_or_log
+from ..staging_cleanup import cleanup_staging_or_log, is_registered_leaf
 from . import video_analysis as va
 from .authorization import authorization_denial_reason, authorize_upload
 from .errors import (
@@ -655,9 +656,15 @@ def video_analyze_task(job_id: str) -> None:
             # first). Asking the cleaner to reclaim a path that does not exist
             # would be recorded as a failure with a FileNotFoundError, which
             # misreports "nothing to clean" as "cleanup broke". Skip only paths
-            # that genuinely never appeared; an existing directory is always
+            # that genuinely never appeared; anything present on disk is always
             # handed to the cleaner, so a real leftover cannot hide here.
-            if not Path(stage).exists():
+            #
+            # TSB-346: ``Path.exists()`` FOLLOWS symlinks, so a dangling link
+            # reported False and was skipped as "never created" -- a silent skip
+            # (C6) that also left the link unreported and unreclaimed. The check
+            # is therefore link-aware: anything that occupies the path is passed
+            # to the cleaner, which fails closed on links instead of ignoring it.
+            if not path_occupies_disk(stage):
                 cleanup_results.append(
                     {
                         "path_kind": "video_staging",
@@ -691,6 +698,25 @@ def video_analyze_task(job_id: str) -> None:
                 "phase": "complete",
             },
         )
+
+
+def path_occupies_disk(stage: str | Path) -> bool:
+    """Does anything at all sit at this path, including a dangling link?
+
+    TSB-346: ``Path.exists()``/``os.path.exists()`` follow links, so a symlink to
+    a missing target answers False even though the directory entry is real. Using
+    them here silently reclassified a leftover link as "never created" and skipped
+    it. ``lexists`` semantics (lstat, no follow) is what "is there something to
+    clean up?" actually means.
+    """
+    try:
+        os.lstat(stage)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    except OSError:
+        # Unreadable is not absent: let the cleaner report the real problem.
+        return True
+    return True
 
 
 def _request_body_bytes(request) -> int:
@@ -756,10 +782,24 @@ def _analyze_one(
             )
         )
     except FileExistsError:
-        # A registered leaf already exists for this segment in this run (the same
-        # candidate can be revisited). Reuse it rather than adopting or failing:
-        # ownership was already proven when it was created.
-        pass
+        # TSB-345: a bare ``pass`` here was unsafe. The path is deterministic, so
+        # *any* directory already sitting at it -- a stale run's residue, another
+        # job's leaf, or something an operator dropped there -- would have been
+        # silently treated as this job's own staging and later granted deletion
+        # rights. Reuse is now allowed only when the registry still holds a
+        # generation-verified registration **for this exact job**; every other
+        # case is reported instead of adopted.
+        if not is_registered_leaf(project_id, planned_stage, owner_job_id=job_id):
+            stats["failed"] += 1
+            _record_failure(
+                failures, code=CLIP_FAILED,
+                message=(
+                    "暂存叶子已存在但不是本任务登记创建的目录，拒绝接管："
+                    f"{candidate.segment_id}"
+                ),
+            )
+            return
+        # Our own leaf from an earlier attempt at this same segment: reuse it.
     except Exception as exc:  # noqa: BLE001 - reported, not swallowed
         stats["failed"] += 1
         _record_failure(failures, code=CLIP_FAILED, message=str(exc))

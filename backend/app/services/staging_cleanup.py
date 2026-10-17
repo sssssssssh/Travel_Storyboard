@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import stat
 from contextlib import contextmanager, ExitStack
 from collections import OrderedDict
@@ -46,6 +47,102 @@ class StageOwner:
     identity: tuple[int, int]
     # Every ancestor inside the project is pinned to the creator's identity.
     ancestors: tuple[tuple[int, int], ...]
+    # --- TSB-345: generation identity -------------------------------------
+    #: High-entropy nonce written into a marker file *inside* the owned leaf at
+    #: creation time. Path, ``st_dev`` and ``st_ino`` are all properties of a
+    #: *location*, and Linux filesystems reuse a freed inode immediately when a
+    #: directory is removed and recreated at the same path -- so a substituted
+    #: directory can present an identical (dev, ino) and be mistaken for ours.
+    #: The nonce belongs to the creation *event*: a new directory cannot contain
+    #: it unless it was created by this registration, so reuse cannot forge it.
+    #: It is process-local and never serialised into a report, API response or
+    #: Job stat (see ``_generation_token``).
+    nonce: str = ""
+    #: Marker filename inside the leaf holding ``nonce``.
+    marker: str = ""
+
+
+#: Marker written into every owned staging leaf. Deliberately not a dotfile so
+#: it is visible to an operator inspecting a stuck directory.
+_GENERATION_MARKER = ".tsb-generation"
+
+
+def _generation_token() -> str:
+    """A fresh, unguessable creation token for one owned leaf."""
+    return secrets.token_hex(32)
+
+
+def _write_generation_marker(stage: Path, nonce: str, *, dir_fd: int | None = None) -> str:
+    """Write the generation marker into a just-created leaf.
+
+    Returns the marker filename. Opened with ``O_NOFOLLOW|O_EXCL`` where a dir fd
+    is available, so the marker cannot be planted through a link and a pre-existing
+    file can never be adopted as our generation proof.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    payload = nonce.encode("ascii")
+    if dir_fd is not None:
+        fd = os.open(_GENERATION_MARKER, flags, 0o600, dir_fd=dir_fd)
+        try:
+            os.write(fd, payload)
+        finally:
+            os.close(fd)
+    else:
+        fd = os.open(long_path(stage / _GENERATION_MARKER), flags, 0o600)
+        try:
+            os.write(fd, payload)
+        finally:
+            os.close(fd)
+    return _GENERATION_MARKER
+
+
+def _read_generation_marker(stage: Path, marker: str, *, dir_fd: int | None = None) -> str | None:
+    """Read the leaf's generation marker without following links.
+
+    ``None`` means "no usable proof" and the caller must fail closed: a missing,
+    unreadable, linked or empty marker is *not* evidence of ownership.
+    """
+    if not marker:
+        return None
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        if dir_fd is not None:
+            fd = os.open(marker, flags, dir_fd=dir_fd)
+        else:
+            fd = os.open(long_path(stage / marker), flags)
+    except (FileNotFoundError, OSError):
+        return None
+    try:
+        info = os.fstat(fd)
+        # The marker itself must be a regular file: a link or a device is not proof.
+        if not stat.S_ISREG(info.st_mode):
+            return None
+        data = os.read(fd, 256)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    try:
+        return data.decode("ascii").strip() or None
+    except UnicodeDecodeError:
+        return None
+
+
+def _verify_generation(stage: Path, owner: StageOwner, *, dir_fd: int | None = None) -> None:
+    """Assert the directory at this path is the *creation event* we registered.
+
+    TSB-345: ``(dev, ino)`` alone is insufficient because Linux reuses freed
+    inodes. This checks the nonce that only our own creation could have written.
+    Any mismatch, absence or unreadability raises -- never a fallback to path or
+    inode matching.
+    """
+    live = _read_generation_marker(stage, owner.marker, dir_fd=dir_fd)
+    if not owner.nonce or live is None or live != owner.nonce:
+        raise StagingNotOwned('暂存目录代际身份不一致（疑似被替换）')
 
 
 _OWNERS: dict[Path, StageOwner] = {}
@@ -90,9 +187,16 @@ def _iter_tree(root: Path) -> list[Path]:
     return files
 
 
+def _is_generation_marker(path: Path) -> bool:
+    """Is this entry our own generation marker (bookkeeping, not user data)?"""
+    return path.name == _GENERATION_MARKER
+
+
 def count_tree(root: Path) -> tuple[int, int]:
-    try: files = _iter_tree(root)
-    except FileNotFoundError: return 0, 0
+    try:
+        files = [p for p in _iter_tree(root) if not _is_generation_marker(p)]
+    except FileNotFoundError:
+        return 0, 0
     return len(files), sum(_lstat(path).st_size for path in files)
 
 
@@ -218,7 +322,35 @@ def create_owned_staging(project_id: str, stage: str | Path, *, owner_job_id: st
             if handles[-1] is not None: os.mkdir(target.name, dir_fd=handles[-1])
             else: os.mkdir(long_path(target))
             ids = _validate_chain(root, target)
-            _OWNERS[target] = StageOwner(project_id, owner_job_id, ids[-1], ids[:-1])
+            # TSB-345: stamp the creation event with a nonce that cannot be
+            # reproduced by deleting the directory and recreating it at the same
+            # path (Linux reuses the inode, so (dev, ino) is forgeable).
+            nonce = _generation_token()
+            child_fd = None
+            try:
+                if handles[-1] is not None:
+                    child_fd = os.open(
+                        target.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=handles[-1],
+                    )
+                marker = _write_generation_marker(target, nonce, dir_fd=child_fd)
+            except Exception:
+                # No generation proof means no deletion right: remove what we just
+                # made and report, rather than registering an unverifiable leaf.
+                try:
+                    if handles[-1] is not None:
+                        os.rmdir(target.name, dir_fd=handles[-1])
+                    else:
+                        os.rmdir(long_path(target))
+                except OSError:
+                    pass
+                raise StagingNotOwned('无法写入代际标记，暂存目录不可授予删除权') from None
+            finally:
+                if child_fd is not None:
+                    os.close(child_fd)
+            _OWNERS[target] = StageOwner(
+                project_id, owner_job_id, ids[-1], ids[:-1], nonce, marker
+            )
             _CLEANED.pop(target, None)
     return target
 
@@ -228,8 +360,17 @@ def _remove_file(path: Path, fd=None):
     else: safe_unlink(path, missing_ok=False)
 
 
-def _remove_contents(path: Path, fd, result: CleanupResult):
+def _remove_contents(path: Path, fd, result: CleanupResult, *, marker: str = ""):
+    """Delete everything inside an owned leaf.
+
+    TSB-345: ``marker`` is skipped during the walk and removed by the caller once
+    all content is gone. The marker *is* the generation proof, so deleting it
+    mid-walk would make the post-removal identity check read a missing proof and
+    refuse a perfectly legitimate cleanup.
+    """
     names = os.listdir(fd) if fd is not None else os.listdir(long_path(path))
+    if marker:
+        names = [n for n in names if n != marker]
     for name in names:
         entry = path / name
         info = os.stat(name, dir_fd=fd, follow_symlinks=False) if fd is not None else _lstat(entry)
@@ -238,7 +379,7 @@ def _remove_contents(path: Path, fd, result: CleanupResult):
         if stat.S_ISDIR(info.st_mode):
             if fd is not None:
                 child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
-                try: _remove_contents(entry, child, result)
+                try: _remove_contents(entry, child, result, marker=marker)
                 finally: os.close(child)
                 current = os.stat(name, dir_fd=fd, follow_symlinks=False)
                 if _identity(current) != _identity(info): raise StagingNotOwned('目录被替换')
@@ -246,7 +387,7 @@ def _remove_contents(path: Path, fd, result: CleanupResult):
             else:
                 with pinned_directory(entry):
                     if _identity(_lstat(entry)) != _identity(info): raise StagingNotOwned('目录被替换')
-                    _remove_contents(entry, None, result)
+                    _remove_contents(entry, None, result, marker=marker)
                 os.rmdir(long_path(entry))  # no recursive fallback / no link following
         elif stat.S_ISREG(info.st_mode):
             _remove_file(entry, fd)
@@ -288,23 +429,47 @@ def cleanup_owned_staging(project_id: str, stage: str | Path, *, owner_job_id: s
                     result.residual_bytes = 0
                     return result
                 _validate_chain(root, target, owner)
+                # TSB-345: (dev, ino) is forgeable by inode reuse, so assert the
+                # creation generation as well before touching any file.
+                _verify_generation(target, owner)
                 _iter_tree(target)  # preflight refuses links BEFORE deleting any file
                 # Revalidate after enumeration: a test/adversary can swap here.
                 _validate_chain(root, target, owner)
+                _verify_generation(target, owner)
                 parent_fd = handles[-1]
                 if parent_fd is not None:
                     fd = os.open(target.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
                     try:
                         if _identity(os.fstat(fd)) != owner.identity: raise StagingNotOwned('目录被替换')
-                        _remove_contents(target, fd, result)
+                        # Anchor the generation proof to the fd we are about to
+                        # delete through: no path lookup can be swapped underneath.
+                        _verify_generation(target, owner, dir_fd=fd)
+                        _remove_contents(target, fd, result, marker=owner.marker)
+                        # Proof has served its purpose: drop it last, then
+                        # re-verify once more that the leaf is still ours.
+                        os.unlink(owner.marker, dir_fd=fd)
+                        if _identity(os.fstat(fd)) != owner.identity:
+                            raise StagingNotOwned('目录被替换')
                     finally: os.close(fd)
+                    # The generation proof was unlinked above on purpose, so the
+                    # final assertions here are about *this* object still being at
+                    # *this* entry: the pinned fd's identity and the parent-relative
+                    # stat. Re-reading the marker now would wrongly report a
+                    # substituted directory for a perfectly legitimate cleanup.
                     current = os.stat(target.name, dir_fd=parent_fd, follow_symlinks=False)
-                    if _identity(current) != owner.identity: raise StagingNotOwned('目录被替换')
+                    if _identity(current) != owner.identity:
+                        raise StagingNotOwned('目录被替换')
+                    if not stat.S_ISDIR(current.st_mode):
+                        raise StagingNotOwned('目录被替换')
                     os.rmdir(target.name, dir_fd=parent_fd)
                 else:
                     with pinned_directory(target):
                         _validate_chain(root, target, owner)
-                        _remove_contents(target, None, result)
+                        _verify_generation(target, owner)
+                        _remove_contents(target, None, result, marker=owner.marker)
+                        safe_unlink(target / owner.marker, missing_ok=True)
+                        if _identity(_lstat(target)) != owner.identity:
+                            raise StagingNotOwned('目录被替换')
                     os.rmdir(long_path(target))
                 try: _lstat(target)
                 except FileNotFoundError:
@@ -321,7 +486,7 @@ def cleanup_owned_staging(project_id: str, stage: str | Path, *, owner_job_id: s
         result.error_code, result.message, result.retryable = ERR_CLEANUP_FAILED, '暂存回收失败，需安全重试', True
         result.residual_paths = [str(stage)]
         try:
-            paths = _iter_tree(Path(stage))
+            paths = [p for p in _iter_tree(Path(stage)) if not _is_generation_marker(p)]
             result.residual_paths = [str(p) for p in paths[:50]] or [str(stage)]
             result.residual_count = len(paths)
             result.residual_bytes = sum(_lstat(p).st_size for p in paths)
@@ -333,11 +498,53 @@ def cleanup_owned_staging(project_id: str, stage: str | Path, *, owner_job_id: s
 
 
 def _retire_owner(target: Path, owner: StageOwner) -> None:
+    """Retire a cleaned leaf, keeping only what idempotence needs.
+
+    TSB-345: the receipt deliberately **drops the generation nonce and marker**.
+    Its only jobs are to answer "was this already cleaned by this job?" and to
+    prove absence, both of which depend on project/job/ancestor identity alone.
+    Keeping the token alive after cleanup would be needless retention of the one
+    secret that authorises deletion, and would leak it into any repr of the
+    receipt.
+    """
     _OWNERS.pop(target, None)
-    _CLEANED[target] = owner
+    _CLEANED[target] = StageOwner(
+        owner.project_id, owner.job_id, owner.identity, owner.ancestors
+    )
     _CLEANED.move_to_end(target)
     while len(_CLEANED) > _CLEANED_LIMIT:
         _CLEANED.popitem(last=False)
+
+
+def is_registered_leaf(project_id: str, stage: str | Path, *, owner_job_id: str | None) -> bool:
+    """Is this exact path a leaf *this job* created and still owns?
+
+    TSB-345: used wherever a pre-existing directory might otherwise be adopted.
+    Returns False for an unregistered path, a differently-owned leaf, a retired
+    (already cleaned) path, or a directory whose generation identity no longer
+    matches its registration -- so callers must report the situation rather than
+    assume ownership (C6: no silent skip).
+
+    This never grants deletion rights; it only reports whether the registry still
+    vouches for the leaf. ``cleanup_owned_staging`` remains the only delete path.
+    """
+    try:
+        root, target = _raw_target(project_id, stage)
+    except (StagingNotOwned, ValueError, OSError):
+        return False
+    with _GUARD:
+        owner = _OWNERS.get(target)
+        if owner is None:
+            return False
+        if (owner.project_id, owner.job_id) != (project_id, owner_job_id):
+            return False
+        try:
+            _check_creator(project_id, target, owner_job_id)
+            _validate_chain(root, target, owner)
+            _verify_generation(target, owner)
+        except (StagingNotOwned, ValueError, OSError, Exception):
+            return False
+        return True
 
 
 def cleanup_staging_or_log(project_id: str, stage: str | Path, *, owner_job_id: str | None = None) -> CleanupResult:
