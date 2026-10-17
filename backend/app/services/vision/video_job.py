@@ -130,6 +130,8 @@ class VideoBudget:
     used_calls: int = 0
     used_bytes: int = 0
     derived_seconds: float = 0.0
+    #: Cumulative size of every clip the encoder actually produced.
+    derived_bytes: int = 0
 
     def note_attempt(self, *, calls: int = 1, bytes_sent: int) -> dict:
         """Reserve one HTTP attempt, or refuse *before* it is made.
@@ -156,20 +158,28 @@ class VideoBudget:
         return self.ledger()
 
     def note_derived(self, derived: list[tuple[float, int]]) -> None:
-        """Re-check the durations the encoder *actually produced*.
+        """Re-check the durations the encoder *actually produced*, cumulatively.
 
         The plan holds requested lengths; ``derive_clip`` may return something
         longer (keyframe alignment, rounding). Validating only the request would
         let the real spend drift past ``max_total_sec``.
+
+        TSB-347: accumulation matters as much as the check. The previous version
+        *replaced* ``derived_seconds`` with the latest clip only, so a run of ten
+        5-second clips recorded 5 seconds and ``max_total_sec`` could never be
+        reached -- the limit was effectively unenforced and the ledger lied about
+        the real spend. Duration is now summed across every derived clip, and the
+        bytes follow the same rule.
         """
-        seconds = round(sum(sec for sec, _ in derived), 3)
-        if seconds > self.max_total_sec:
+        for sec, size in derived:
+            self.derived_seconds = round(self.derived_seconds + float(sec), 3)
+            self.derived_bytes += int(size or 0)
+        if self.derived_seconds > self.max_total_sec:
             raise ModelError(
                 MODEL_BUDGET_EXCEEDED,
-                f"derived clips total {seconds:.1f}s, over the limit of "
-                f"{self.max_total_sec:.1f}s",
+                f"derived clips total {self.derived_seconds:.1f}s, over the limit "
+                f"of {self.max_total_sec:.1f}s",
             )
-        self.derived_seconds = seconds
 
     def ledger(self) -> dict:
         """A plain, committable summary of what was actually spent.
@@ -181,6 +191,10 @@ class VideoBudget:
             "calls": self.used_calls,
             "bytes": self.used_bytes,
             "derived_seconds": self.derived_seconds,
+            "derived_bytes": self.derived_bytes,
+            "remaining_seconds": round(
+                max(0.0, self.max_total_sec - self.derived_seconds), 3
+            ),
             "remaining_calls": max(0, self.max_calls - self.used_calls),
             "remaining_bytes": max(0, self.max_total_bytes - self.used_bytes),
             "limits": {
@@ -927,28 +941,46 @@ def _analyze_one(
         protocol=plan.capabilities.protocol,
     )
 
-    # TSB-338: charge the running budget immediately before the attempt, at the
-    # size that will actually go on the wire (Base64 + JSON envelope, not the raw
-    # clip). Raising here means nothing is sent. The provider retries internally,
-    # so the charge is per logical call; the per-retry byte growth is bounded by
-    # the same cap because the whole body is charged again on the next segment.
+    # TSB-338/TSB-347: charge the running budget immediately before the attempt,
+    # at the size that will actually go on the wire (Base64 + JSON envelope, not
+    # the raw clip).
+    #
+    # TSB-347: the provider retries internally, so charging only here bounded
+    # *logical calls*, not *HTTP attempts* -- with max_retries=3 a single segment
+    # could put four requests on the wire while the ledger recorded one. The
+    # charge is therefore moved into ``attempt_guard``, which the provider invokes
+    # before every real attempt, and this pre-charge is kept only as an early
+    # check so an already-exhausted budget fails before any work is done.
     body_bytes = _request_body_bytes(request)
+
+    def charge_attempt(attempt: int) -> None:
+        """Reserve budget for one real HTTP attempt (raises => nothing is sent)."""
+        ledger = plan.budget.note_attempt(calls=1, bytes_sent=body_bytes)
+        stats["budget_ledger"] = ledger
+        stats["http_attempts"] = int(stats.get("http_attempts", 0)) + 1
+
     try:
-        budget_ledger = plan.budget.note_attempt(calls=1, bytes_sent=body_bytes)
+        charge_attempt(0)
     except ModelError as exc:
         stats["failed"] += 1
         stats["budget_exceeded"] = True
         stats["budget_ledger"] = plan.budget.ledger()
         _record_failure(failures, code=exc.code, message=str(exc))
         return
-    stats["budget_ledger"] = budget_ledger
 
     try:
-        response = provider.complete_video(request, cancel_check=is_cancelled)
+        response = provider.complete_video(
+            request, cancel_check=is_cancelled, attempt_guard=charge_attempt
+        )
     except JobCancelled:
         raise
     except ModelError as exc:
         stats["failed"] += 1
+        if exc.code == MODEL_BUDGET_EXCEEDED:
+            # TSB-347: the guard can veto mid-retry; make that visible rather than
+            # letting it look like an upstream fault.
+            stats["budget_exceeded"] = True
+            stats["budget_ledger"] = plan.budget.ledger()
         va.record_failure(
             candidate=candidate, job_id=job_id, error_code=exc.code,
             error_message=str(exc), model_id=settings.model_name,

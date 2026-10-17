@@ -199,3 +199,135 @@ def test_w7_the_request_size_helper_counts_base64_inflation():
     assert wired > raw, "Base64 + envelope must be larger than the raw clip"
     # Base64 is 4/3, so ~400 for the payload alone.
     assert wired >= (raw * 4) // 3
+
+
+# ---------------------------------------------------------------------------
+# TSB-347 — 预算必须在**每一次真实 HTTP 尝试**前预留
+#
+# 修复前的缺口：Job 层只在调用 Provider *之前* 记一次账，而 Provider 内部
+# 有 `for attempt in range(1, max_retries + 2)` 重试循环。于是 max_retries=3 时
+# 单个镜头最多发出 4 个请求，台账却只记 1 次 —— max_calls / max_total_bytes
+# 对重试完全无效。
+# ---------------------------------------------------------------------------
+
+
+def _budget(**kw):
+    import app.services.vision.video_job as vj
+
+    base = dict(
+        max_segments=10, max_total_sec=300.0, max_total_bytes=10_000_000,
+        max_calls=10,
+    )
+    base.update(kw)
+    return vj.VideoBudget(**base)
+
+
+def test_v38_every_retry_is_charged(monkeypatch):
+    """V38: Provider 内部每次重试都要单独计数（修复前只记 1 次）。"""
+    from app.services.vision.providers import native_video as nv
+
+    budget = _budget(max_calls=3, max_retries=5)
+    attempts: list[int] = []
+
+    def guard(attempt: int) -> None:
+        attempts.append(attempt)
+        budget.note_attempt(calls=1, bytes_sent=1000)
+
+    # Simulate the provider's retry loop making three real attempts.
+    for attempt in range(1, 4):
+        guard(attempt)
+
+    assert attempts == [1, 2, 3], "每次真实尝试都必须经过 guard"
+    assert budget.ledger()["calls"] == 3, (
+        f"三次真实 HTTP 尝试必须计 3 次，实际 {budget.ledger()['calls']}"
+    )
+
+
+def test_v38b_the_fourth_attempt_is_refused_before_sending():
+    """V38b: 超出 max_calls 的那次尝试必须在发出**之前**被拒绝。"""
+    from app.services.vision.errors import MODEL_BUDGET_EXCEEDED, ModelError
+
+    budget = _budget(max_calls=3)
+    for _ in range(3):
+        budget.note_attempt(calls=1, bytes_sent=1000)
+
+    with pytest.raises(ModelError) as exc:
+        budget.note_attempt(calls=1, bytes_sent=1000)
+    assert exc.value.code == MODEL_BUDGET_EXCEEDED
+    assert budget.ledger()["calls"] == 3, "被拒绝的尝试不得计数"
+
+
+def test_v38c_retry_bytes_are_charged_every_attempt():
+    """V38c: 每次重试的字节都要计入（重试不是免费的）。"""
+    budget = _budget(max_total_bytes=2500)
+    budget.note_attempt(calls=1, bytes_sent=1000)
+    budget.note_attempt(calls=1, bytes_sent=1000)
+    assert budget.ledger()["bytes"] == 2000
+
+    from app.services.vision.errors import MODEL_BUDGET_EXCEEDED, ModelError
+
+    with pytest.raises(ModelError) as exc:
+        budget.note_attempt(calls=1, bytes_sent=1000)
+    assert exc.value.code == MODEL_BUDGET_EXCEEDED
+    assert budget.ledger()["bytes"] == 2000, "被拒绝的尝试不得计入字节"
+
+
+def test_v38d_the_provider_invokes_the_guard_before_each_http_post(monkeypatch):
+    """V38d (接线): Provider 必须在每次 httpx.post **之前**调用 guard。"""
+    import inspect
+
+    from app.services.vision.providers import native_video as nv
+
+    source = inspect.getsource(nv.NativeVideoVisionProvider.complete_video)
+    assert "attempt_guard(" in source, "Provider 必须接受并调用 attempt_guard"
+    guard_at = source.index("attempt_guard(")
+    post_at = source.index("httpx.post(")
+    assert guard_at < post_at, (
+        "guard 必须出现在 httpx.post 之前：在请求之后计费等于没有计费"
+    )
+
+
+def test_v38e_the_job_passes_the_guard_to_the_provider():
+    """V38e (接线): Job 调用点必须把 guard 传进 complete_video。"""
+    import inspect
+
+    import app.services.vision.video_job as vj
+
+    source = inspect.getsource(vj)
+    assert "attempt_guard=charge_attempt" in source, (
+        "调用点必须传入 attempt_guard，否则 Provider 的重试仍然绕过预算"
+    )
+
+
+def test_v38f_derived_seconds_accumulate_across_clips():
+    """V38f: 派生时长必须**逐镜头累积**（修复前只保留最后一个镜头）。"""
+    budget = _budget(max_total_sec=300.0)
+    for _ in range(10):
+        budget.note_derived([(5.0, 1000)])
+
+    assert budget.ledger()["derived_seconds"] == 50.0, (
+        f"十个 5 秒镜头必须累计为 50 秒，实际 "
+        f"{budget.ledger()['derived_seconds']}（修复前是 5.0）"
+    )
+    assert budget.ledger()["derived_bytes"] == 10000
+
+
+def test_v38g_cumulative_derived_seconds_trip_the_limit():
+    """V38g: 累积超过 max_total_sec 必须报 MODEL_BUDGET_EXCEEDED。"""
+    from app.services.vision.errors import MODEL_BUDGET_EXCEEDED, ModelError
+
+    budget = _budget(max_total_sec=12.0)
+    budget.note_derived([(5.0, 1000)])
+    budget.note_derived([(5.0, 1000)])
+    with pytest.raises(ModelError) as exc:
+        budget.note_derived([(5.0, 1000)])  # 15s > 12s
+    assert exc.value.code == MODEL_BUDGET_EXCEEDED
+
+
+def test_v38h_the_ledger_reports_remaining_seconds():
+    """V38h: 台账必须能回答「还剩多少秒」，便于事后审计。"""
+    budget = _budget(max_total_sec=100.0)
+    budget.note_derived([(30.0, 500)])
+    ledger = budget.ledger()
+    assert ledger["remaining_seconds"] == 70.0
+    assert ledger["limits"]["max_total_sec"] == 100.0

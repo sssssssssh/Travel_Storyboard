@@ -139,6 +139,7 @@ class NativeVideoVisionProvider:
         request: VideoRequest,
         *,
         cancel_check: Callable[[], bool] | None = None,
+        attempt_guard: Callable[[int], None] | None = None,
     ) -> VideoResponse:
         # Gate 1: authorization (TSB-312 chokepoint, shared with the image path).
         from ..authorization import require_context
@@ -226,6 +227,13 @@ class NativeVideoVisionProvider:
 
         for attempt in range(1, self.max_retries + 2):
             self._raise_if_cancelled(cancel_check)
+            # TSB-347: the caller's budget is charged *here*, immediately before
+            # every real HTTP attempt. Charging once at the job layer could not
+            # bound this loop, so retries (this provider's own, and each clip's)
+            # could exceed max_calls/max_total_bytes without the plan noticing.
+            # Raising from the guard propagates as a ModelError and no bytes leave.
+            if attempt_guard is not None:
+                attempt_guard(attempt)
             try:
                 resp = httpx.post(
                     url,
