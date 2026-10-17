@@ -1,0 +1,19 @@
+{
+  "run_id": 39009705787,
+  "head_sha": "46c720f7c859ebec8e7b3d858b37b76f1cdcd597",
+  "conclusion": "success",
+  "created_at": "2026-10-17T06:23:06Z",
+  "html_url": "https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39009705787",
+  "jobs_total": 7,
+  "jobs_success": 7,
+  "jobs": [
+    {"name": "Backend (Python 3.11)", "os": "ubuntu-latest", "conclusion": "success"},
+    {"name": "Backend (Python 3.13)", "os": "ubuntu-latest", "conclusion": "success"},
+    {"name": "Backend (Python 3.11)", "os": "windows-latest", "conclusion": "success"},
+    {"name": "Backend (Python 3.13)", "os": "windows-latest", "conclusion": "success"},
+    {"name": "Required FFmpeg (ubuntu-latest)", "conclusion": "success"},
+    {"name": "Required FFmpeg (windows-latest)", "conclusion": "success"},
+    {"name": "Frontend", "conclusion": "success"}
+  ],
+  "note": "Ubuntu Backend jobs ran the full suite including tests/test_staging_leaf_substitution.py, which previously failed at test_v18_a_replaced_leaf_directory_is_refused. Both Ubuntu jobs now pass."
+}
