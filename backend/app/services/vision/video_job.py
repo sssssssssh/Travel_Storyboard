@@ -589,7 +589,7 @@ def video_analyze_task(job_id: str) -> None:
         # visible, but a visible "deferred" that nobody ever picks up is still a
         # silent no-op from the user's point of view -- the project simply never
         # gets analysed and nothing says why (C6).
-        scheduled, schedule_error = _schedule_fallback(
+        schedule = _schedule_fallback(
             project_id=project_id, target_type=target_type, plan=plan,
             upload_acknowledged=plan.upload_acknowledged,
             current_job_id=job_id,
@@ -599,23 +599,34 @@ def video_analyze_task(job_id: str) -> None:
             total=0,
             deferred=True,
             fallback_deferred_to=target_type,
-            fallback_scheduled=scheduled,
+            fallback_scheduled=schedule.scheduled,
+            # TSB-354: carry the successor's identity so the UI and the operator can
+            # follow the work instead of guessing. Without an id, "已安排" is
+            # indistinguishable from "已排队但从未执行".
+            fallback_job_id=schedule.job_id,
+            fallback_job_type=schedule.job_type,
+            fallback_state=schedule.state,
             deferred_reason=plan.fallback_reason or "VIDEO_MODE_NOT_NATIVE",
         )
-        if schedule_error:
-            stats["fallback_schedule_error"] = schedule_error
+        if schedule.error:
+            stats["fallback_schedule_error"] = schedule.error
+        # TSB-354: an accepted fallback is an *expected degradation*, not a fault.
+        # Recording it through ``_record_failure`` marked the parent
+        # ``partial_failed``, which told the user something broke when in fact the
+        # system did exactly what they permitted. The outcome is still fully
+        # visible (phase/fallback_state/its own stat block), it just no longer
+        # masquerades as an error. A fallback that could NOT be queued *is* a
+        # failure and is still reported as one.
+        if not schedule.scheduled:
+            _record_failure(
+                failures,
+                code=plan.fallback_reason or "VIDEO_MODE_NOT_NATIVE",
+                message=(
+                    f"video_native was not run and the {target_type} fallback "
+                    f"could not be queued ({schedule.error})"
+                ),
+            )
         update_job(job_id, stats=dict(stats))
-        _record_failure(
-            failures,
-            code=plan.fallback_reason or "VIDEO_MODE_NOT_NATIVE",
-            message=(
-                f"video_native was not run; {plan.effective_mode} work for this "
-                f"project was handed to the {target_type} job type"
-                if scheduled
-                else f"video_native was not run and the {target_type} fallback "
-                     f"could not be queued ({schedule_error})"
-            ),
-        )
         return
 
     try:
@@ -777,6 +788,29 @@ def path_occupies_disk(stage: str | Path) -> bool:
     return True
 
 
+@dataclass(frozen=True)
+class FallbackSchedule:
+    """Outcome of trying to queue a fallback job.
+
+    TSB-354: the caller needs the **real successor id**, not just a boolean --
+    "已安排" without an id cannot be tracked, shown to the user, or told apart
+    from "已排队但从未执行". ``scheduled`` stays first so the previous
+    ``(bool, str)`` callers keep working via :meth:`__iter__`.
+    """
+
+    scheduled: bool
+    job_id: str = ""
+    job_type: str = ""
+    error: str = ""
+    #: ``none`` | ``scheduled`` | ``failed``
+    state: str = "none"
+
+    def __iter__(self):
+        # Backwards compatibility with ``scheduled, error = _schedule_fallback(...)``.
+        yield self.scheduled
+        yield self.error
+
+
 def _schedule_fallback(
     *,
     project_id: str,
@@ -784,7 +818,7 @@ def _schedule_fallback(
     plan: "VideoJobPlan",
     upload_acknowledged: bool,
     current_job_id: str = "",
-) -> tuple[bool, str]:
+) -> "FallbackSchedule":
     """Queue the job type that owns the fallback analysis. Never raises.
 
     TSB-348: called from inside the ``video_analyze`` worker, which **already
@@ -792,12 +826,14 @@ def _schedule_fallback(
     ``_create_locked`` body rather than ``create_project_job`` (which would try to
     take the same non-reentrant lock and report a spurious conflict).
 
-    Returns ``(scheduled, error)``. A failure to queue is reported to the caller
-    as a stable reason rather than swallowed, because "fallback did not happen"
-    must stay visible (C6).
+    Returns a :class:`FallbackSchedule` carrying the real successor ``job_id``.
+    A failure to queue is reported as a stable reason rather than swallowed,
+    because "fallback did not happen" must stay visible (C6).
     """
     if target_type not in VALID_JOB_TYPES:
-        return False, f"{target_type} is not a valid job type"
+        return FallbackSchedule(
+            False, error=f"{target_type} is not a valid job type", state="failed"
+        )
 
     from ...database import session_scope
     from ...api.vision import _motion_config
@@ -806,7 +842,10 @@ def _schedule_fallback(
     builders = {"motion_review": _motion_config}
     builder = builders.get(target_type)
     if builder is None:
-        return False, f"no config builder is registered for {target_type}"
+        return FallbackSchedule(
+            False, error=f"no config builder is registered for {target_type}",
+            state="failed",
+        )
 
     request = JobRequest(
         job_type=target_type,
@@ -823,13 +862,55 @@ def _schedule_fallback(
         with session_scope() as session:
             # The current video_analyze job is the fallback's own predecessor, so
             # it must not be read as a blocking conflict.
-            _create_locked(
+            job = _create_locked(
                 session, project_id, request, builder,
                 allow_own_job_id=current_job_id,
             )
+            successor_id = job.id
     except Exception as exc:  # noqa: BLE001 - reported, never swallowed
-        return False, f"{type(exc).__name__}: {exc}"
-    return True, ""
+        return FallbackSchedule(
+            False, error=f"{type(exc).__name__}: {exc}", state="failed"
+        )
+    return FallbackSchedule(
+        True, job_id=successor_id, job_type=target_type, state="scheduled"
+    )
+
+
+def resolve_fallback_state(job: Job, session) -> dict:
+    """The live state of this job's fallback successor, for UI/reporting.
+
+    TSB-354: ``fallback_state="scheduled"`` is written once, at queue time, and
+    then never updated -- so a UI reading it later would keep saying "已安排"
+    even after the successor finished, failed or was cancelled. This resolves the
+    successor's *current* status on read, and reports the terminal outcome
+    distinctly so a queued-then-failed fallback can never be shown as analysed.
+    """
+    stats = dict(job.stats or {})
+    successor_id = str(stats.get("fallback_job_id") or "")
+    if not successor_id:
+        return {
+            "state": stats.get("fallback_state", "none"),
+            "job_id": "",
+            "job_type": stats.get("fallback_job_type", ""),
+            "status": "",
+            # No successor means no frame-based analysis has happened or will.
+            "analysed": False,
+        }
+    successor = session.get(Job, successor_id)
+    if successor is None:
+        return {
+            "state": "missing", "job_id": successor_id,
+            "job_type": stats.get("fallback_job_type", ""), "status": "",
+            "analysed": False,
+        }
+    return {
+        "state": "resolved",
+        "job_id": successor.id,
+        "job_type": successor.job_type,
+        "status": successor.status,
+        # Only a *succeeded* successor means the frames were actually analysed.
+        "analysed": successor.status == "succeeded",
+    }
 
 
 def _request_body_bytes(request) -> int:

@@ -229,6 +229,10 @@ jobs:
           # this is what caught the double-charge that made max_calls=1 send
           # nothing at all.
           tests/test_video_budget_http_contract.py
+          # TSB-354: fallback successor identity, terminal-state tracking and the
+          # real runner execution E2E. Required: "queued" must never be reported
+          # as "analysed", and the successor must actually run.
+          tests/test_fallback_job_tracking.py
           tests/test_video_clip.py
           tests/test_video_schema.py
           tests/test_video_observation.py

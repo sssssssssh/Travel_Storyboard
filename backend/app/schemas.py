@@ -173,6 +173,23 @@ class JobCreate(BaseModel):
     force: bool = False
 
 
+class FallbackOut(BaseModel):
+    """Live state of a job's fallback successor (TSB-354).
+
+    ``analysed`` is deliberately separate from ``state``: a successor that is
+    merely queued must never read as "the frames were analysed". Resolved on
+    every read, so it follows the successor's real terminal status rather than
+    replaying the ``scheduled`` value written at queue time.
+    """
+
+    state: str = "none"
+    job_id: str = ""
+    job_type: str = ""
+    status: str = ""
+    #: True only when the successor actually **succeeded**.
+    analysed: bool = False
+
+
 class JobOut(ORMModel):
     id: str
     project_id: str
@@ -185,6 +202,8 @@ class JobOut(ORMModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    #: Populated by the job endpoints; ``None`` when the job has no fallback.
+    fallback: FallbackOut | None = None
 
 
 # --- System -------------------------------------------------------------

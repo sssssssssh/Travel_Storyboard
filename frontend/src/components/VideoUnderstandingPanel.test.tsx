@@ -231,6 +231,164 @@ test('a fallback is shown with both requested and effective modes', async () => 
   expect(notice.textContent).toContain('不是视频分析')
 })
 
+// --- TSB-354: fallback parent/child tracking --------------------------------
+
+/** A video job whose fallback was handed to `sid`, in the given live status. */
+function fallbackJob(status: string, analysed: boolean) {
+  return {
+    id: 'job1',
+    project_id: 'p',
+    job_type: 'video_analyze',
+    status: 'succeeded',
+    stats: {
+      mode_requested: 'video_native',
+      mode_effective: 'multiframe',
+      fallback_reason: 'VIDEO_CAPABILITY_UNSUPPORTED',
+      fallback_scheduled: true,
+      fallback_job_id: 'sid-1',
+      fallback_job_type: 'motion_review',
+      fallback_state: 'scheduled',
+    },
+    fallback: {
+      state: 'resolved',
+      job_id: 'sid-1',
+      job_type: 'motion_review',
+      status,
+      analysed,
+    },
+    resume_token: {},
+    error: '',
+    created_at: '2026-10-16T00:00:00Z',
+    started_at: null,
+    finished_at: null,
+  }
+}
+
+async function renderFallback(job: ReturnType<typeof fallbackJob>) {
+  mockApi({
+    ...baseRoutes,
+    '/api/projects/p/jobs/video_analyze': job,
+    '/api/jobs/job1': job,
+  })
+  setup()
+  fireEvent.click(await screen.findByRole('checkbox'))
+  fireEvent.click(screen.getByRole('button', { name: '开始视频分析' }))
+  return screen.findByTestId('fallback-tracking')
+}
+
+test('a queued fallback is not reported as analysed', async () => {
+  // The defect this guards: the panel used to say "已回退" the instant the
+  // successor was queued, letting a user read "handed over" as "analysed".
+  const box = await renderFallback(fallbackJob('pending', false))
+
+  expect(box.textContent).toContain('sid-1')
+  expect(box.textContent).toContain('已排队，尚未开始')
+  const verdict = screen.getByTestId('fallback-analysed')
+  expect(verdict.textContent).toContain('尚未完成')
+  expect(verdict.textContent).not.toContain('已入库')
+})
+
+test('a running fallback is still not reported as analysed', async () => {
+  await renderFallback(fallbackJob('running', false))
+  expect(screen.getByTestId('fallback-status').textContent).toBe('正在分析')
+  expect(screen.getByTestId('fallback-analysed').textContent).toContain('尚未完成')
+})
+
+test('only a succeeded fallback reads as analysed', async () => {
+  await renderFallback(fallbackJob('succeeded', true))
+  expect(screen.getByTestId('fallback-status').textContent).toBe('已完成')
+  expect(screen.getByTestId('fallback-analysed').textContent).toContain('已入库')
+})
+
+test('a failed fallback is shown as failed, never as analysed', async () => {
+  await renderFallback(fallbackJob('failed', false))
+  expect(screen.getByTestId('fallback-status').textContent).toBe('已失败')
+  const verdict = screen.getByTestId('fallback-analysed')
+  expect(verdict.textContent).toContain('尚未完成')
+  expect(verdict.textContent).not.toContain('已入库')
+})
+
+test('a cancelled fallback is shown as cancelled, never as analysed', async () => {
+  await renderFallback(fallbackJob('cancelled', false))
+  expect(screen.getByTestId('fallback-status').textContent).toBe('已取消')
+  expect(screen.getByTestId('fallback-analysed').textContent).not.toContain('已入库')
+})
+
+test('a vanished fallback job is reported rather than assumed successful', async () => {
+  const job = {
+    ...fallbackJob('pending', false),
+    fallback: {
+      state: 'missing', job_id: 'sid-1', job_type: 'motion_review',
+      status: '', analysed: false,
+    },
+  }
+  mockApi({
+    ...baseRoutes,
+    '/api/projects/p/jobs/video_analyze': job,
+    '/api/jobs/job1': job,
+  })
+  setup()
+  fireEvent.click(await screen.findByRole('checkbox'))
+  fireEvent.click(screen.getByRole('button', { name: '开始视频分析' }))
+
+  const missing = await screen.findByTestId('fallback-missing')
+  expect(missing.textContent).toContain('无法确认')
+})
+
+test('a fallback that could not be queued reports the reason', async () => {
+  const job = {
+    ...fallbackJob('pending', false),
+    stats: {
+      mode_requested: 'video_native',
+      mode_effective: 'multiframe',
+      fallback_reason: 'VIDEO_CAPABILITY_UNSUPPORTED',
+      fallback_scheduled: false,
+      fallback_schedule_error: 'JobConflict: 项目已有正在运行的互斥任务',
+    },
+    fallback: null,
+  }
+  mockApi({
+    ...baseRoutes,
+    '/api/projects/p/jobs/video_analyze': job,
+    '/api/jobs/job1': job,
+  })
+  setup()
+  fireEvent.click(await screen.findByRole('checkbox'))
+  fireEvent.click(screen.getByRole('button', { name: '开始视频分析' }))
+
+  const err = await screen.findByTestId('fallback-schedule-error')
+  expect(err.textContent).toContain('未能排队')
+  expect(err.textContent).toContain('JobConflict')
+})
+
+test('a job with no fallback shows no tracking block at all', async () => {
+  const job = {
+    id: 'job1',
+    project_id: 'p',
+    job_type: 'video_analyze',
+    status: 'succeeded',
+    stats: { mode_requested: 'video_native', mode_effective: 'video_native' },
+    fallback: { state: 'none', job_id: '', job_type: '', status: '', analysed: false },
+    resume_token: {},
+    error: '',
+    created_at: '2026-10-16T00:00:00Z',
+    started_at: null,
+    finished_at: null,
+  }
+  mockApi({
+    ...baseRoutes,
+    '/api/projects/p/jobs/video_analyze': job,
+    '/api/jobs/job1': job,
+  })
+  setup()
+  fireEvent.click(await screen.findByRole('checkbox'))
+  fireEvent.click(screen.getByRole('button', { name: '开始视频分析' }))
+
+  await screen.findByText(/任务状态/)
+  expect(screen.queryByTestId('fallback-tracking')).toBeNull()
+  expect(screen.queryByTestId('fallback-analysed')).toBeNull()
+})
+
 // --- refusal explanation ----------------------------------------------------
 
 test('a capability refusal is explained with state and remedy', async () => {

@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..models import Job, Project, utcnow
-from ..schemas import JobCreate, JobOut
+from ..schemas import FallbackOut, JobCreate, JobOut
+from ..services.vision.video_job import resolve_fallback_state
 from ..services.job_service import (
     VALID_JOB_TYPES,
     InvalidJobType,
@@ -108,12 +109,25 @@ def create_job(
         raise HTTPException(status_code=409, detail=exc.detail()) from exc
 
 
+def _with_fallback(job: Job, db: Session) -> Job:
+    """Attach the resolved fallback state to a job row (TSB-354).
+
+    Computed per read so the client sees the successor's *current* status. The
+    ``stats`` block keeps the raw write-time values for auditing; this field is
+    the one a UI should render, because only it can tell "queued" apart from
+    "actually analysed".
+    """
+    state = resolve_fallback_state(job, db)
+    job.fallback = FallbackOut(**state)
+    return job
+
+
 @router.get("/jobs/{job_id}", response_model=JobOut)
 def get_job(job_id: str, db: Session = Depends(get_db)):
     job = db.get(Job, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    return _with_fallback(job, db)
 
 
 @router.post("/jobs/{job_id}/cancel", response_model=JobOut)
@@ -160,9 +174,10 @@ def cancel_job(job_id: str, db: Session = Depends(get_db)):
 
 @router.get("/projects/{project_id}/jobs", response_model=list[JobOut])
 def list_jobs(project_id: str, db: Session = Depends(get_db)):
-    return db.scalars(
+    jobs = db.scalars(
         select(Job).where(Job.project_id == project_id).order_by(Job.created_at.desc())
     ).all()
+    return [_with_fallback(j, db) for j in jobs]
 
 
 @router.post('/projects/{project_id}/jobs/{job_id}/cleanup-retry', response_model=JobOut)

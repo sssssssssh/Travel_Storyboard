@@ -114,6 +114,20 @@ export interface DirectAnalysisResult {
   message?: string
 }
 
+/** Live state of a job's fallback successor (TSB-354).
+ *
+ *  `analysed` is true ONLY once the successor actually succeeded. It is
+ *  deliberately separate from `state`: a successor that is merely queued must
+ *  never be rendered as "已分析", which is the misreading this field exists to
+ *  prevent. The backend resolves it on every read. */
+export interface JobFallbackOut {
+  state: string
+  job_id: string
+  job_type: string
+  status: string
+  analysed: boolean
+}
+
 export interface JobOut {
   id: string
   project_id: string
@@ -130,6 +144,11 @@ export interface JobOut {
      *  multi-frame reading look like a native-video result. */
     mode_requested?: string; mode_effective?: string; fallback_reason?: string;
     capability_state?: string; events?: number; clip_bytes?: number;
+    /** TSB-354: identity of the job the fallback was handed to. Recorded at
+     *  queue time and never updated -- read `job.fallback` for live status. */
+    fallback_scheduled?: boolean; fallback_job_id?: string;
+    fallback_job_type?: string; fallback_state?: string;
+    fallback_schedule_error?: string;
     clip_seconds?: number; cached?: number;
     usage?: Record<string, number>;
     coverage?: CoverageOut;
@@ -138,6 +157,8 @@ export interface JobOut {
   failures?: { count?: number; items?: JobFailureItem[] }
   resume_token: Record<string, unknown>
   error: string
+  /** Present on job reads; null/undefined when this job has no fallback. */
+  fallback?: JobFallbackOut | null
   created_at: string
   started_at: string | null
   finished_at: string | null

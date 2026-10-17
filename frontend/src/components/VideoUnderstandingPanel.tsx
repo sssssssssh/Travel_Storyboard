@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, endpoints } from '../lib/api'
 import type {
+  JobFallbackOut,
   JobOut,
   MotionReviewOut,
   VideoCoverageOut,
@@ -218,6 +219,7 @@ export default function VideoUnderstandingPanel({ projectId }: { projectId: stri
               已回退：{job.data.stats.fallback_reason}。这是回退后的多帧分析，不是视频分析。
             </div>
           )}
+          <FallbackTracking fallback={job.data.fallback} stats={job.data.stats} />
           <CleanupNotice cleanup={job.data.stats?.cleanup} />
         </div>
       )}
@@ -249,6 +251,67 @@ export default function VideoUnderstandingPanel({ projectId }: { projectId: stri
  * column with its reason is information, whereas hiding it invites the reader to
  * assume the missing mode was not needed.
  */
+/** TSB-354: show where the fallback work actually got to.
+ *
+ *  Before this, the panel only said "已回退" the moment the successor was
+ *  *queued*. A queued job is not a finished analysis, so that wording let a user
+ *  read "handed over" as "the frames have been analysed". This renders the
+ *  successor's live terminal status instead, and only claims the frames were
+ *  read once the successor really succeeded.
+ */
+function FallbackTracking({
+  fallback,
+  stats,
+}: {
+  fallback?: JobFallbackOut | null
+  stats?: JobOut['stats']
+}) {
+  // Nothing was handed over at all -- say nothing rather than imply a fallback.
+  if (!fallback || fallback.state === 'none') {
+    if (typeof stats?.fallback_schedule_error === 'string' && stats.fallback_schedule_error) {
+      return (
+        <div className="mt-1 text-rose-300" data-testid="fallback-schedule-error">
+          回退未能排队：{stats.fallback_schedule_error}
+        </div>
+      )
+    }
+    return null
+  }
+
+  if (fallback.state === 'missing') {
+    return (
+      <div className="mt-1 text-rose-300" data-testid="fallback-missing">
+        回退任务 {fallback.job_id} 已不存在，无法确认多帧分析是否完成。
+      </div>
+    )
+  }
+
+  const statusText: Record<string, string> = {
+    pending: '已排队，尚未开始',
+    running: '正在分析',
+    succeeded: '已完成',
+    failed: '已失败',
+    cancelled: '已取消',
+    cancelling: '正在取消',
+  }
+  const label = statusText[fallback.status] ?? fallback.status
+
+  return (
+    <div className="mt-1" data-testid="fallback-tracking">
+      <div className="text-amber-300">
+        已交给 <code>{fallback.job_type}</code> 任务{' '}
+        <code data-testid="fallback-job-id">{fallback.job_id}</code>：
+        <strong data-testid="fallback-status">{label}</strong>
+      </div>
+      <div className="mt-0.5 text-slate-400" data-testid="fallback-analysed">
+        {fallback.analysed
+          ? '多帧分析结果已入库。'
+          : '多帧分析尚未完成 —— 此处还不能视为已分析。'}
+      </div>
+    </div>
+  )
+}
+
 function ObservationCard({
   row,
   still,
