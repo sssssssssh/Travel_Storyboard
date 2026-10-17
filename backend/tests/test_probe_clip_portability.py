@@ -150,19 +150,31 @@ def test_the_probe_asks_for_the_observed_order():
 
 
 def test_a_correct_order_is_recognised_and_a_wrong_one_is_not():
-    """Answer checking must be able to *fail* -- that is the whole point."""
+    """Answer checking must be able to *fail* -- that is the whole point.
+
+    TSB-342 tightened this to strict JSON judged against **the round's own**
+    hidden order, so the check is now per-round rather than against a global
+    constant.
+    """
     from tools import probe_video_capability as probe
 
-    good, basis = probe.evaluate_probe_answer("The order is red, then green, then blue.")
+    order = ("red", "green", "blue")
+    good, basis = probe.evaluate_probe_answer(
+        '{"order": ["red", "green", "blue"]}', expected_order=order
+    )
     assert good is True, f"a correct order must be recognised (basis={basis})"
 
-    bad, basis_bad = probe.evaluate_probe_answer("The order is blue, then green, then red.")
+    bad, basis_bad = probe.evaluate_probe_answer(
+        '{"order": ["blue", "green", "red"]}', expected_order=order
+    )
     assert bad is False, (
         "a wrong order must NOT count as temporal evidence; "
         f"otherwise the check is decorative (basis={basis_bad})"
     )
 
-    unrelated, _ = probe.evaluate_probe_answer("I cannot view videos.")
+    unrelated, _ = probe.evaluate_probe_answer(
+        "I cannot view videos.", expected_order=order
+    )
     assert unrelated is False, "an unhelpful answer is not evidence"
 
 
@@ -176,7 +188,9 @@ def test_the_old_keyword_heuristic_could_not_fail_this_way():
     from tools import probe_video_capability as probe
 
     wrong_but_fluent = "First the blue phase, then the green, then the red one."
-    ok, basis = probe.evaluate_probe_answer(wrong_but_fluent)
+    ok, basis = probe.evaluate_probe_answer(
+        wrong_but_fluent, expected_order=("red", "green", "blue")
+    )
     assert ok is False, (
         "a fluent string that names the phases in the wrong order must not pass; "
         f"basis={basis}"

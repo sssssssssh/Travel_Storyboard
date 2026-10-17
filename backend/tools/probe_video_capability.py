@@ -80,12 +80,20 @@ LOCAL_MAX_BYTES = 12_000_000
 #: builder and the checker cannot drift apart.
 PROBE_PHASE_ORDER: tuple[str, str, str] = ("red", "green", "blue")
 
+#: The colours a probe round may use. The *set* is public -- the prompt names it --
+#: but the per-round **order** is the secret and must never appear in a prompt or
+#: in a committed report (TSB-342).
+PROBE_COLOURS: tuple[str, str, str] = PROBE_PHASE_ORDER
+
 
 # ---------------------------------------------------------------------------
 # synthetic test clip
 # ---------------------------------------------------------------------------
 
-def build_synthetic_clip(duration_sec: float = 3.0) -> Path:
+def build_synthetic_clip(
+    duration_sec: float = 3.0,
+    order: tuple[str, ...] | None = None,
+) -> Path:
     """Generate a silent, element-changing MP4 for probing.
 
     The content changes *over time* on purpose: a static clip could be answered
@@ -108,7 +116,9 @@ def build_synthetic_clip(duration_sec: float = 3.0) -> Path:
 
     out = Path(tempfile.mkdtemp(prefix="tsb-video-probe-")) / "probe.mp4"
     third = max(duration_sec, 0.3) / 3.0
-    first, second, third_c = PROBE_PHASE_ORDER
+    # TSB-342: the order is chosen per round and kept only in local memory. It is
+    # never written into the prompt, and never committed.
+    first, second, third_c = order or PROBE_PHASE_ORDER
     # A moving box keeps the clip visibly dynamic; the colour phases give an
     # orderable, checkable signal. `enable` windows select each phase by time.
     vf = (
@@ -134,60 +144,249 @@ def build_synthetic_clip(duration_sec: float = 3.0) -> Path:
     return out
 
 
+def choose_probe_order() -> tuple[str, str, str]:
+    """Pick this round's colour order from a cryptographically secure source.
+
+    TSB-342: the order must not be predictable and must differ between rounds. A
+    constant order (or one leaked in the prompt) lets a model answer correctly
+    without decoding anything.
+    """
+    import secrets
+
+    colours = list(PROBE_COLOURS)
+    secrets.SystemRandom().shuffle(colours)
+    return (colours[0], colours[1], colours[2])
+
+
+def new_probe_id() -> str:
+    """A fresh identifier so each round's request and answer pair up unambiguously."""
+    import uuid
+
+    return uuid.uuid4().hex
+
+
 def build_probe_prompt() -> str:
     """The question asked about the probe clip.
 
-    It names the colours and asks for the order, so the reply is checkable
-    against ground truth instead of merely scanned for time-ish words.
+    TSB-342: this deliberately does **not** state the order and does **not** show a
+    filled example. The previous version ended with
+    ``for example: {"order": ["red", "green", "blue"]}`` while the clip's real
+    order was exactly that, so a model could copy the answer out of the prompt and
+    be scored as having understood the video. Only the *set* of colours is named
+    here -- that is not the secret, the order is.
     """
-    first, second, third = PROBE_PHASE_ORDER
+    colours = ", ".join(PROBE_COLOURS)
     return (
         "This is a short silent test clip. It is divided into three equal parts, "
-        f"each filled with one solid colour, in some order chosen from: {first}, "
-        f"{second}, {third}. Watch the whole clip and report the order in which "
-        "the colours appear. Reply with JSON only, using the key \"order\" whose "
-        f"value is the list of colour names in the order you observed them, for "
-        f"example: {{\"order\": [\"{first}\", \"{second}\", \"{third}\"]}}. "
-        "Also add a key \"motion\" (true/false) saying whether anything moved. "
-        "If you cannot watch video, reply exactly NO_VIDEO."
+        f"each filled with one solid colour. The three colours used are exactly "
+        f"{colours}, one per part, each appearing once, in an order you must "
+        "determine by watching. Report the order you actually observed, from the "
+        "first part to the last. Reply with JSON only, with a key \"order\" whose "
+        "value is a list of the three colour names in the order you saw them (do "
+        "not copy an example -- there is none, and the order is not stated "
+        "anywhere in this message). Also include a key \"motion\" (true/false) "
+        "for whether anything moved. If you cannot watch video, reply exactly "
+        "NO_VIDEO."
     )
 
 
-def evaluate_probe_answer(text: str) -> tuple[bool, str]:
-    """Did the answer report the clip's *actual* colour order?
+def parse_probe_order(text: str) -> tuple[list[str] | None, str]:
+    """Strictly parse ``{"order": [...]}`` from an answer.
 
-    This is deliberately able to return ``False`` for a confident, fluent answer:
-    the previous ``_looks_temporal`` accepted any text containing "then" or
-    "from", so a model naming the phases backwards still scored as proof of
-    temporal understanding. The check is now against ground truth.
+    Returns ``(order, reason)``. ``order`` is ``None`` unless the reply is valid
+    JSON, has an ``order`` list of exactly the three distinct probe colours.
+    Loose prose is never accepted: the task book requires strict JSON parsing.
     """
-    lowered = (text or "").lower()
-    if not lowered.strip():
-        return False, ""
-    if "no_video" in lowered:
-        return False, "model reported NO_VIDEO"
+    raw = (text or "").strip()
+    if not raw:
+        return None, "empty response"
+    if "no_video" in raw.lower():
+        return None, "model reported NO_VIDEO"
 
-    expected = list(PROBE_PHASE_ORDER)
+    # Accept a fenced or embedded JSON object, but nothing looser than JSON.
+    candidate = raw
+    if "```" in candidate:
+        import re as _re
 
-    # Preferred: an explicit ordered list of the colour names.
-    positions: list[tuple[int, str]] = []
-    for colour in PROBE_PHASE_ORDER:
-        idx = lowered.find(colour)
-        if idx < 0:
-            break
-        positions.append((idx, colour))
-    else:
-        observed = [colour for _, colour in sorted(positions)]
-        if observed == expected:
-            return True, "reported the clip's colour order correctly"
-        return False, f"reported order {observed} but the clip is {expected}"
+        block = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", candidate, _re.S)
+        if block:
+            candidate = block.group(1)
+    if not candidate.lstrip().startswith("{"):
+        import re as _re
 
-    # No full colour set: fall back to motion-only evidence, which is weaker and
-    # says so. It cannot establish order, so it is not "verified" material.
-    motion_markers = ("moving", "motion", "moves", "changing", "changes")
-    if any(m in lowered for m in motion_markers):
-        return True, "describes motion (order not established)"
-    return False, ""
+        obj = _re.search(r"\{.*\}", candidate, _re.S)
+        if not obj:
+            return None, "response is not JSON"
+        candidate = obj.group(0)
+
+    try:
+        parsed = json.loads(candidate)
+    except (ValueError, TypeError):
+        return None, "response is not valid JSON"
+    if not isinstance(parsed, dict):
+        return None, "response is not a JSON object"
+
+    order = parsed.get("order")
+    if not isinstance(order, list):
+        return None, "response has no \"order\" list"
+    if len(order) != 3:
+        return None, f"expected 3 colours, got {len(order)}"
+
+    normalised = [str(item).strip().lower() for item in order]
+    allowed = set(PROBE_COLOURS)
+    if any(item not in allowed for item in normalised):
+        return None, f"unknown colour in order {normalised}"
+    if len(set(normalised)) != 3:
+        return None, f"colours must each appear once, got {normalised}"
+    return normalised, ""
+
+
+def evaluate_probe_answer(
+    text: str, *, expected_order: tuple[str, ...] | None = None
+) -> tuple[bool, str]:
+    """Did the answer report **this round's** colour order?
+
+    TSB-342 removed two ways this used to be forgeable:
+
+    * a filled example in the prompt let a non-watching model echo the answer;
+    * when the colour set was incomplete, any text mentioning motion returned
+      ``True``, so "there is motion in this clip" counted as temporal evidence.
+
+    An answer now passes only if it is strict JSON naming each probe colour once in
+    the order this round actually encoded.
+    """
+    order, reason = parse_probe_order(text)
+    if order is None:
+        return False, reason
+
+    expected = list(expected_order if expected_order is not None else PROBE_PHASE_ORDER)
+    if order == expected:
+        return True, "reported this round's colour order correctly"
+    return False, f"reported order {order} but this round is {expected}"
+
+
+@dataclass
+class RoundEvidence:
+    """One probe round: what was encoded, what came back, whether it matched."""
+
+    round_index: int
+    probe_id: str
+    order: tuple[str, ...]
+    passed: bool
+    basis: str = ""
+    http_status: int | None = None
+    error_code: str = ""
+
+    def to_dict(self) -> dict:
+        data = asdict(self)
+        data["order"] = list(self.order)
+        return data
+
+    def public_dict(self) -> dict:
+        """Anonymous view for a committed report: no order, no endpoint."""
+        return {
+            "round": self.round_index,
+            "probe_id": self.probe_id,
+            "passed": self.passed,
+            "basis": self.basis,
+            "http_status": self.http_status,
+            "error_code": self.error_code,
+        }
+
+
+@dataclass
+class ProbeEvidence:
+    """The whole probe attempt, including the negative controls.
+
+    TSB-342 requires more than "the model answered correctly": correctness has to
+    be attributable to the video. Two controls establish that -- the same question
+    with no video, and the same question against a single still frame. If either
+    also answers correctly, the endpoint is not demonstrably reading time.
+    """
+
+    rounds: list[RoundEvidence] = field(default_factory=list)
+    control_attempted: bool = False
+    control_answered_correctly: bool = False
+    frame_control_attempted: bool = False
+    frame_control_answered_correctly: bool = False
+
+    @property
+    def rounds_total(self) -> int:
+        return len(self.rounds)
+
+    @property
+    def passed_rounds(self) -> int:
+        return sum(1 for r in self.rounds if r.passed)
+
+    def to_dict(self) -> dict:
+        return {
+            "rounds": [r.to_dict() for r in self.rounds],
+            "rounds_total": self.rounds_total,
+            "rounds_passed": self.passed_rounds,
+            "control_attempted": self.control_attempted,
+            "control_answered_correctly": self.control_answered_correctly,
+            "frame_control_attempted": self.frame_control_attempted,
+            "frame_control_answered_correctly": self.frame_control_answered_correctly,
+        }
+
+    def public_summary(self) -> dict:
+        """Anonymous summary safe to commit.
+
+        Deliberately omits the round orders: publishing them would tell a future
+        run's model what to say (and the committed report should not carry the
+        answers to its own question).
+        """
+        return {
+            "rounds_total": self.rounds_total,
+            "rounds_passed": self.passed_rounds,
+            "control_attempted": self.control_attempted,
+            "control_answered_correctly": self.control_answered_correctly,
+            "frame_control_attempted": self.frame_control_attempted,
+            "frame_control_answered_correctly": self.frame_control_answered_correctly,
+            "rounds": [
+                {
+                    "round": r.round_index,
+                    "passed": r.passed,
+                    "basis": r.basis,
+                    "http_status": r.http_status,
+                    "error_code": r.error_code,
+                }
+                for r in self.rounds
+            ],
+        }
+
+
+#: How many independent rounds must pass. The task book requires >= 3.
+REQUIRED_PROBE_ROUNDS = 3
+
+
+def evidence_supports_verification(evidence: ProbeEvidence) -> bool:
+    """Does this evidence justify ``verified_native_video``?
+
+    Every condition must hold, and each one exists because omitting it was a way
+    to be fooled:
+
+    * at least ``REQUIRED_PROBE_ROUNDS`` rounds, **all** passing -- a single
+      failure, 5xx or timeout means the reading is not reproducible;
+    * the rounds used **distinct** permutations -- otherwise they are one round
+      repeated, and a guessed order would pass all of them;
+    * the prompt-only control **was run** and did **not** answer correctly, so the
+      result is attributable to the video rather than to the question;
+    * the still-frame control, if run, did not answer correctly either.
+    """
+    if len(self_rounds := evidence.rounds) < REQUIRED_PROBE_ROUNDS:
+        return False
+    if any(not r.passed for r in self_rounds):
+        return False
+    orders = [tuple(r.order) for r in self_rounds]
+    if len(set(orders)) < len(orders):
+        return False
+    # A control that was never performed cannot be treated as having failed.
+    if not evidence.control_attempted or evidence.control_answered_correctly:
+        return False
+    if evidence.frame_control_attempted and evidence.frame_control_answered_correctly:
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +415,20 @@ class ProbeOutcome:
     #: evaluated our video when it never did.
     control_http_status: int | None = None
     control_excerpt: str = ""
+
+    # --- TSB-342 negative controls -------------------------------------------
+    #: Which round this observation belongs to, so the answer is judged against
+    #: *its own* hidden order rather than a global constant.
+    probe_id: str = ""
+    round_order: tuple[str, ...] = ()
+    #: The prompt-only control: the same question with the video removed. If it
+    #: answers correctly, the model was never reading the video.
+    control_signal: bool = False
+    control_attempted: bool = False
+    #: The still-frame control: the same question against one frame. A pass here
+    #: means a thumbnail was enough, so the endpoint cannot be shown to read time.
+    frame_control_signal: bool = False
+    frame_control_attempted: bool = False
 
 
 def control_probe(*, model_id: str, timeout_sec: float = 60.0) -> tuple[int | None, str]:
@@ -312,6 +525,23 @@ def classify_probe_outcome(outcome: ProbeOutcome) -> tuple[str, str]:
             vc.VIDEO_ACCEPTED_SAMPLING_UNKNOWN,
             "request succeeded but the response showed no usable temporal "
             "information attributable to the video; server-side sampling unknown",
+        )
+
+    # TSB-342: a correct answer only counts if it is attributable to the video.
+    # If the same question is answered correctly without the video, or from a
+    # single still frame, the endpoint has not been shown to read time -- the
+    # answer may come from the prompt or from one decoded frame.
+    if outcome.control_attempted and outcome.control_signal:
+        return (
+            vc.VIDEO_ACCEPTED_SAMPLING_UNKNOWN,
+            "a prompt-only control answered the same question correctly, so the "
+            "result cannot be attributed to the video; server-side sampling unknown",
+        )
+    if outcome.frame_control_attempted and outcome.frame_control_signal:
+        return (
+            vc.VIDEO_ACCEPTED_SAMPLING_UNKNOWN,
+            "a single-frame control answered the same question correctly, so a "
+            "thumbnail suffices and temporal reading is unproven",
         )
 
     return (
@@ -424,6 +654,10 @@ def run_probe(
     authorization,
     timeout_sec: float = 120.0,
     max_bytes: int = LOCAL_MAX_BYTES,
+    round_order: tuple[str, ...] | None = None,
+    probe_id: str = "",
+    include_video: bool = True,
+    frame_only: bool = False,
 ) -> ProbeOutcome:
     """Send one video request and report what happened.
 
@@ -442,6 +676,8 @@ def run_probe(
 
     settings = get_settings()
     outcome = ProbeOutcome(attempted=True)
+    outcome.probe_id = probe_id
+    outcome.round_order = tuple(round_order or PROBE_PHASE_ORDER)
 
     data = clip.read_bytes()
     if len(data) > max_bytes:
@@ -462,13 +698,19 @@ def run_probe(
                         # scanned for time-ish words.
                         "text": build_probe_prompt(),
                     },
-                    {
-                        "type": "video_url",
-                        "video_url": {
-                            "url": "data:video/mp4;base64,"
-                            + base64.b64encode(data).decode("ascii")
-                        },
-                    },
+                    *(
+                        [
+                            {
+                                "type": "video_url",
+                                "video_url": {
+                                    "url": "data:video/mp4;base64,"
+                                    + base64.b64encode(data).decode("ascii")
+                                },
+                            }
+                        ]
+                        if include_video
+                        else []
+                    ),
                 ],
             }
         ],
@@ -514,16 +756,159 @@ def run_probe(
             # TSB-341: check the reported colour order against the clip that was
             # actually sent. This can return False for a fluent wrong answer, which
             # the previous keyword scan could not.
-            found, basis = evaluate_probe_answer(text)
+            found, basis = evaluate_probe_answer(
+                text, expected_order=outcome.round_order
+            )
             outcome.temporal_signal = found
             outcome.temporal_signal_basis = basis
-            if found and "order" not in basis:
-                outcome.notes.append(
-                    "temporal evidence is motion-only; the reported colour order "
-                    "was not established"
-                )
 
     return outcome
+
+
+def run_multi_round_probe(
+    *,
+    model_id: str,
+    authorization,
+    rounds: int = REQUIRED_PROBE_ROUNDS,
+    duration_sec: float = 3.0,
+    timeout_sec: float = 120.0,
+    run_frame_control: bool = True,
+    workdir: Path | None = None,
+    _probe=run_probe,
+) -> ProbeEvidence:
+    """Run the full TSB-342 battery: N randomised rounds plus negative controls.
+
+    Each round encrypts a **fresh random order** into its own clip and asks the
+    same video-free question. The order lives only in this process: it is not in
+    the prompt and not written to disk. A round is credited only if the reply is
+    strict JSON matching *that round's* order.
+
+    Two controls then test attribution, because "the model answered correctly" is
+    not by itself evidence that it watched anything:
+
+    * **prompt-only** -- the identical question with no video. A correct answer
+      here means the model produced the order from the question alone.
+    * **single frame** -- the same question against one still frame. A correct
+      answer means a thumbnail suffices.
+    """
+    evidence = ProbeEvidence()
+    # Cache one clip per distinct order; three rounds is small and the encode is
+    # the slow part of a probe.
+    clips: dict[tuple[str, ...], Path] = {}
+
+    def _clip_for(order: tuple[str, ...]) -> Path:
+        # One clip per distinct order: the encode dominates a probe's runtime.
+        if order not in clips:
+            clips[order] = build_synthetic_clip(duration_sec=duration_sec, order=order)
+        return clips[order]
+
+    # --- the timed rounds ---------------------------------------------------
+    for index in range(rounds):
+        order = choose_probe_order()
+        # Distinct permutations only: three identical rounds are one round
+        # repeated, and a guessed order would pass all of them.
+        attempts = 0
+        while order in clips and attempts < 10:
+            order = choose_probe_order()
+            attempts += 1
+        probe_id = new_probe_id()
+
+        clip = _clip_for(order)
+        out = _probe(
+            clip=clip, model_id=model_id, authorization=authorization,
+            timeout_sec=timeout_sec, round_order=order, probe_id=probe_id,
+        )
+        evidence.rounds.append(
+            RoundEvidence(
+                round_index=index,
+                probe_id=probe_id,
+                order=order,
+                passed=bool(out.temporal_signal),
+                basis=out.temporal_signal_basis,
+                http_status=out.http_status,
+                error_code=out.error_code,
+            )
+        )
+
+    # --- control 1: prompt only, no video -----------------------------------
+    control_order = choose_probe_order()
+    control_id = new_probe_id()
+    control_out = _probe(
+        clip=_clip_for(control_order), model_id=model_id, authorization=authorization,
+        timeout_sec=timeout_sec, round_order=control_order, probe_id=control_id,
+        include_video=False,
+    )
+    evidence.control_attempted = True
+    evidence.control_answered_correctly = bool(control_out.temporal_signal)
+
+    # --- control 2: a single still frame ------------------------------------
+    if run_frame_control:
+        frame_order = choose_probe_order()
+        frame_out = _probe(
+            clip=_clip_for(frame_order), model_id=model_id, authorization=authorization,
+            timeout_sec=timeout_sec, round_order=frame_order,
+            probe_id=new_probe_id(), frame_only=True,
+        )
+        evidence.frame_control_attempted = True
+        evidence.frame_control_answered_correctly = bool(frame_out.temporal_signal)
+
+    return evidence
+
+
+# ---------------------------------------------------------------------------
+# console output
+# ---------------------------------------------------------------------------
+
+def configure_console_output() -> None:
+    """Make console writes survive a non-UTF-8 code page.
+
+    TSB-343: the risk list and several notes are Chinese, and a Windows console
+    defaults to a legacy code page (cp1252/cp936). Printing them raised::
+
+        UnicodeEncodeError: 'charmap' codec can't encode characters ... <undefined>
+
+    which killed the probe before it could report anything -- including the
+    dry-run result CI asserts on. Two changes fix this without pretending the
+    console is UTF-8:
+
+    * ``errors="backslashreplace"`` on the std streams, so an unencodable glyph
+      degrades to an escape instead of an exception;
+    * ``reconfigure`` is attempted first (Python 3.7+), which is a no-op where the
+      stream is already UTF-8.
+
+    This is output robustness only: it does not touch how anything is computed.
+    """
+    import sys
+
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="backslashreplace")
+        except (AttributeError, ValueError, OSError):
+            # Not a TextIOWrapper (or detached); the safe_print fallback covers it.
+            pass
+
+
+def _ascii_if_requested(text: str, args) -> str:
+    """ASCII-only rendering for stable machine parsing under any console.
+
+    ``--ascii`` exists because a Windows job may run with a legacy code page; the
+    escaped form keeps the output parseable instead of merely non-crashing.
+    """
+    if not getattr(args, "ascii_only", False):
+        return text
+    return str(text).encode("ascii", "backslashreplace").decode("ascii")
+
+
+def safe_print(*parts, sep: str = " ", end: str = "\n") -> None:
+    """Print without ever raising on an unencodable character."""
+    import sys
+
+    text = sep.join(str(p) for p in parts)
+    try:
+        print(text, end=end)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        sys.stdout.write(text.encode(enc, "backslashreplace").decode(enc, "replace") + end)
 
 
 # ---------------------------------------------------------------------------
@@ -592,6 +977,7 @@ def _redact_report_for_commit(report: dict) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_console_output()
     parser = argparse.ArgumentParser(description="Probe native-video support (dry-run by default)")
     parser.add_argument("--execute", action="store_true", help="actually send a request")
     parser.add_argument(
@@ -604,6 +990,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--protocol", default="video_url_data_uri")
     parser.add_argument("--json", type=Path, default=None, help="write the report here")
     parser.add_argument("--redact", action="store_true", help="strip endpoint host (for committed evidence)")
+    parser.add_argument(
+        "--ascii",
+        action="store_true",
+        dest="ascii_only",
+        help=(
+            "render free-form text as pure ASCII (escaped), so output stays "
+            "parseable on a non-UTF-8 console such as a legacy Windows code page"
+        ),
+    )
+    parser.add_argument(
+        "--rounds",
+        type=int,
+        default=REQUIRED_PROBE_ROUNDS,
+        help=(
+            "how many randomised video rounds to require; each round encodes its own "
+            "order and must be answered correctly for a positive result "
+            f"(default {REQUIRED_PROBE_ROUNDS})"
+        ),
+    )
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=3.0,
+        help="seconds per synthetic probe clip",
+    )
     parser.add_argument(
         "--record-capability",
         action="store_true",
@@ -622,20 +1033,20 @@ def main(argv: list[str] | None = None) -> int:
     # Gate 2: refuse a half-specified real run, and say precisely why.
     executed = bool(args.execute)
     if executed and not args.authorize_upload:
-        print("REFUSED: --execute also requires --i-authorize-real-upload")
-        print("         (a real video upload is an outbound transfer of media; it needs explicit consent)")
+        safe_print("REFUSED: --execute also requires --i-authorize-real-upload")
+        safe_print("         (a real video upload is an outbound transfer of media; it needs explicit consent)")
         return 2
 
     clip: Path | None = None
     if executed:
         if args.clip is not None:
             if not args.clip.is_file():
-                print(f"REFUSED: clip not found: {args.clip}")
+                safe_print(f"REFUSED: clip not found: {args.clip}")
                 return 2
             clip = args.clip
         else:
             clip = build_synthetic_clip()
-            print(f"synthetic clip: {clip.name} ({clip.stat().st_size} bytes, silent)")
+            safe_print(f"synthetic clip: {clip.name} ({clip.stat().st_size} bytes, silent)")
 
     plan = plan_probe(
         clip=clip,
@@ -658,54 +1069,107 @@ def main(argv: list[str] | None = None) -> int:
                 purpose="video_capability_probe",
             )
         except Exception as exc:  # noqa: BLE001 - reported, not raised
-            print(f"REFUSED by the authorization boundary: {exc}")
+            safe_print(f"REFUSED by the authorization boundary: {exc}")
             return 3
         # Say it before doing it: an operator must see that this run is outbound,
         # and to which host, rather than discovering it from the report.
-        print(
+        safe_print(
             f"ABOUT TO SEND: {plan.clip_bytes} bytes of "
             f"{'operator-supplied' if clip_source_is_real(clip) else 'synthetic'} video "
             f"to {plan.endpoint_host_redacted} (model {plan.model_id})"
         )
-        outcome = run_probe(clip=clip, model_id=model_id, authorization=context)
-        # Always run the control: it is what makes an outage distinguishable from
-        # a real capability answer.
+        # Always run the text-only control: it is what makes an outage
+        # distinguishable from a real capability answer.
         control_status, control_excerpt = control_probe(model_id=model_id)
+
+        evidence = ProbeEvidence()
+        if args.rounds > 1:
+            # TSB-342: the deciding battery. Several randomised rounds plus a
+            # prompt-only control, because a single correct answer can come from
+            # the prompt -- especially when the prompt used to contain it.
+            safe_print(
+                f"running {args.rounds} randomised rounds + prompt-only/frame "
+                "controls (the order is never stated in the prompt)"
+            )
+            if clip is not None and clip_source_is_real(clip):
+                outcome = run_probe(clip=clip, model_id=model_id, authorization=context)
+            else:
+                evidence = run_multi_round_probe(
+                    model_id=model_id,
+                    authorization=context,
+                    rounds=args.rounds,
+                    duration_sec=args.duration,
+                )
+                outcome = ProbeOutcome(attempted=True)
+                outcome.probe_id = evidence.rounds[0].probe_id if evidence.rounds else ""
+                outcome.temporal_signal = evidence_supports_verification(evidence)
+                outcome.temporal_signal_basis = (
+                    f"{evidence.passed_rounds}/{evidence.rounds_total} rounds correct"
+                    + (
+                        "; prompt-only control also answered correctly, so the "
+                        "result is not attributable to the video"
+                        if evidence.control_answered_correctly
+                        else ""
+                    )
+                )
+                outcome.control_attempted = evidence.control_attempted
+                outcome.control_signal = evidence.control_answered_correctly
+                outcome.frame_control_attempted = evidence.frame_control_attempted
+                outcome.frame_control_signal = evidence.frame_control_answered_correctly
+                # A round that did not pass must not look like a clean 200.
+                failed = [r for r in evidence.rounds if not r.passed]
+                if failed and failed[0].http_status is not None:
+                    outcome.http_status = failed[0].http_status
+                else:
+                    outcome.http_status = 200
+                if failed and failed[0].error_code:
+                    outcome.error_code = failed[0].error_code
+                for r in evidence.rounds:
+                    outcome.notes.append(
+                        f"round {r.round_index}: {'pass' if r.passed else 'FAIL'} "
+                        f"({r.basis or r.error_code or 'no reason'})"
+                    )
+        else:
+            outcome = run_probe(clip=clip, model_id=model_id, authorization=context)
+
         outcome.control_http_status = control_status
         outcome.control_excerpt = control_excerpt
 
     report = build_report(plan=plan, outcome=outcome, executed=executed)
+    # The anonymous, committable view of the battery: rounds and pass counts, no
+    # orders, no probe ids, no endpoint.
+    report["evidence"] = evidence.public_summary() if executed else None
     if args.redact:
         report = _redact_report_for_commit(report)
 
     state = report["capabilities"]["state"]
     sendable = report["capabilities"]["sendable"]
 
-    print()
-    print("== video capability probe ==")
-    print(f"  mode            : {report['mode']}")
-    print(f"  protocol        : {plan.protocol} ({plan.transport})")
-    print(f"  clip            : {plan.clip_source}, {plan.clip_bytes} bytes, has_audio={plan.has_audio}")
-    print(f"  endpoint        : {plan.endpoint_host_redacted} ({plan.endpoint_scheme})")
-    print(f"  model           : {plan.model_id}")
-    print(f"  state           : {state}")
-    print(f"  sendable        : {sendable}")
+    safe_print()
+    safe_print("== video capability probe ==")
+    safe_print(f"  mode            : {report['mode']}")
+    safe_print(f"  protocol        : {plan.protocol} ({plan.transport})")
+    safe_print(f"  clip            : {plan.clip_source}, {plan.clip_bytes} bytes, has_audio={plan.has_audio}")
+    safe_print(f"  endpoint        : {plan.endpoint_host_redacted} ({plan.endpoint_scheme})")
+    safe_print(f"  model           : {plan.model_id}")
+    safe_print(f"  state           : {state}")
+    safe_print(f"  sendable        : {sendable}")
     if report["capabilities"]["verification_scope"]:
-        print(f"  scope           : {report['capabilities']['verification_scope']}")
-    print()
-    print("  risks:")
+        safe_print(f"  scope           : {report['capabilities']['verification_scope']}")
+    safe_print()
+    safe_print("  risks:")
     for risk in plan.risks:
-        print(f"    - {risk}")
+        safe_print(f"    - {_ascii_if_requested(risk, args)}")
 
     if not executed:
-        print()
-        print("DRY-RUN: nothing was sent. Re-run with --execute --i-authorize-real-upload")
-        print("         only when you explicitly approve uploading a video to this endpoint.")
+        safe_print()
+        safe_print("DRY-RUN: nothing was sent. Re-run with --execute --i-authorize-real-upload")
+        safe_print("         only when you explicitly approve uploading a video to this endpoint.")
 
     if args.json:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"\nreport written: {args.json}")
+        safe_print(f"\nreport written: {args.json}")
 
     # TSB-335: close the probe -> load -> use loop. Without this the probe could
     # succeed while the route kept answering 422 forever, because nothing ever
@@ -734,16 +1198,16 @@ def _record_capability(report: dict, *, plan, executed: bool) -> None:
     )
 
     if not executed:
-        print()
-        print("NOT RECORDED: a dry run produces no evidence; re-run with --execute first.")
-        print("              (recording an unproven positive would defeat the guard)")
+        safe_print()
+        safe_print("NOT RECORDED: a dry run produces no evidence; re-run with --execute first.")
+        safe_print("              (recording an unproven positive would defeat the guard)")
         return
 
     caps = report.get("capabilities") or {}
     state = caps.get("state", "unverified")
     if state == "unverified":
-        print()
-        print("NOT RECORDED: the probe did not establish a usable capability state.")
+        safe_print()
+        safe_print("NOT RECORDED: the probe did not establish a usable capability state.")
         return
 
     scope = caps.get("verification_scope", "")
@@ -784,10 +1248,10 @@ def _record_capability(report: dict, *, plan, executed: bool) -> None:
         temporal_sampling_disclosed=bool(caps.get("temporal_sampling_disclosed", False)),
     )
     path = save_record(record, identity=identity)
-    print()
-    print(f"capability recorded: {path}")
-    print(f"  state bound to endpoint: {state}")
-    print("  the record is local and outside the repository; it is never committed.")
+    safe_print()
+    safe_print(f"capability recorded: {path}")
+    safe_print(f"  state bound to endpoint: {state}")
+    safe_print("  the record is local and outside the repository; it is never committed.")
 
 
 if __name__ == "__main__":
