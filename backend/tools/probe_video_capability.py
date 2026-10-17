@@ -967,12 +967,70 @@ def build_report(
     }
 
 
+#: Patterns that must never reach a committed evidence file.
+_REDACTION_PATTERNS: tuple[tuple[str, str], ...] = (
+    # Absolute POSIX paths (macOS/Linux), including a trailing filename.
+    (r"/(?:Users|home|private|var|tmp|mnt|Volumes)/[^\s\"',;)\]}]+", "<path>"),
+    # Windows drive paths.
+    (r"[A-Za-z]:\\[^\s\"',;)\]}]+", "<path>"),
+    # Any absolute path segment that looks user-specific.
+    (r"/(?:Users|home)/[^/\s]+", "<home>"),
+    # Bearer / token material. Run this before the generic blob rule so the
+    # credential itself is replaced, not just its label.
+    (r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}", r"\1 <redacted>"),
+    (r"(?i)\b(token|api[_-]?key|authorization|password|secret)\b\s*[:=]\s*\S+",
+     r"\1=<redacted>"),
+    # Any remaining long opaque hex/base64 blob that looks like a credential.
+    (r"\b[A-Za-z0-9+/_-]{24,}={0,2}\b", "<redacted>"),
+    # Bare hostnames / URLs left in prose.
+    (r"https?://[^\s\"',;)\]}]+", "<endpoint>"),
+    (r"\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\.(?:com|cn|net|io|internal|local)(?::\d+)?\b", "<endpoint>"),
+    # Real media filenames.
+    (r"\b[A-Za-z0-9_-]{2,}\.(?:MP4|MOV|mp4|mov|avi|mkv)\b", "<clip>"),
+)
+
+
+def _redact_text_for_commit(text: str) -> str:
+    """Scrub paths, endpoints and credentials from one string."""
+    import re as _re
+
+    out = text
+    for pattern, replacement in _REDACTION_PATTERNS:
+        out = _re.sub(pattern, replacement, out)
+    return out
+
+
 def _redact_report_for_commit(report: dict) -> dict:
-    """Strip anything that could still identify the endpoint or the operator."""
+    """Strip anything that could identify the endpoint, the operator or a file.
+
+    TSB-339: this used to replace exactly one field
+    (``plan.endpoint_host_redacted``). The endpoint host also appears inside the
+    human-readable ``plan.risks`` prose, and notes/excerpts can carry local
+    absolute paths and token-shaped strings -- all of which survived and would
+    have been committed under ``docs/validation/``. Redaction is now a deep walk
+    over every string in the report, so a new field cannot silently bypass it.
+
+    The input is not mutated: the caller keeps its full-fidelity in-memory copy.
+    """
     cleaned = json.loads(json.dumps(report))
-    plan = cleaned.get("plan", {})
+
+    def scrub(value):
+        if isinstance(value, dict):
+            return {k: scrub(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [scrub(v) for v in value]
+        if isinstance(value, str):
+            return _redact_text_for_commit(value)
+        return value
+
+    cleaned = scrub(cleaned)
+    plan = cleaned.setdefault("plan", {})
     plan["endpoint_host_redacted"] = "(redacted for committed evidence)"
-    cleaned["plan"] = plan
+    plan["model_id"] = plan.get("model_id") or ""
+    cleaned["redaction"] = (
+        "paths, endpoint hosts and credential-shaped strings replaced; "
+        "see _REDACTION_PATTERNS"
+    )
     return cleaned
 
 

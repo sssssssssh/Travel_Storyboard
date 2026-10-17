@@ -54,12 +54,63 @@ export function getToken(): string | null {
   return token
 }
 
+/**
+ * A failed API call, preserving the backend's structured error envelope.
+ *
+ * TSB-339: the backend answers with `{ detail: { error_code, message,
+ * retryable, retry_after, context } }`, but this class used to keep only
+ * `message`. Callers therefore could not branch on the stable `error_code` —
+ * e.g. "budget exceeded" is not retryable while an upstream 503 is — and had
+ * nothing but prose to show or log.
+ *
+ * Fields the server did not send stay `undefined` rather than being invented,
+ * so "unknown" remains distinguishable from "known to be false".
+ */
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  /** Stable machine-readable code, e.g. `MODEL_BUDGET_EXCEEDED`. */
+  code?: string
+  /** Whether retrying the same request could plausibly succeed. */
+  retryable: boolean
+  /** Server-suggested delay before retrying, in seconds. */
+  retryAfter?: number
+  /** Optional structured context (never contains credentials or paths). */
+  context?: Record<string, unknown>
+
+  constructor(
+    status: number,
+    message: string,
+    fields: {
+      code?: string
+      retryable?: boolean
+      retryAfter?: number
+      context?: Record<string, unknown>
+    } = {},
+  ) {
     super(message)
+    this.name = 'ApiError'
     this.status = status
+    this.code = fields.code
+    this.retryAfter = fields.retryAfter
+    this.context = fields.context
+    // Default by status class: 5xx and 429 are worth another attempt, most
+    // 4xx are not. An explicit server value always wins.
+    this.retryable = fields.retryable ?? (status >= 500 || status === 429)
   }
+}
+
+/** Pull a human message out of whatever shape `detail` arrived in. */
+function errorMessageFrom(detail: unknown, fallback: string): string {
+  if (typeof detail === 'string') return detail
+  if (detail && typeof detail === 'object') {
+    const record = detail as Record<string, unknown>
+    if (typeof record.message === 'string') return record.message
+    if (typeof record.detail === 'string') return record.detail
+    if (record.detail && typeof record.detail === 'object') {
+      return errorMessageFrom(record.detail, fallback)
+    }
+  }
+  return fallback
 }
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -77,10 +128,20 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     } catch {
       // ignore json parse errors
     }
-    const message = typeof detail === 'string' ? detail
-      : detail && typeof detail === 'object' && 'message' in detail ? String(detail.message)
-      : JSON.stringify(detail)
-    throw new ApiError(res.status, message)
+
+    const record = (detail && typeof detail === 'object' ? detail : {}) as Record<string, unknown>
+    const message = errorMessageFrom(detail, res.statusText)
+
+    throw new ApiError(res.status, message, {
+      code: typeof record.error_code === 'string' ? record.error_code : undefined,
+      retryable: typeof record.retryable === 'boolean' ? record.retryable : undefined,
+      retryAfter:
+        typeof record.retry_after === 'number' ? record.retry_after : undefined,
+      context:
+        record.context && typeof record.context === 'object'
+          ? (record.context as Record<string, unknown>)
+          : undefined,
+    })
   }
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
