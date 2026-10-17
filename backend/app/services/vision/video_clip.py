@@ -444,6 +444,7 @@ def derive_clip(
     cancel_check=None,
     target_height: int = DEFAULT_TARGET_HEIGHT,
     crf: int = DEFAULT_CRF,
+    staged: Path | None = None,
 
 ) -> ClipArtifact:
 
@@ -496,8 +497,19 @@ def derive_clip(
 
 
 
-    stage = create_owned_staging(project_id, f"staging/{spec.asset_id}/{spec.segment_id}",
-                                 owner_job_id=job_id)
+    # TSB-340: ``staged`` lets the caller pre-register the exact leaf and hand it
+    # in. ``create_owned_staging`` proves ownership by requiring the directory to
+    # be *newly created* (``exist_ok=False``), so calling it again on a path the
+    # caller already registered raises FileExistsError -- the two R1 fixes
+    # (TSB-336 pre-registration and derive_clip's own creation) collided on the
+    # real API path. Reusing the caller's registered leaf keeps the ownership
+    # proof intact: nothing new is adopted, the same exact leaf is used.
+    if staged is not None:
+        stage = Path(staged)
+    else:
+        stage = create_owned_staging(
+            project_id, f"staging/{spec.asset_id}/{spec.segment_id}", owner_job_id=job_id
+        )
     out = Path(stage) / f"{spec.segment_id}.mp4"
 
 

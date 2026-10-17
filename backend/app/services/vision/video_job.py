@@ -52,6 +52,7 @@ from ..staging_cleanup import cleanup_staging_or_log
 from . import video_analysis as va
 from .authorization import authorization_denial_reason, authorize_upload
 from .errors import (
+    CLIP_FAILED,
     MODEL_BUDGET_EXCEEDED,
     MODEL_NOT_CONFIGURED,
     MODEL_PROVIDER_FAULT,
@@ -730,14 +731,39 @@ def _analyze_one(
     # TSB-336: derive_clip creates ``staging/<asset>/<segment>`` and can fail
     # afterwards. Registering the leaf only on success left failed/cancelled
     # derivations with an unreferenced directory that no cleanup step could
-    # report. The path is deterministic, so record it *before* deriving; the
-    # success path below re-registers nothing (the list is de-duplicated).
+    # report. The leaf is therefore created and registered *before* deriving, and
+    # handed to derive_clip so it does not try to create it a second time.
+    #
+    # TSB-340: recording only the *path string* was not enough -- the directory
+    # still had to be created by derive_clip, so a failure before that point left
+    # nothing on disk while the cleaner was told to expect a stage. Creating it
+    # here makes ownership real (``create_owned_staging`` refuses an existing
+    # directory, so this cannot adopt a stale one) and makes the recorded path
+    # match an actual registered leaf.
     from ...paths import project_cache_dir
+    from ..staging_cleanup import create_owned_staging
 
     planned_stage = (
         Path(project_cache_dir(project_id)) / "staging" / candidate.asset_id
         / candidate.segment_id
     )
+    try:
+        planned_stage = Path(
+            create_owned_staging(
+                project_id,
+                f"staging/{candidate.asset_id}/{candidate.segment_id}",
+                owner_job_id=job_id,
+            )
+        )
+    except FileExistsError:
+        # A registered leaf already exists for this segment in this run (the same
+        # candidate can be revisited). Reuse it rather than adopting or failing:
+        # ownership was already proven when it was created.
+        pass
+    except Exception as exc:  # noqa: BLE001 - reported, not swallowed
+        stats["failed"] += 1
+        _record_failure(failures, code=CLIP_FAILED, message=str(exc))
+        return
     staging_roots.append(str(planned_stage))
 
     try:
@@ -759,6 +785,9 @@ def _analyze_one(
             ),
             asset=asset,
             cancel_check=is_cancelled,
+            # TSB-340: hand derive_clip the leaf we already pre-registered, so it
+            # does not try to create (and thus re-own) the same directory.
+            staged=planned_stage,
         )
     except JobCancelled:
         raise

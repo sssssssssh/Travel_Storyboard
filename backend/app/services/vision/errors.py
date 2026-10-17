@@ -36,6 +36,12 @@ MODEL_UPLOAD_DENIED = "MODEL_UPLOAD_DENIED"
 #: returned nonsense", which would send an operator looking in the wrong place.
 MODEL_PROVIDER_FAULT = "MODEL_PROVIDER_FAULT"
 
+#: Clip derivation failed for a reason that is not a classified
+#: ``VideoClipError`` -- an unexpected error while cutting the staging clip.
+#: Declared here because the stable code must exist at the boundary rather than
+#: being improvised (or, as happened, referenced but never defined: the use site
+#: raised ``NameError`` instead of recording a failure).
+CLIP_FAILED = "CLIP_FAILED"
 INSUFFICIENT_FRAMES = "INSUFFICIENT_FRAMES"
 SOURCE_CHANGED = "SOURCE_CHANGED"
 CANCELLED = "CANCELLED"

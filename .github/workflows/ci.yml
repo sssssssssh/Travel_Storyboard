@@ -220,6 +220,10 @@ jobs:
           # TSB-339: committed evidence must be anonymised. Required, so a leak
           # cannot be downgraded to a skip.
           tests/test_evidence_anonymisation.py
+          # TSB-340: the formal-API end-to-end chain (API -> Mock -> observation
+          # -> cleanup). Required: this is the only test that exercises every link
+          # together, and it has already caught three real integration defects.
+          tests/test_video_e2e_formal_api.py
           tests/test_video_clip.py
           tests/test_video_schema.py
           tests/test_video_observation.py
