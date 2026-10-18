@@ -43,8 +43,14 @@ RED：初始后端 58 collected / 25 failed / 33 passed / 0 skipped / 0 errors�
 
 CI 接线：两个新后端文件加入 Required FFmpeg 显式清单（含依赖真实媒体的 B23/B23b 原追踪文件原已在清单）。不修改 skip guard，也无新增平台豁免。A 提交 c98b643 的 [CI 39089911587](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39089911587) 已核对 7/7 success；最终交付须另外核对最终 SHA，不沿用 A 结果。
 
+## C / TSB-359：全量回归与最终提交核验
+
+实现分为 A=c98b643、B=042ff0a，C 仅收尾文档与精确忽略最终 CI 本地回执。F/B/S 27 个编号的映射、RED→GREEN 和反向断线证据均已入库。B 的严格后端全量及前端四项是最终实现的本地验证，C 不改代码或测试，因此不重复消耗同一套本地测试。
+
+最终验收按包含本记录的 main HEAD 核对 GitHub Actions，不能沿用 A 的绿色或 B 被后续提交替代的流水线。实际最终 SHA、run 链接、7 个 Job、各平台测试计数写入 [最终同 SHA CI 回执](validation/m5.3-r3.2/FINAL_HEAD_CI.local.json)，并在交付回复给出；回执只在核验后生成，不纳入 Git，以免改变已验证 SHA。远端证据为该 run 的日志和 JUnit artifacts。只有四个后端、两个强制媒体和一个前端均 completed/success，才放行“M5.3-R3.2 代码级闭环通过”。
+
 ## 范围与未完成项
 
 不改预算 TSB-351～353、暂存安全 TSB-345～346、Provider/能力门禁、Prompt 和推断算法；不删改原片、正式 SQLite、历史产物或人工判定/裁剪/评分，不调用真实模型或使用用户视频，不修改历史数据模型、无 DB 迁移，不放宽安全开关默认值。
 
-最终同 HEAD CI 待完整批次推送后核验；G5=blocked_by_endpoint，G6=not_evaluated，Windows 本机真人验收 not_done，8～10 段真实素材及 200GB 实测没有新增完成证据。不以 Mock/合成/CI 代替这些门禁。完整证据索引与最终同 SHA 链接交付方式见 validation/m5.3-r3.2/README.md。
+最终同 HEAD CI 状态以 C 的核验回执和交付回复为准。G5=blocked_by_endpoint，G6=not_evaluated，Windows 本机真人验收 not_done，8～10 段真实素材及 200GB 实测没有新增完成证据。不以 Mock/合成/CI 代替这些门禁。发布门禁仍未完成。完整证据索引与最终同 SHA 链接交付方式见 validation/m5.3-r3.2/README.md。

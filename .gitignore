@@ -60,3 +60,6 @@ docs/validation/v2.1.1/FINAL_HEAD_CI.local.json
 
 # Same-HEAD CI evidence generated after the final v2.1.2 commit.
 docs/validation/v2.1.2/CI_FINAL_HEAD.local.json
+
+# M5.3-R3.2: verified after the final commit; no self-referential follow-up commit.
+docs/validation/m5.3-r3.2/FINAL_HEAD_CI.local.json

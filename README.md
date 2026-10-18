@@ -301,3 +301,9 @@ AI 导演与分镜审阅现在可查看旧区间、最新检测候选、收藏�
 应用/API/前端/启动器统一使用根 VERSION=2.1.2；清理故障由 Runner 单一终态收敛，界面显示残留与安全补救，重试不重跑模型。新增强制媒体格式矩阵，并修正扫描/视觉任务结束后的界面刷新。
 
 本地 macOS 后端普通与严格全量各 **784 passed / 44 Windows 平台专属 skipped / 0 failed / 0 errors**（collected 828），前端四项通过、**48 tests passed**。隔离浏览器使用现有 6 段中的 2 段真实视频，检测 17 镜头，完成 HTTPS 分析、缓存、动态复核、清理/取消、代理/粗剪及三种剪辑计划下载；6 个原片、正式 SQLite 和 282 个历史产物保持不变。真人播放/审阅、8～10 个不同实片与补充类型仍不足；合成 HDR 不证明色彩准确，未测 200GB 性能。结论为**代码级整改通过，正式发布门禁未完成**（最终同 HEAD CI 以交付记录为准）。见 [发布记录](docs/RELEASE_V2_1_2.md)、[Mac UI 证据](docs/validation/v2.1.2/MAC_UI_E2E.md)与[发布门禁](docs/validation/v2.1.2/RELEASE_GATE.md)。
+
+### M5.3-R3.2 回退执行与界面闭环（TSB-356～359）
+
+父任务结束后继续跟踪活跃的回退子任务，完成时刷新并显示实际多帧结果；失败、取消、空结果与部分成功分别展示。真实 Runner 的父子执行、合成视频抽帧、Mock 模型、实际入库及公开 API 查询已有闭环测试，旧 B23 不再接受 running 作为最终通过。成功安排降级不再误报父部分失败，配置保留 force，已入库状态需本次实际证据支持。
+
+本地 macOS 严格后端 **1349 collected / 1305 passed / 44 Windows 平台 skipped / 0 failed / 0 errors**，前端 typecheck/lint/test/build 全部通过、**98 passed**。最终同 SHA CI 7/7 须另外核验，完整交付链接和回执见 [发布记录](docs/RELEASE_M5_3_R3_2.md)与[证据索引](docs/validation/m5.3-r3.2/README.md)。本轮只使用合成媒体与回环 Mock；G5=blocked_by_endpoint、G6=not_evaluated、Windows 真人验收 not_done，发布门禁未完成。
