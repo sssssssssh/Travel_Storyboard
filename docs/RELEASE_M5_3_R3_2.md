@@ -45,12 +45,18 @@ CI 接线：两个新后端文件加入 Required FFmpeg 显式清单（含依赖
 
 ## C / TSB-359：全量回归与最终提交核验
 
-实现分为 A=c98b643、B=042ff0a，C 仅收尾文档与精确忽略最终 CI 本地回执。F/B/S 27 个编号的映射、RED→GREEN 和反向断线证据均已入库。B 的严格后端全量及前端四项是最终实现的本地验证，C 不改代码或测试，因此不重复消耗同一套本地测试。
+实现分为 A=c98b643、B=042ff0a，C=6b65d29 仅收尾文档与精确忽略最终 CI 本地回执。F/B/S 27 个编号的映射、RED→GREEN 和反向断线证据均已入库。B 的严格后端全量及前端四项验证生产实现；C 不改代码或测试。
 
-最终验收按包含本记录的 main HEAD 核对 GitHub Actions，不能沿用 A 的绿色或 B 被后续提交替代的流水线。实际最终 SHA、run 链接、7 个 Job、各平台测试计数写入 [最终同 SHA CI 回执](validation/m5.3-r3.2/FINAL_HEAD_CI.local.json)，并在交付回复给出；回执只在核验后生成，不纳入 Git，以免改变已验证 SHA。远端证据为该 run 的日志和 JUnit artifacts。只有四个后端、两个强制媒体和一个前端均 completed/success，才放行“M5.3-R3.2 代码级闭环通过”。
+核查 C 的实际媒体日志又发现 CI 接线缺陷：run: > 内的缩进 # 注释被折叠到同一条 shell 命令，导致后半段套件只登记而未执行。Ubuntu 媒体作业实际只 collected 834；新增 E2E 虽在普通 backend 作业执行，却未得到强制媒体保证。因此该次 CI 不能作为最终放行证据，另补 TSB-359 提交，超出建议三批的原因是日志暴露了真实接线缺陷，未改任何业务实现。
+
+先加强 B10：按 YAML 折叠规则构造命令、用 shell 的注释语义解析 argv，断言所有登记的 tests 文件都真正进入参数。旧命令 RED；将注释移出折叠标量后 GREEN；临时插回 # 再次 RED。此守卫校验全部清单，不能只断言字符串存在。修复后从 backend/ 按 CI 完整命令运行 69 个文件，collected 1265；结果见 CI_MEDIA_LOCAL.json 和 CI_MEDIA_LOCAL.xml。没有放宽 skip guard 或删除测试，恢复了此前被注释遮蔽的预算/能力/回退套件。
+
+补正后的本地强制媒体：**1265 collected / 1221 passed / 44 Windows 平台 skipped / 0 failures / 0 errors**。JUnit 分文件确认 Runner 17、状态契约 26、原追踪 22 全部通过、0 skip。此补正只改 CI 的命令注释位置和 B10 的有效参数断言；生产代码、前端及测试数量均不变。最终跨平台全量由包含补正的 SHA 再跑，不能复用被拒绝的 C 媒体结果。
+
+最终验收按包含 CI 接线补正的 main HEAD 核对 GitHub Actions，不能沿用 A/C 的绿色或 B 被后续提交替代的流水线。实际最终 SHA、run 链接、7 个 Job、各平台测试计数写入 [最终同 SHA CI 回执](validation/m5.3-r3.2/FINAL_HEAD_CI.local.json)，并在交付回复给出；回执只在核验后生成，不纳入 Git，以免改变已验证 SHA。远端证据为该 run 的日志和 JUnit artifacts。只有四个后端、两个强制媒体和一个前端均 completed/success，且媒体日志明确显示新增 Runner/状态契约全部执行，才放行“M5.3-R3.2 代码级闭环通过”。
 
 ## 范围与未完成项
 
 不改预算 TSB-351～353、暂存安全 TSB-345～346、Provider/能力门禁、Prompt 和推断算法；不删改原片、正式 SQLite、历史产物或人工判定/裁剪/评分，不调用真实模型或使用用户视频，不修改历史数据模型、无 DB 迁移，不放宽安全开关默认值。
 
-最终同 HEAD CI 状态以 C 的核验回执和交付回复为准。G5=blocked_by_endpoint，G6=not_evaluated，Windows 本机真人验收 not_done，8～10 段真实素材及 200GB 实测没有新增完成证据。不以 Mock/合成/CI 代替这些门禁。发布门禁仍未完成。完整证据索引与最终同 SHA 链接交付方式见 validation/m5.3-r3.2/README.md。
+最终同 HEAD CI 状态以最终 TSB-359 提交的核验回执和交付回复为准。G5=blocked_by_endpoint，G6=not_evaluated，Windows 本机真人验收 not_done，8～10 段真实素材及 200GB 实测没有新增完成证据。不以 Mock/合成/CI 代替这些门禁。发布门禁仍未完成。完整证据索引与最终同 SHA 链接交付方式见 validation/m5.3-r3.2/README.md。

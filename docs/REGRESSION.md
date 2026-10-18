@@ -1205,6 +1205,7 @@ A/B 报告 `AB_RESULTS.json` 的 `status` 为 `not_annotated`，**所有指标�
 | B08（成功/排队取消/运行取消） | TSB-357/358 | 自有 stage 清理、锁释放；排队取消不抽帧/上传；取消历史父任务不取消子任务 |
 | B09（schedule/model/invalid/ffmpeg） | TSB-357/358 | 入队拒绝、Mock 400、无效 200、媒体失败均稳定诊断，不显示成功分析 |
 | B10 + 6 项逆向验证 | TSB-357/358/359 | 删除真实入库、绕过 Runner、仅凭状态判成功、丢 force、恢复父误报失败、移出强制媒体清单分别 RED |
+| B10 有效命令校验 + CI_FOLD_RED/REVERSE | TSB-359 | 解析 YAML 折叠后的实际 shell 参数，清单中每个套件均须进入 argv；内嵌 # 不得截断后续预算/回退用例，不能只查文件里是否有名字 |
 | test_fallback_result_contract S01/S02 | TSB-358 | 活跃子未完成；成功需同项目/资产/镜头/精确区间/本次时间窗/有效帧证据和正计数 |
 | S03（14 种空/失效/畸形证据） | TSB-358 | succeeded 空结果、零计数、历史/别的镜头、失效区间、缺帧或坏帧一律 FALLBACK_NO_RESULTS |
 | S04 + Runner S04 | TSB-358 | 真正部分成功仅报告实际入库子集和错误码，analysed=false |

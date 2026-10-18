@@ -32,6 +32,9 @@ npm run build
 | B_REVERSE_STORE/RUNNER/TRUTH/FORCE/PARENT/MEDIA.txt | 六项逆向移除产生实际 RED，已恢复 |
 | B_FRONTEND.txt / B_TYPECHECK.txt / B_LINT.txt / B_BUILD.txt | 前端最终四项通过，98 passed；轮询文件 19 场景 |
 | B_LOCAL.json / B_BACKEND.* | B 严格全量 1349 collected / 1305 passed / 44 Windows 平台 skipped / 0 failed / 0 errors，含逐项 skip 原因 |
+| CI_FOLD_RED/GREEN/REVERSE.txt | 强制媒体清单被折叠后的 # 截断：先失败、修复通过、重新插回注释再失败 |
+| CI_MEDIA_LOCAL.json/xml/txt | 移出注释后按实际 CI 参数执行全部 69 个套件：1265 collected / 1221 passed / 44 Windows 平台 skipped / 0 failed / 0 errors；新 Runner 17、状态契约 26、原追踪 22 均通过、0 skip |
+| CI_C_REJECTED.json | C 的 Ubuntu 媒体日志虽 success 但只 collected 834，不作为最终放行证据 |
 
 RED 与逆向输出是预期失败证据，不是最终故障。参数化产生的场景数与任务书 F10/B10/S7 的 27 个编号不同，逐项映射见 ../../REGRESSION.md。定向 Vitest 未选中项不记为通过，未当作环境 skip。
 
@@ -47,6 +50,8 @@ RED 与逆向输出是预期失败证据，不是最终故障。参数化产生�
 
 A 的 c98b643：[CI 39089911587](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39089911587)，已读取 7 个 Job 均 success。它只证明 A，不代替最终提交。
 
-最终 C 文档提交后读取 Actions run.head_sha，并逐项核验 4 个 Python 后端、2 个 Required FFmpeg、1 个前端全部 completed/success，核对 remote main 与本地 HEAD 相同。最终同 SHA 的完整 run URL、Job URL、实际日志计数保存在本目录 [FINAL_HEAD_CI.local.json](FINAL_HEAD_CI.local.json)，并在交付回复给出 SHA 和链接。此文件在最终提交之后产生并被精确忽略，避免“把 CI 报告再提交导致 SHA 又变化”的循环。GitHub Actions 对应 run 的日志与 JUnit artifacts 是远端证据；不得在尚未核验时宣称最终 7/7。
+C=6b65d29 的日志暴露 folded run 中的注释吞掉后半清单，媒体只 collected 834；该轮不作为最终放行证据。新增守卫校验真正的 shell 参数，而非只查文件名存在。补正后本地媒体 collected 1265，包含新 Runner 17 与契约 26。
+
+包含 CI 接线补正的最后提交后读取 Actions run.head_sha，并逐项核验 4 个 Python 后端、2 个 Required FFmpeg、1 个前端全部 completed/success，核对 remote main 与本地 HEAD 相同；媒体日志还须明确出现新测试的执行。最终同 SHA 的完整 run URL、Job URL、实际日志计数保存在本目录 [FINAL_HEAD_CI.local.json](FINAL_HEAD_CI.local.json)，并在交付回复给出 SHA 和链接。此文件在最终提交之后产生并被精确忽略，避免“把 CI 报告再提交导致 SHA 又变化”的循环。GitHub Actions 对应 run 的日志与 JUnit artifacts 是远端证据；不得在尚未核验时宣称最终 7/7。
 
 G5=blocked_by_endpoint；G6=not_evaluated；Windows 本机真人验收=not_done；8～10 段真实素材、200GB 性能未完成。本轮仅证明真实业务链在合成媒体 + Mock 模型下闭环，不能证明真实模型画面理解质量或原生视频优于抽帧。最终 CI 核验前仍待放行；核验后结论限于“代码级闭环通过，发布门禁未完成”。

@@ -1,0 +1,14 @@
+{
+  "head_sha": "6b65d29e91035cb6bfe773d0f8086b40102e21d3",
+  "run_url": "https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39091141834",
+  "job_url": "https://github.com/sssssssssh/Travel_Storyboard/actions/runs/39091141834/job/117568130158",
+  "job_conclusion": "success",
+  "accepted_as_final_evidence": false,
+  "reason": "Folded YAML run contains inline # comments; the shell ignores the later suites, including the new fallback files.",
+  "collected": 834,
+  "passed": 790,
+  "skipped": 44,
+  "runner_execution_lines": 0,
+  "contract_execution_lines": 0,
+  "observed_count_line": "2026-10-18T02:48:06.9907804Z ================= 790 passed, 44 skipped in 149.29s (0:02:29) =================="
+}

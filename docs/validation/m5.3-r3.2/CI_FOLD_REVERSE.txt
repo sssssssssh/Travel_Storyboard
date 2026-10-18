@@ -1,0 +1,32 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______________ test_b10_media_suite_is_explicitly_forced_in_ci ________________
+
+    def test_b10_media_suite_is_explicitly_forced_in_ci():
+        from pathlib import Path
+        import shlex
+        text = (Path(__file__).resolve().parents[2] / '.github/workflows/ci.yml').read_text(encoding='utf-8')
+        block = re.search(r'        run: >\n((?:          .*\n)+)', text)
+        assert block, 'mandatory media must have an identifiable folded command'
+        # YAML folds these equally indented lines into ONE shell command. An inline
+        # comment therefore eats every argument after it on both bash and PowerShell.
+        command = ' '.join(line.strip() for line in block[1].splitlines())
+        arguments = shlex.split(command, comments=True)
+        registered = set(re.findall(r'tests/test_\w+\.py', command))
+        assert {'tests/test_video_fallback_runner_e2e.py', 'tests/test_fallback_result_contract.py'} <= registered
+>       assert registered <= set(arguments), f'mandatory suites hidden by shell comments: {sorted(registered - set(arguments))}'
+E       AssertionError: mandatory suites hidden by shell comments: ['tests/test_fallback_result_contract.py', 'tests/test_video_ab.py', 'tests/test_video_api.py', 'tests/test_video_capability_store.py', 'tests/test_video_clip.py', 'tests/test_video_fallback_runner_e2e.py', 'tests/test_video_job.py', 'tests/test_video_model_switch_scope.py', 'tests/test_video_observation.py', 'tests/test_video_provider_wiring.py', 'tests/test_video_schema.py']
+E       assert {'tests/test_...ints.py', ...} <= {'--junitxml=...'python', ...}
+E
+E         Extra items in the left set:
+E         'tests/test_fallback_result_contract.py'
+E         'tests/test_video_observation.py'
+E         'tests/test_video_clip.py'
+E         'tests/test_video_schema.py'
+E         'tests/test_video_fallback_runner_e2e.py'...
+E
+E         ...Full output truncated (6 lines hidden), use '-vv' to show
+
+tests/test_video_fallback_runner_e2e.py:381: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_video_fallback_runner_e2e.py::test_b10_media_suite_is_explicitly_forced_in_ci

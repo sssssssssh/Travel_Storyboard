@@ -1,0 +1,25 @@
+{
+  "effective_suite_files": 69,
+  "counts": {
+    "tests": 1265,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 44,
+    "passed": 1221
+  },
+  "subset_actual_results": {
+    "test_video_fallback_runner_e2e": {
+      "passed": 17
+    },
+    "test_fallback_result_contract": {
+      "passed": 26
+    },
+    "test_fallback_job_tracking": {
+      "passed": 22
+    }
+  },
+  "command": "Exact folded CI media argv; only python executable and JUnit output location replaced",
+  "environment": "macOS arm64 / Python3.12.14 / FFmpeg9.0.2 / MODEL_MODE=off / TSB_REQUIRE_FFMPEG=1",
+  "no_production_changes_since": "042ff0a",
+  "CI_followup": "inline comments removed; actual argv regression strengthened"
+}

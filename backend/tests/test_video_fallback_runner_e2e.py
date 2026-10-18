@@ -368,6 +368,14 @@ def test_s04_partial_success_reports_only_the_persisted_subset(fallback_env):
 
 def test_b10_media_suite_is_explicitly_forced_in_ci():
     from pathlib import Path
+    import shlex
     text = (Path(__file__).resolve().parents[2] / '.github/workflows/ci.yml').read_text(encoding='utf-8')
-    assert 'tests/test_video_fallback_runner_e2e.py' in text
-    assert 'tests/test_fallback_result_contract.py' in text
+    block = re.search(r'        run: >\n((?:          .*\n)+)', text)
+    assert block, 'mandatory media must have an identifiable folded command'
+    # YAML folds these equally indented lines into ONE shell command. An inline
+    # comment therefore eats every argument after it on both bash and PowerShell.
+    command = ' '.join(line.strip() for line in block[1].splitlines())
+    arguments = shlex.split(command, comments=True)
+    registered = set(re.findall(r'tests/test_\w+\.py', command))
+    assert {'tests/test_video_fallback_runner_e2e.py', 'tests/test_fallback_result_contract.py'} <= registered
+    assert registered <= set(arguments), f'mandatory suites hidden by shell comments: {sorted(registered - set(arguments))}'
