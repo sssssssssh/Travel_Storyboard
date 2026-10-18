@@ -1,0 +1,28 @@
+
+> travel-storyboard-frontend@2.1.2 test
+> vitest run --run src/components/VideoFallbackPolling.test.tsx -t F04
+
+
+ RUN  v2.1.9 [repo]/frontend
+
+stderr | src/components/VideoFallbackPolling.test.tsx > F04 completion invalidates motion cache and renders the selected actual reading
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ❯ src/components/VideoFallbackPolling.test.tsx (15 tests | 1 failed | 14 skipped) 114ms
+   × F04 completion invalidates motion cache and renders the selected actual reading 113ms
+     → expected 1 to be greater than 1
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/VideoFallbackPolling.test.tsx > F04 completion invalidates motion cache and renders the selected actual reading
+AssertionError: expected 1 to be greater than 1
+ ❯ src/components/VideoFallbackPolling.test.tsx:55:224
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 14 skipped (15)
+   Start at  10:18:13
+   Duration  1.32s (transform 125ms, setup 0ms, collect 295ms, tests 114ms, environment 453ms, prepare 61ms)

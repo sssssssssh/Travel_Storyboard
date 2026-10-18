@@ -126,6 +126,8 @@ export interface JobFallbackOut {
   job_type: string
   status: string
   analysed: boolean
+  result_count?: number
+  error_code?: string
 }
 
 export interface JobOut {

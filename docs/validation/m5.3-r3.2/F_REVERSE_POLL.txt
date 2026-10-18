@@ -1,0 +1,49 @@
+
+> travel-storyboard-frontend@2.1.2 test
+> vitest run --run src/components/VideoFallbackPolling.test.tsx -t F01|F08
+
+
+ RUN  v2.1.9 [repo]/frontend
+
+stderr | src/components/VideoFallbackPolling.test.tsx > F01 parent succeeded with pending child keeps fetching parent
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ❯ src/components/VideoFallbackPolling.test.tsx (15 tests | 2 failed | 13 skipped) 120ms
+   × F01 parent succeeded with pending child keeps fetching parent 100ms
+     → expected 1 to be greater than 1
+   × F08 first GET already has a terminal parent and pending successor 19ms
+     → expected 1 to be 2 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/VideoFallbackPolling.test.tsx > F01 parent succeeded with pending child keeps fetching parent
+AssertionError: expected 1 to be greater than 1
+ ❯ src/components/VideoFallbackPolling.test.tsx:46:172
+     44|
+     45| test('F01 parent succeeded with pending child keeps fetching parent', …
+     46|   const h = harness(); await h.start(); expect(screen.getByTestId('fal…
+       |                                                                                                                                                                            ^
+     47| })
+     48| test('F02 child pending to running is live and never claims stored res…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/components/VideoFallbackPolling.test.tsx > F08 first GET already has a terminal parent and pending successor
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ src/components/VideoFallbackPolling.test.tsx:67:141
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 13 skipped (15)
+   Start at  10:17:18
+   Duration  1.23s (transform 98ms, setup 0ms, collect 241ms, tests 120ms, environment 452ms, prepare 48ms)

@@ -1,0 +1,1840 @@
+
+> travel-storyboard-frontend@2.1.2 test
+> vitest run --run src/components/VideoFallbackPolling.test.tsx
+
+
+ RUN  v2.1.9 [repo]/frontend
+
+stderr | src/components/VideoFallbackPolling.test.tsx > F01 parent succeeded with pending child keeps fetching parent
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ❯ src/components/VideoFallbackPolling.test.tsx (15 tests | 11 failed) 311ms
+   × F01 parent succeeded with pending child keeps fetching parent 89ms
+     → expected 1 to be greater than 1
+   × F02 child pending to running is live and never claims stored results 17ms
+     → expected '已排队，尚未开始' to be '正在分析' // Object.is equality
+   × F03 child succeeded updates then stops the parent polling loop 19ms
+     → expected '已排队，尚未开始' to be '已完成' // Object.is equality
+   × F04 completion invalidates motion cache and renders the selected actual reading 21ms
+     → expected 1 to be greater than 1
+   × F05 partial_failed shows only available results and stops polling 19ms
+     → expected '已排队，尚未开始' to be '部分失败' // Object.is equality
+   × F06 child failed remains diagnosable and stops polling 17ms
+     → Unable to find an element with the text: /MODEL_RESPONSE_INVALID/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="rounded-lg border border-ink-700 bg-ink-900 p-4 space-y-4"
+    >
+      <div
+        class="flex flex-wrap items-center justify-between gap-2"
+      >
+        <h3
+          class="text-sm font-semibold text-slate-200"
+        >
+          视频理解（M5.3·实验）
+        </h3>
+        <div
+          class="flex items-center gap-2"
+        >
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-ink-700 text-slate-300"
+          >
+            0
+             个镜头有视频读数
+          </span>
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-900/60 text-amber-300"
+          >
+            实验功能
+          </span>
+        </div>
+      </div>
+      <p
+        class="text-xs text-slate-400"
+      >
+        默认关闭的实验通道。只上传由原片派生的
+        <strong>
+          短时、无声、去元数据
+        </strong>
+        片段； 端点未验证接受视频时，请求会在入队前被拒绝。
+      </p>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div
+          class="mb-1 font-medium text-slate-200"
+        >
+          覆盖率（如实报告子集）
+        </div>
+        <div>
+          库内
+          <strong>
+            2
+          </strong>
+           个镜头， 已有视频读数
+          <strong>
+            0
+          </strong>
+           个， 未覆盖
+          <strong>
+            2
+          </strong>
+           个
+          ，事件候选
+          <strong>
+            0
+          </strong>
+           个。
+        </div>
+        <div
+          class="mt-1 text-amber-300"
+        >
+          这不是"已分析全库"，只是子集。
+        </div>
+      </div>
+      <div
+        class="flex flex-wrap items-end gap-3"
+      >
+        <label
+          class="text-xs text-slate-300"
+        >
+          最多镜头数
+          <input
+            class="ml-2 w-16 rounded border border-ink-600 bg-ink-900 px-2 py-1 text-slate-200"
+            max="50"
+            min="1"
+            type="number"
+            value="6"
+          />
+        </label>
+        <label
+          class="flex items-center gap-2 text-xs text-slate-300"
+        >
+          <input
+            type="checkbox"
+          />
+          我确认本次上传派生短片（可能含人物/车牌；音频已移除）
+        </label>
+        <button
+          class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "
+        >
+          开始视频分析
+        </button>
+      </div>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div>
+          任务状态：
+          <strong>
+            succeeded
+          </strong>
+        </div>
+        <div
+          class="mt-1"
+          data-testid="fallback-tracking"
+        >
+          <div
+            class="text-amber-300"
+          >
+            已交给
+            <code>
+              motion_review
+            </code>
+             任务
+
+            <code
+              data-testid="fallback-job-id"
+            >
+              child-1
+            </code>
+            ：
+            <strong
+              data-testid="fallback-status"
+            >
+              已排队，尚未开始
+            </strong>
+          </div>
+          <div
+            class="mt-0.5 text-slate-400"
+            data-testid="fallback-analysed"
+          >
+            多帧分析尚未完成 —— 此处还不能视为已分析。
+          </div>
+        </div>
+        <span
+          class="text-xs text-amber-300"
+        >
+          任务已停止；尚无本次清理统计
+        </span>
+      </div>
+      <p
+        class="text-sm text-slate-400"
+      >
+        尚无视频读数。失败或被拒绝不会在这里留下成功记录。
+      </p>
+      <div
+        class="space-y-3"
+      />
+    </div>
+  </div>
+</body>
+   × F08 first GET already has a terminal parent and pending successor 8ms
+     → expected 1 to be 2 // Object.is equality
+   × F09 project switch drops the old job and old results, including its polling 10ms
+     → expected <div class="mt-1" …(1)>…(2)</div> to be null
+   × F10 a fallback adds multi-frame data without inventing native observations 9ms
+     → Unable to find an element with the text: /Mock derived frames/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="rounded-lg border border-ink-700 bg-ink-900 p-4 space-y-4"
+    >
+      <div
+        class="flex flex-wrap items-center justify-between gap-2"
+      >
+        <h3
+          class="text-sm font-semibold text-slate-200"
+        >
+          视频理解（M5.3·实验）
+        </h3>
+        <div
+          class="flex items-center gap-2"
+        >
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-ink-700 text-slate-300"
+          >
+            0
+             个镜头有视频读数
+          </span>
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-900/60 text-amber-300"
+          >
+            实验功能
+          </span>
+        </div>
+      </div>
+      <p
+        class="text-xs text-slate-400"
+      >
+        默认关闭的实验通道。只上传由原片派生的
+        <strong>
+          短时、无声、去元数据
+        </strong>
+        片段； 端点未验证接受视频时，请求会在入队前被拒绝。
+      </p>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div
+          class="mb-1 font-medium text-slate-200"
+        >
+          覆盖率（如实报告子集）
+        </div>
+        <div>
+          库内
+          <strong>
+            2
+          </strong>
+           个镜头， 已有视频读数
+          <strong>
+            0
+          </strong>
+           个， 未覆盖
+          <strong>
+            2
+          </strong>
+           个
+          ，事件候选
+          <strong>
+            0
+          </strong>
+           个。
+        </div>
+        <div
+          class="mt-1 text-amber-300"
+        >
+          这不是"已分析全库"，只是子集。
+        </div>
+      </div>
+      <div
+        class="flex flex-wrap items-end gap-3"
+      >
+        <label
+          class="text-xs text-slate-300"
+        >
+          最多镜头数
+          <input
+            class="ml-2 w-16 rounded border border-ink-600 bg-ink-900 px-2 py-1 text-slate-200"
+            max="50"
+            min="1"
+            type="number"
+            value="6"
+          />
+        </label>
+        <label
+          class="flex items-center gap-2 text-xs text-slate-300"
+        >
+          <input
+            type="checkbox"
+          />
+          我确认本次上传派生短片（可能含人物/车牌；音频已移除）
+        </label>
+        <button
+          class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "
+        >
+          开始视频分析
+        </button>
+      </div>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div>
+          任务状态：
+          <strong>
+            succeeded
+          </strong>
+        </div>
+        <div
+          class="mt-1"
+          data-testid="fallback-tracking"
+        >
+          <div
+            class="text-amber-300"
+          >
+            已交给
+            <code>
+              motion_review
+            </code>
+             任务
+
+            <code
+              data-testid="fallback-job-id"
+            >
+              child-1
+            </code>
+            ：
+            <strong
+              data-testid="fallback-status"
+            >
+              已排队，尚未开始
+            </strong>
+          </div>
+          <div
+            class="mt-0.5 text-slate-400"
+            data-testid="fallback-analysed"
+          >
+            多帧分析尚未完成 —— 此处还不能视为已分析。
+          </div>
+        </div>
+        <span
+          class="text-xs text-amber-300"
+        >
+          任务已停止；尚无本次清理统计
+        </span>
+      </div>
+      <p
+        class="text-sm text-slate-400"
+      >
+        尚无视频读数。失败或被拒绝不会在这里留下成功记录。
+      </p>
+      <div
+        class="space-y-3"
+      />
+    </div>
+  </div>
+</body>
+   × network errors preserve the last child status and are visible, then recover 29ms
+     → Unable to find an accessible element with the role "alert"
+
+Here are the accessible roles:
+
+  heading:
+
+  Name "视频理解（M5.3·实验）":
+  <h3
+    class="text-sm font-semibold text-slate-200"
+  />
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  <p
+    class="text-xs text-slate-400"
+  />
+
+  Name "":
+  <p
+    class="text-sm text-slate-400"
+  />
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong
+    data-testid="fallback-status"
+  />
+
+  --------------------------------------------------
+  spinbutton:
+
+  Name "最多镜头数":
+  <input
+    class="ml-2 w-16 rounded border border-ink-600 bg-ink-900 px-2 py-1 text-slate-200"
+    max="50"
+    min="1"
+    type="number"
+    value="6"
+  />
+
+  --------------------------------------------------
+  checkbox:
+
+  Name "我确认本次上传派生短片（可能含人物/车牌；音频已移除）":
+  <input
+    type="checkbox"
+  />
+
+  --------------------------------------------------
+  button:
+
+  Name "开始视频分析":
+  <button
+    class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "
+  />
+
+  --------------------------------------------------
+  code:
+
+  Name "":
+  <code />
+
+  Name "":
+  <code
+    data-testid="fallback-job-id"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="rounded-lg border border-ink-700 bg-ink-900 p-4 space-y-4"
+    >
+      <div
+        class="flex flex-wrap items-center justify-between gap-2"
+      >
+        <h3
+          class="text-sm font-semibold text-slate-200"
+        >
+          视频理解（M5.3·实验）
+        </h3>
+        <div
+          class="flex items-center gap-2"
+        >
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-ink-700 text-slate-300"
+          >
+            0
+             个镜头有视频读数
+          </span>
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-900/60 text-amber-300"
+          >
+            实验功能
+          </span>
+        </div>
+      </div>
+      <p
+        class="text-xs text-slate-400"
+      >
+        默认关闭的实验通道。只上传由原片派生的
+        <strong>
+          短时、无声、去元数据
+        </strong>
+        片段； 端点未验证接受视频时，请求会在入队前被拒绝。
+      </p>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div
+          class="mb-1 font-medium text-slate-200"
+        >
+          覆盖率（如实报告子集）
+        </div>
+        <div>
+          库内
+          <strong>
+            2
+          </strong>
+           个镜头， 已有视频读数
+          <strong>
+            0
+          </strong>
+           个， 未覆盖
+          <strong>
+            2
+          </strong>
+           个
+          ，事件候选
+          <strong>
+            0
+          </strong>
+           个。
+        </div>
+        <div
+          class="mt-1 text-amber-300"
+        >
+          这不是"已分析全库"，只是子集。
+        </div>
+      </div>
+      <div
+        class="flex flex-wrap items-end gap-3"
+      >
+        <label
+          class="text-xs text-slate-300"
+        >
+          最多镜头数
+          <input
+            class="ml-2 w-16 rounded border border-ink-600 bg-ink-900 px-2 py-1 text-slate-200"
+            max="50"
+            min="1"
+            type="number"
+            value="6"
+          />
+        </label>
+        <label
+          class="flex items-center gap-2 text-xs text-slate-300"
+        >
+          <input
+            type="checkbox"
+          />
+          我确认本次上传派生短片（可能含人物/车牌；音频已移除）
+        </label>
+        <button
+          class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "
+        >
+          开始视频分析
+        </button>
+      </div>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div>
+          任务状态：
+          <strong>
+            succeeded
+          </strong>
+        </div>
+        <div
+          class="mt-1"
+          data-testid="fallback-tracking"
+        >
+          <div
+            class="text-amber-300"
+          >
+            已交给
+            <code>
+              motion_review
+            </code>
+             任务
+
+            <code
+              data-testid="fallback-job-id"
+            >
+              child-1
+            </code>
+            ：
+            <strong
+              data-testid="fallback-status"
+            >
+              已排队，尚未开始
+            </strong>
+          </div>
+          <div
+            class="mt-0.5 text-slate-400"
+            data-testid="fallback-analysed"
+          >
+            多帧分析尚未完成 —— 此处还不能视为已分析。
+          </div>
+        </div>
+        <span
+          class="text-xs text-amber-300"
+        >
+          任务已停止；尚无本次清理统计
+        </span>
+      </div>
+      <p
+        class="text-sm text-slate-400"
+      >
+        尚无视频读数。失败或被拒绝不会在这里留下成功记录。
+      </p>
+      <div
+        class="space-y-3"
+      />
+    </div>
+  </div>
+</body>
+   × a stalled child can pause UI polling without cancelling background work 23ms
+     → Unable to find an accessible element with the role "button" and name "暂停状态刷新"
+
+Here are the accessible roles:
+
+  heading:
+
+  Name "视频理解（M5.3·实验）":
+  <h3
+    class="text-sm font-semibold text-slate-200"
+  />
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  <p
+    class="text-xs text-slate-400"
+  />
+
+  Name "":
+  <p
+    class="text-sm text-slate-400"
+  />
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong
+    data-testid="fallback-status"
+  />
+
+  --------------------------------------------------
+  spinbutton:
+
+  Name "最多镜头数":
+  <input
+    class="ml-2 w-16 rounded border border-ink-600 bg-ink-900 px-2 py-1 text-slate-200"
+    max="50"
+    min="1"
+    type="number"
+    value="6"
+  />
+
+  --------------------------------------------------
+  checkbox:
+
+  Name "我确认本次上传派生短片（可能含人物/车牌；音频已移除）":
+  <input
+    type="checkbox"
+  />
+
+  --------------------------------------------------
+  button:
+
+  Name "开始视频分析":
+  <button
+    class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "
+  />
+
+  --------------------------------------------------
+  code:
+
+  Name "":
+  <code />
+
+  Name "":
+  <code
+    data-testid="fallback-job-id"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="rounded-lg border border-ink-700 bg-ink-900 p-4 space-y-4"
+    >
+      <div
+        class="flex flex-wrap items-center justify-between gap-2"
+      >
+        <h3
+          class="text-sm font-semibold text-slate-200"
+        >
+          视频理解（M5.3·实验）
+        </h3>
+        <div
+          class="flex items-center gap-2"
+        >
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-ink-700 text-slate-300"
+          >
+            0
+             个镜头有视频读数
+          </span>
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-900/60 text-amber-300"
+          >
+            实验功能
+          </span>
+        </div>
+      </div>
+      <p
+        class="text-xs text-slate-400"
+      >
+        默认关闭的实验通道。只上传由原片派生的
+        <strong>
+          短时、无声、去元数据
+        </strong>
+        片段； 端点未验证接受视频时，请求会在入队前被拒绝。
+      </p>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div
+          class="mb-1 font-medium text-slate-200"
+        >
+          覆盖率（如实报告子集）
+        </div>
+        <div>
+          库内
+          <strong>
+            2
+          </strong>
+           个镜头， 已有视频读数
+          <strong>
+            0
+          </strong>
+           个， 未覆盖
+          <strong>
+            2
+          </strong>
+           个
+          ，事件候选
+          <strong>
+            0
+          </strong>
+           个。
+        </div>
+        <div
+          class="mt-1 text-amber-300"
+        >
+          这不是"已分析全库"，只是子集。
+        </div>
+      </div>
+      <div
+        class="flex flex-wrap items-end gap-3"
+      >
+        <label
+          class="text-xs text-slate-300"
+        >
+          最多镜头数
+          <input
+            class="ml-2 w-16 rounded border border-ink-600 bg-ink-900 px-2 py-1 text-slate-200"
+            max="50"
+            min="1"
+            type="number"
+            value="6"
+          />
+        </label>
+        <label
+          class="flex items-center gap-2 text-xs text-slate-300"
+        >
+          <input
+            type="checkbox"
+          />
+          我确认本次上传派生短片（可能含人物/车牌；音频已移除）
+        </label>
+        <button
+          class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "
+        >
+          开始视频分析
+        </button>
+      </div>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div>
+          任务状态：
+          <strong>
+            succeeded
+          </strong>
+        </div>
+        <div
+          class="mt-1"
+          data-testid="fallback-tracking"
+        >
+          <div
+            class="text-amber-300"
+          >
+            已交给
+            <code>
+              motion_review
+            </code>
+             任务
+
+            <code
+              data-testid="fallback-job-id"
+            >
+              child-1
+            </code>
+            ：
+            <strong
+              data-testid="fallback-status"
+            >
+              已排队，尚未开始
+            </strong>
+          </div>
+          <div
+            class="mt-0.5 text-slate-400"
+            data-testid="fallback-analysed"
+          >
+            多帧分析尚未完成 —— 此处还不能视为已分析。
+          </div>
+        </div>
+        <span
+          class="text-xs text-amber-300"
+        >
+          任务已停止；尚无本次清理统计
+        </span>
+      </div>
+      <p
+        class="text-sm text-slate-400"
+      >
+        尚无视频读数。失败或被拒绝不会在这里留下成功记录。
+      </p>
+      <div
+        class="space-y-3"
+      />
+    </div>
+  </div>
+</body>
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/VideoFallbackPolling.test.tsx > F01 parent succeeded with pending child keeps fetching parent
+AssertionError: expected 1 to be greater than 1
+ ❯ src/components/VideoFallbackPolling.test.tsx:46:172
+     44|
+     45| test('F01 parent succeeded with pending child keeps fetching parent', …
+     46|   const h = harness(); await h.start(); expect(screen.getByTestId('fal…
+       |                                                                                                                                                                            ^
+     47| })
+     48| test('F02 child pending to running is live and never claims stored res…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  src/components/VideoFallbackPolling.test.tsx > F02 child pending to running is live and never claims stored results
+AssertionError: expected '已排队，尚未开始' to be '正在分析' // Object.is equality
+
+Expected: "正在分析"
+Received: "已排队，尚未开始"
+
+ ❯ src/components/VideoFallbackPolling.test.tsx:49:145
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  src/components/VideoFallbackPolling.test.tsx > F03 child succeeded updates then stops the parent polling loop
+AssertionError: expected '已排队，尚未开始' to be '已完成' // Object.is equality
+
+Expected: "已完成"
+Received: "已排队，尚未开始"
+
+ ❯ src/components/VideoFallbackPolling.test.tsx:52:147
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  src/components/VideoFallbackPolling.test.tsx > F04 completion invalidates motion cache and renders the selected actual reading
+AssertionError: expected 1 to be greater than 1
+ ❯ src/components/VideoFallbackPolling.test.tsx:55:224
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  src/components/VideoFallbackPolling.test.tsx > F05 partial_failed shows only available results and stops polling
+AssertionError: expected '已排队，尚未开始' to be '部分失败' // Object.is equality
+
+Expected: "部分失败"
+Received: "已排队，尚未开始"
+
+ ❯ src/components/VideoFallbackPolling.test.tsx:58:152
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  src/components/VideoFallbackPolling.test.tsx > F06 child failed remains diagnosable and stops polling
+TestingLibraryElementError: Unable to find an element with the text: /MODEL_RESPONSE_INVALID/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="rounded-lg border border-ink-700 bg-ink-900 p-4 space-y-4"
+    >
+      <div
+        class="flex flex-wrap items-center justify-between gap-2"
+      >
+        <h3
+          class="text-sm font-semibold text-slate-200"
+        >
+          视频理解（M5.3·实验）
+        </h3>
+        <div
+          class="flex items-center gap-2"
+        >
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-ink-700 text-slate-300"
+          >
+            0
+             个镜头有视频读数
+          </span>
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-900/60 text-amber-300"
+          >
+            实验功能
+          </span>
+        </div>
+      </div>
+      <p
+        class="text-xs text-slate-400"
+      >
+        默认关闭的实验通道。只上传由原片派生的
+        <strong>
+          短时、无声、去元数据
+        </strong>
+        片段； 端点未验证接受视频时，请求会在入队前被拒绝。
+      </p>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div
+          class="mb-1 font-medium text-slate-200"
+        >
+          覆盖率（如实报告子集）
+        </div>
+        <div>
+          库内
+          <strong>
+            2
+          </strong>
+           个镜头， 已有视频读数
+          <strong>
+            0
+          </strong>
+           个， 未覆盖
+          <strong>
+            2
+          </strong>
+           个
+          ，事件候选
+          <strong>
+            0
+          </strong>
+           个。
+        </div>
+        <div
+          class="mt-1 text-amber-300"
+        >
+          这不是"已分析全库"，只是子集。
+        </div>
+      </div>
+      <div
+        class="flex flex-wrap items-end gap-3"
+      >
+        <label
+          class="text-xs text-slate-300"
+        >
+          最多镜头数
+          <input
+            class="ml-2 w-16 rounded border border-ink-600 bg-ink-900 px-2 py-1 text-slate-200"
+            max="50"
+            min="1"
+            type="number"
+            value="6"
+          />
+        </label>
+        <label
+          class="flex items-center gap-2 text-xs text-slate-300"
+        >
+          <input
+            type="checkbox"
+          />
+          我确认本次上传派生短片（可能含人物/车牌；音频已移除）
+        </label>
+        <button
+          class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "
+        >
+          开始视频分析
+        </button>
+      </div>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div>
+          任务状态：
+          <strong>
+            succeeded
+          </strong>
+        </div>
+        <div
+          class="mt-1"
+          data-testid="fallback-tracking"
+        >
+          <div
+            class="text-amber-300"
+          >
+            已交给
+            <code>
+              motion_review
+            </code>
+             任务
+
+            <code
+              data-testid="fallback-job-id"
+            >
+              child-1
+            </code>
+            ：
+            <strong
+              data-testid="fallback-status"
+            >
+              已排队，尚未开始
+            </strong>
+          </div>
+          <div
+            class="mt-0.5 text-slate-400"
+            data-testid="fallback-analysed"
+          >
+            多帧分析尚未完成 —— 此处还不能视为已分析。
+          </div>
+        </div>
+        <span
+          class="text-xs text-amber-300"
+        >
+          任务已停止；尚无本次清理统计
+        </span>
+      </div>
+      <p
+        class="text-sm text-slate-400"
+      >
+        尚无视频读数。失败或被拒绝不会在这里留下成功记录。
+      </p>
+      <div
+        class="space-y-3"
+      />
+    </div>
+  </div>
+</body>
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/VideoFallbackPolling.test.tsx:61:255
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  src/components/VideoFallbackPolling.test.tsx > F08 first GET already has a terminal parent and pending successor
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ src/components/VideoFallbackPolling.test.tsx:67:141
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  src/components/VideoFallbackPolling.test.tsx > F09 project switch drops the old job and old results, including its polling
+AssertionError: expected <div class="mt-1" …(1)>…(2)</div> to be null
+
+- Expected:
+null
+
++ Received:
+<div
+  class="mt-1"
+  data-testid="fallback-tracking"
+>
+  <div
+    class="text-amber-300"
+  >
+    已交给
+    <code>
+      motion_review
+    </code>
+     任务
+
+    <code
+      data-testid="fallback-job-id"
+    >
+      child-1
+    </code>
+    ：
+    <strong
+      data-testid="fallback-status"
+    >
+      已排队，尚未开始
+    </strong>
+  </div>
+  <div
+    class="mt-0.5 text-slate-400"
+    data-testid="fallback-analysed"
+  >
+    多帧分析尚未完成 —— 此处还不能视为已分析。
+  </div>
+</div>
+
+ ❯ src/components/VideoFallbackPolling.test.tsx:70:170
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  src/components/VideoFallbackPolling.test.tsx > F10 a fallback adds multi-frame data without inventing native observations
+TestingLibraryElementError: Unable to find an element with the text: /Mock derived frames/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="rounded-lg border border-ink-700 bg-ink-900 p-4 space-y-4"
+    >
+      <div
+        class="flex flex-wrap items-center justify-between gap-2"
+      >
+        <h3
+          class="text-sm font-semibold text-slate-200"
+        >
+          视频理解（M5.3·实验）
+        </h3>
+        <div
+          class="flex items-center gap-2"
+        >
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-ink-700 text-slate-300"
+          >
+            0
+             个镜头有视频读数
+          </span>
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-900/60 text-amber-300"
+          >
+            实验功能
+          </span>
+        </div>
+      </div>
+      <p
+        class="text-xs text-slate-400"
+      >
+        默认关闭的实验通道。只上传由原片派生的
+        <strong>
+          短时、无声、去元数据
+        </strong>
+        片段； 端点未验证接受视频时，请求会在入队前被拒绝。
+      </p>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div
+          class="mb-1 font-medium text-slate-200"
+        >
+          覆盖率（如实报告子集）
+        </div>
+        <div>
+          库内
+          <strong>
+            2
+          </strong>
+           个镜头， 已有视频读数
+          <strong>
+            0
+          </strong>
+           个， 未覆盖
+          <strong>
+            2
+          </strong>
+           个
+          ，事件候选
+          <strong>
+            0
+          </strong>
+           个。
+        </div>
+        <div
+          class="mt-1 text-amber-300"
+        >
+          这不是"已分析全库"，只是子集。
+        </div>
+      </div>
+      <div
+        class="flex flex-wrap items-end gap-3"
+      >
+        <label
+          class="text-xs text-slate-300"
+        >
+          最多镜头数
+          <input
+            class="ml-2 w-16 rounded border border-ink-600 bg-ink-900 px-2 py-1 text-slate-200"
+            max="50"
+            min="1"
+            type="number"
+            value="6"
+          />
+        </label>
+        <label
+          class="flex items-center gap-2 text-xs text-slate-300"
+        >
+          <input
+            type="checkbox"
+          />
+          我确认本次上传派生短片（可能含人物/车牌；音频已移除）
+        </label>
+        <button
+          class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "
+        >
+          开始视频分析
+        </button>
+      </div>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div>
+          任务状态：
+          <strong>
+            succeeded
+          </strong>
+        </div>
+        <div
+          class="mt-1"
+          data-testid="fallback-tracking"
+        >
+          <div
+            class="text-amber-300"
+          >
+            已交给
+            <code>
+              motion_review
+            </code>
+             任务
+
+            <code
+              data-testid="fallback-job-id"
+            >
+              child-1
+            </code>
+            ：
+            <strong
+              data-testid="fallback-status"
+            >
+              已排队，尚未开始
+            </strong>
+          </div>
+          <div
+            class="mt-0.5 text-slate-400"
+            data-testid="fallback-analysed"
+          >
+            多帧分析尚未完成 —— 此处还不能视为已分析。
+          </div>
+        </div>
+        <span
+          class="text-xs text-amber-300"
+        >
+          任务已停止；尚无本次清理统计
+        </span>
+      </div>
+      <p
+        class="text-sm text-slate-400"
+      >
+        尚无视频读数。失败或被拒绝不会在这里留下成功记录。
+      </p>
+      <div
+        class="space-y-3"
+      />
+    </div>
+  </div>
+</body>
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/VideoFallbackPolling.test.tsx:76:99
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+ FAIL  src/components/VideoFallbackPolling.test.tsx > network errors preserve the last child status and are visible, then recover
+TestingLibraryElementError: Unable to find an accessible element with the role "alert"
+
+Here are the accessible roles:
+
+  heading:
+
+  Name "视频理解（M5.3·实验）":
+  <h3
+    class="text-sm font-semibold text-slate-200"
+  />
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  <p
+    class="text-xs text-slate-400"
+  />
+
+  Name "":
+  <p
+    class="text-sm text-slate-400"
+  />
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong
+    data-testid="fallback-status"
+  />
+
+  --------------------------------------------------
+  spinbutton:
+
+  Name "最多镜头数":
+  <input
+    class="ml-2 w-16 rounded border border-ink-600 bg-ink-900 px-2 py-1 text-slate-200"
+    max="50"
+    min="1"
+    type="number"
+    value="6"
+  />
+
+  --------------------------------------------------
+  checkbox:
+
+  Name "我确认本次上传派生短片（可能含人物/车牌；音频已移除）":
+  <input
+    type="checkbox"
+  />
+
+  --------------------------------------------------
+  button:
+
+  Name "开始视频分析":
+  <button
+    class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "
+  />
+
+  --------------------------------------------------
+  code:
+
+  Name "":
+  <code />
+
+  Name "":
+  <code
+    data-testid="fallback-job-id"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="rounded-lg border border-ink-700 bg-ink-900 p-4 space-y-4"
+    >
+      <div
+        class="flex flex-wrap items-center justify-between gap-2"
+      >
+        <h3
+          class="text-sm font-semibold text-slate-200"
+        >
+          视频理解（M5.3·实验）
+        </h3>
+        <div
+          class="flex items-center gap-2"
+        >
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-ink-700 text-slate-300"
+          >
+            0
+             个镜头有视频读数
+          </span>
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-900/60 text-amber-300"
+          >
+            实验功能
+          </span>
+        </div>
+      </div>
+      <p
+        class="text-xs text-slate-400"
+      >
+        默认关闭的实验通道。只上传由原片派生的
+        <strong>
+          短时、无声、去元数据
+        </strong>
+        片段； 端点未验证接受视频时，请求会在入队前被拒绝。
+      </p>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div
+          class="mb-1 font-medium text-slate-200"
+        >
+          覆盖率（如实报告子集）
+        </div>
+        <div>
+          库内
+          <strong>
+            2
+          </strong>
+           个镜头， 已有视频读数
+          <strong>
+            0
+          </strong>
+           个， 未覆盖
+          <strong>
+            2
+          </strong>
+           个
+          ，事件候选
+          <strong>
+            0
+          </strong>
+           个。
+        </div>
+        <div
+          class="mt-1 text-amber-300"
+        >
+          这不是"已分析全库"，只是子集。
+        </div>
+      </div>
+      <div
+        class="flex flex-wrap items-end gap-3"
+      >
+        <label
+          class="text-xs text-slate-300"
+        >
+          最多镜头数
+          <input
+            class="ml-2 w-16 rounded border border-ink-600 bg-ink-900 px-2 py-1 text-slate-200"
+            max="50"
+            min="1"
+            type="number"
+            value="6"
+          />
+        </label>
+        <label
+          class="flex items-center gap-2 text-xs text-slate-300"
+        >
+          <input
+            type="checkbox"
+          />
+          我确认本次上传派生短片（可能含人物/车牌；音频已移除）
+        </label>
+        <button
+          class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "
+        >
+          开始视频分析
+        </button>
+      </div>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div>
+          任务状态：
+          <strong>
+            succeeded
+          </strong>
+        </div>
+        <div
+          class="mt-1"
+          data-testid="fallback-tracking"
+        >
+          <div
+            class="text-amber-300"
+          >
+            已交给
+            <code>
+              motion_review
+            </code>
+             任务
+
+            <code
+              data-testid="fallback-job-id"
+            >
+              child-1
+            </code>
+            ：
+            <strong
+              data-testid="fallback-status"
+            >
+              已排队，尚未开始
+            </strong>
+          </div>
+          <div
+            class="mt-0.5 text-slate-400"
+            data-testid="fallback-analysed"
+          >
+            多帧分析尚未完成 —— 此处还不能视为已分析。
+          </div>
+        </div>
+        <span
+          class="text-xs text-amber-300"
+        >
+          任务已停止；尚无本次清理统计
+        </span>
+      </div>
+      <p
+        class="text-sm text-slate-400"
+      >
+        尚无视频读数。失败或被拒绝不会在这里留下成功记录。
+      </p>
+      <div
+        class="space-y-3"
+      />
+    </div>
+  </div>
+</body>
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/VideoFallbackPolling.test.tsx:79:98
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/11]⎯
+
+ FAIL  src/components/VideoFallbackPolling.test.tsx > a stalled child can pause UI polling without cancelling background work
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "暂停状态刷新"
+
+Here are the accessible roles:
+
+  heading:
+
+  Name "视频理解（M5.3·实验）":
+  <h3
+    class="text-sm font-semibold text-slate-200"
+  />
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  <p
+    class="text-xs text-slate-400"
+  />
+
+  Name "":
+  <p
+    class="text-sm text-slate-400"
+  />
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong />
+
+  Name "":
+  <strong
+    data-testid="fallback-status"
+  />
+
+  --------------------------------------------------
+  spinbutton:
+
+  Name "最多镜头数":
+  <input
+    class="ml-2 w-16 rounded border border-ink-600 bg-ink-900 px-2 py-1 text-slate-200"
+    max="50"
+    min="1"
+    type="number"
+    value="6"
+  />
+
+  --------------------------------------------------
+  checkbox:
+
+  Name "我确认本次上传派生短片（可能含人物/车牌；音频已移除）":
+  <input
+    type="checkbox"
+  />
+
+  --------------------------------------------------
+  button:
+
+  Name "开始视频分析":
+  <button
+    class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "
+  />
+
+  --------------------------------------------------
+  code:
+
+  Name "":
+  <code />
+
+  Name "":
+  <code
+    data-testid="fallback-job-id"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="rounded-lg border border-ink-700 bg-ink-900 p-4 space-y-4"
+    >
+      <div
+        class="flex flex-wrap items-center justify-between gap-2"
+      >
+        <h3
+          class="text-sm font-semibold text-slate-200"
+        >
+          视频理解（M5.3·实验）
+        </h3>
+        <div
+          class="flex items-center gap-2"
+        >
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-ink-700 text-slate-300"
+          >
+            0
+             个镜头有视频读数
+          </span>
+          <span
+            class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-900/60 text-amber-300"
+          >
+            实验功能
+          </span>
+        </div>
+      </div>
+      <p
+        class="text-xs text-slate-400"
+      >
+        默认关闭的实验通道。只上传由原片派生的
+        <strong>
+          短时、无声、去元数据
+        </strong>
+        片段； 端点未验证接受视频时，请求会在入队前被拒绝。
+      </p>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div
+          class="mb-1 font-medium text-slate-200"
+        >
+          覆盖率（如实报告子集）
+        </div>
+        <div>
+          库内
+          <strong>
+            2
+          </strong>
+           个镜头， 已有视频读数
+          <strong>
+            0
+          </strong>
+           个， 未覆盖
+          <strong>
+            2
+          </strong>
+           个
+          ，事件候选
+          <strong>
+            0
+          </strong>
+           个。
+        </div>
+        <div
+          class="mt-1 text-amber-300"
+        >
+          这不是"已分析全库"，只是子集。
+        </div>
+      </div>
+      <div
+        class="flex flex-wrap items-end gap-3"
+      >
+        <label
+          class="text-xs text-slate-300"
+        >
+          最多镜头数
+          <input
+            class="ml-2 w-16 rounded border border-ink-600 bg-ink-900 px-2 py-1 text-slate-200"
+            max="50"
+            min="1"
+            type="number"
+            value="6"
+          />
+        </label>
+        <label
+          class="flex items-center gap-2 text-xs text-slate-300"
+        >
+          <input
+            type="checkbox"
+          />
+          我确认本次上传派生短片（可能含人物/车牌；音频已移除）
+        </label>
+        <button
+          class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed "
+        >
+          开始视频分析
+        </button>
+      </div>
+      <div
+        class="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300"
+      >
+        <div>
+          任务状态：
+          <strong>
+            succeeded
+          </strong>
+        </div>
+        <div
+          class="mt-1"
+          data-testid="fallback-tracking"
+        >
+          <div
+            class="text-amber-300"
+          >
+            已交给
+            <code>
+              motion_review
+            </code>
+             任务
+
+            <code
+              data-testid="fallback-job-id"
+            >
+              child-1
+            </code>
+            ：
+            <strong
+              data-testid="fallback-status"
+            >
+              已排队，尚未开始
+            </strong>
+          </div>
+          <div
+            class="mt-0.5 text-slate-400"
+            data-testid="fallback-analysed"
+          >
+            多帧分析尚未完成 —— 此处还不能视为已分析。
+          </div>
+        </div>
+        <span
+          class="text-xs text-amber-300"
+        >
+          任务已停止；尚无本次清理统计
+        </span>
+      </div>
+      <p
+        class="text-sm text-slate-400"
+      >
+        尚无视频读数。失败或被拒绝不会在这里留下成功记录。
+      </p>
+      <div
+        class="space-y-3"
+      />
+    </div>
+  </div>
+</body>
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.2/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/VideoFallbackPolling.test.tsx:82:62
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/11]⎯
+
+ Test Files  1 failed (1)
+      Tests  11 failed | 4 passed (15)
+   Start at  10:16:56
+   Duration  1.20s (transform 81ms, setup 0ms, collect 215ms, tests 311ms, environment 298ms, prepare 44ms)

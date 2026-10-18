@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, endpoints } from '../lib/api'
 import type {
@@ -34,19 +35,25 @@ import CleanupNotice from './CleanupNotice'
  * are shown for a person to accept or reject, and that decision stays theirs.
  */
 export default function VideoUnderstandingPanel({ projectId }: { projectId: string }) {
+  return <VideoPanel key={projectId} projectId={projectId} />
+}
+
+function VideoPanel({ projectId }: { projectId: string }) {
   const qc = useQueryClient()
   const [jobId, setJobId] = useState<string | null>(null)
   const [acknowledged, setAcknowledged] = useState(false)
   const [limit, setLimit] = useState(6)
+  const [allowFallback, setAllowFallback] = useState(false)
   const [refusal, setRefusal] = useState<VideoRefusalOut | null>(null)
 
-  const job = useJob(jobId)
+  const [pollPaused, setPollPaused] = useState(false)
+  const job = useJob(jobId, !pollPaused)
 
   // A fast job's first observed state may already be terminal, so refresh on any
   // final status rather than only on a transition.
   useEffect(() => {
     if (job.data && ['succeeded', 'partial_failed', 'failed', 'cancelled'].includes(job.data.status)) {
-      for (const key of ['video-observations', 'video-coverage']) {
+      for (const key of ['video-observations', 'video-coverage', 'motion-reviews']) {
         qc.invalidateQueries({ queryKey: [key, projectId] })
       }
     }
@@ -83,12 +90,14 @@ export default function VideoUnderstandingPanel({ projectId }: { projectId: stri
         method: 'POST',
         body: JSON.stringify({
           mode: 'video_native',
+          allow_fallback: allowFallback,
           limit,
           upload_acknowledged: acknowledged,
         }),
       }),
     onSuccess: (j) => {
       setRefusal(null)
+      setPollPaused(false)
       setJobId(j.id)
       qc.invalidateQueries({ queryKey: ['video-observations', projectId] })
     },
@@ -192,6 +201,12 @@ export default function VideoUnderstandingPanel({ projectId }: { projectId: stri
           />
           我确认本次上传派生短片（可能含人物/车牌；音频已移除）
         </label>
+        <button type="button" role="switch" aria-checked={allowFallback}
+          aria-label="允许本次回退到多帧分析"
+          className="rounded border border-ink-600 px-2 py-1 text-xs text-slate-300"
+          onClick={() => setAllowFallback(value => !value)}>
+          允许本次回退到多帧分析：{allowFallback ? '是' : '否'}
+        </button>
         <Button disabled={!canRun} onClick={() => start.mutate()}>
           {start.isPending ? '提交中…' : '开始视频分析'}
         </Button>
@@ -203,6 +218,18 @@ export default function VideoUnderstandingPanel({ projectId }: { projectId: stri
         </p>
       )}
 
+      {job.error && <div role="alert" className="text-xs text-amber-300">
+        JOB_STATUS_UNAVAILABLE：无法更新任务状态，保留最后一次读数。请检查本地服务。
+        <Button variant="ghost" onClick={() => job.refetch()}>重试状态查询</Button>
+      </div>}
+      {job.data?.fallback?.state === 'resolved' && ['pending', 'running', 'cancelling'].includes(job.data.fallback.status) && (
+        <div className="text-xs text-slate-400">
+          后继长时间无变化时，可到<Link className="underline" to={`/project/${projectId}`}>项目任务页</Link>
+          按后继编号查看或取消；父任务完成不代表后继完成。
+          <Button variant="ghost" onClick={() => setPollPaused(value => !value)}>{pollPaused ? '继续状态刷新' : '暂停状态刷新'}</Button>
+          {pollPaused && <span>仅暂停界面刷新，后台任务继续执行。</span>}
+        </div>
+      )}
       {job.data && (
         <div className="rounded-md border border-ink-700 bg-ink-800/60 p-3 text-xs text-slate-300">
           <div>
@@ -231,6 +258,14 @@ export default function VideoUnderstandingPanel({ projectId }: { projectId: stri
       )}
 
       <div className="space-y-3">
+        {(motion.data ?? []).filter(m => !rows.some(row => row.segment_id === m.segment_id)).map(m => (
+          <div key={m.id} data-testid="fallback-motion-reading" className="rounded border border-ink-700 p-3 text-xs text-slate-300">
+            <span className="font-mono">{m.segment_id.slice(0, 8)}</span> · 多帧读数（非原生视频）
+            <ReadingColumn title="抽帧语义" mode="代表帧" body={stills.data?.items?.find(row => row.segment_id === m.segment_id) ? JSON.stringify(stills.data.items.find(row => row.segment_id === m.segment_id)!.visual).slice(0, 160) : null} missing="无静态语义结果" />
+            <ReadingColumn title="多帧动态" mode="带时间戳的派生帧" body={`${m.motion_type} / ${m.action_summary}`} missing="无多帧结果" />
+            <ReadingColumn title="视频观察" mode="派生短片（原生视频）" body={null} missing="无视频读数" />
+          </div>
+        ))}
         {rows.map((row) => (
           <ObservationCard
             key={row.id}
@@ -290,6 +325,7 @@ function FallbackTracking({
     pending: '已排队，尚未开始',
     running: '正在分析',
     succeeded: '已完成',
+    partial_failed: '部分失败',
     failed: '已失败',
     cancelled: '已取消',
     cancelling: '正在取消',
@@ -306,8 +342,13 @@ function FallbackTracking({
       <div className="mt-0.5 text-slate-400" data-testid="fallback-analysed">
         {fallback.analysed
           ? '多帧分析结果已入库。'
-          : '多帧分析尚未完成 —— 此处还不能视为已分析。'}
+          : fallback.status === 'partial_failed'
+            ? `部分失败；可用多帧读数：${fallback.result_count ?? '尚未核验'}，存在失败项。`
+            : fallback.status === 'succeeded'
+              ? '任务已结束，但无可用多帧读数。'
+              : '多帧分析尚未完成 —— 此处还不能视为已分析。'}
       </div>
+      {fallback.error_code && <div className="text-amber-300">{fallback.error_code}</div>}
     </div>
   )
 }
