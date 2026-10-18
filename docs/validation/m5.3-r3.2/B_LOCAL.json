@@ -1,0 +1,237 @@
+{
+  "base_sha": "8c05afa15e01d5fab185d63310ee3de62980e5fa",
+  "backend_strict": {
+    "tests": 1349,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 44,
+    "passed": 1305
+  },
+  "target_3_files": {
+    "tests": 65,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 65
+  },
+  "target_4_files_with_compat": {
+    "tests": 84,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 84
+  },
+  "initial_red": {
+    "tests": 58,
+    "failures": 25,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 33
+  },
+  "first_full_red": {
+    "tests": 1349,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 44,
+    "passed": 1304
+  },
+  "frontend_passed": 98,
+  "frontend_checks": [
+    "typecheck",
+    "lint",
+    "test",
+    "build"
+  ],
+  "environment": {
+    "os": "macOS 15.7.7 arm64",
+    "python": "3.12.14",
+    "ffmpeg": "9.0.2",
+    "node": "26.4.0",
+    "npm": "11.17.0",
+    "model": "loopback Mock transport only",
+    "media": "3s synthetic H.264 only"
+  },
+  "skips": [
+    {
+      "case": "tests.test_cancel_cleanup::test_cleanup_handles_deep_staging_paths",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_cancel_cleanup::test_cleanup_counts_deep_staging_bytes",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_deep_frame_served_by_path",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_deep_frame_served_by_frame_id",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_deep_frame_head_request",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_deep_proxy_supports_range",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_deep_roughcut_supports_range",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_deep_incomplete_roughcut_is_flagged",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_missing_deep_artifact_is_404_not_500",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_missing_deep_roughcut_is_404",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_deep_path_cannot_escape_the_project",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_deep_path_traversal_is_rejected",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_deep_path_outside_whitelisted_dirs_is_rejected",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_deep_path_staging_is_rejected",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_deep_path_disallowed_extension_is_rejected",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_other_project_cannot_read_the_deep_artifact",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_extended_length_prefix_never_reaches_the_client",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_media_http::test_deep_media_url_uses_the_ordinary_reference",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_path_cleanup::test_safe_unlink_removes_a_270_char_path_file",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_deep_path_cleanup::test_safe_unlink_removes_a_320_char_path_file",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_deep_path_cleanup::test_safe_unlink_missing_long_path_is_idempotent",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_deep_path_cleanup::test_safe_unlink_leaves_its_sibling_alone",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_deep_path_cleanup::test_safe_is_file_and_stat_agree_on_a_deep_file",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_deep_path_cleanup::test_safe_mkdir_and_write_read_delete_roundtrip",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_deep_scan_api::test_scan_deep_root_finds_every_video",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_scan_api::test_scan_deep_root_stats_reconcile",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_scan_api::test_scan_320_char_cjk_root",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_scan_api::test_scan_reports_damaged_video_as_a_failure",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_scan_api::test_rescan_reuses_asset_ids_and_is_idempotent",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_scan_api::test_force_rescan_reprobes_without_duplicating",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_scan_api::test_added_file_is_picked_up_on_rescan",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_scan_api::test_scan_does_not_modify_the_source_root",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_scan_api::test_unreadable_root_is_reported_as_a_failure",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_deep_scan_api::test_missing_root_does_not_look_like_an_empty_success",
+      "reason": "MAX_PATH only constrains Windows"
+    },
+    {
+      "case": "tests.test_long_paths::test_long_path_prefixes_drive_paths",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_long_paths::test_long_path_handles_unc_shares",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_long_paths::test_long_path_is_idempotent",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_long_paths::test_path_exceeds_limit_threshold",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_long_paths::test_path_length_warning_only_near_limit",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_long_paths::test_deep_workspace_extract_frame",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_long_paths::test_deep_workspace_detector_end_to_end",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_long_paths::test_deep_workspace_full_index_and_analyze",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_long_paths::test_deep_workspace_roughcut_end_to_end",
+      "reason": "long-path behaviour is Windows-specific"
+    },
+    {
+      "case": "tests.test_staging_ownership::test_windows_open_file_reports_real_residual_bytes",
+      "reason": "requires Windows"
+    }
+  ],
+  "gates": {
+    "G5": "blocked_by_endpoint",
+    "G6": "not_evaluated",
+    "Windows_human": "not_done"
+  }
+}

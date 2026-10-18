@@ -1,0 +1,57 @@
+FF.                                                                      [100%]
+=================================== FAILURES ===================================
+_____ test_s03_success_without_usable_evidence_is_not_analysed[bad-frames] _____
+
+contract = {'pid': '49eae0a9-3d91-4e0e-96be-03aecfab3407', 'jid': 'b8570db4-003f-423a-806e-bcb2fba8c7b8', 'child': '196e2890-1f1b-4f39-b8d2-4bec66c3717b', 'sid': 'bc5dfba0-eb83-4c34-8bc9-ee75e0e5d492', ...}
+kind = 'bad-frames'
+
+    @pytest.mark.parametrize('kind',['absent','zero-stats','wrong-shot','historical','empty','wrong-method','wrong-range','superseded','unstarted','missing-frames','empty-motion','bad-frames','out-of-window','bad-counter'])
+    def test_s03_success_without_usable_evidence_is_not_analysed(contract,kind):
+        c=contract
+        if kind=='zero-stats':c['row']();c['change'](stats={'analyzed':0})
+        elif kind=='wrong-shot':c['row'](segment_id=c['other'])
+        elif kind=='historical':c['row'](created_at=c['start']-timedelta(seconds=1))
+        elif kind=='empty':c['row'](action_summary='')
+        elif kind=='wrong-method':c['row'](method='video_native')
+        elif kind=='wrong-range':c['row'](start_sec=0)
+        elif kind=='superseded':c['row'](is_current=False)
+        elif kind=='bad-frames':c['row'](evidence_json={'frames':{'bad':1,'shape':2}})
+        elif kind=='out-of-window':c['row'](evidence_json={'frames':[{'time_sec':99},{'time_sec':100}]})
+        elif kind=='bad-counter':c['row']();c['change'](stats={'analyzed':'unknown'})
+        elif kind=='missing-frames':c['row'](evidence_json={})
+        elif kind=='empty-motion':c['row'](motion_type='')
+        elif kind=='unstarted':c['row']();c['change'](started_at=None)
+>       f=c['read']();assert not f['analysed'];assert f['result_count']==0;assert f['error_code']=='FALLBACK_NO_RESULTS'
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert not True
+
+tests/test_fallback_result_contract.py:56: AssertionError
+___ test_s03_success_without_usable_evidence_is_not_analysed[out-of-window] ____
+
+contract = {'pid': 'cbc1c7a5-374d-47d2-85ac-4194c4b23336', 'jid': '6019da34-d88e-4445-ab4e-b678f06715d9', 'child': 'f9e5c65b-b197-4a2b-ad12-cd34b3d33596', 'sid': '41d5f393-187e-4943-8e60-59491fa6b3d1', ...}
+kind = 'out-of-window'
+
+    @pytest.mark.parametrize('kind',['absent','zero-stats','wrong-shot','historical','empty','wrong-method','wrong-range','superseded','unstarted','missing-frames','empty-motion','bad-frames','out-of-window','bad-counter'])
+    def test_s03_success_without_usable_evidence_is_not_analysed(contract,kind):
+        c=contract
+        if kind=='zero-stats':c['row']();c['change'](stats={'analyzed':0})
+        elif kind=='wrong-shot':c['row'](segment_id=c['other'])
+        elif kind=='historical':c['row'](created_at=c['start']-timedelta(seconds=1))
+        elif kind=='empty':c['row'](action_summary='')
+        elif kind=='wrong-method':c['row'](method='video_native')
+        elif kind=='wrong-range':c['row'](start_sec=0)
+        elif kind=='superseded':c['row'](is_current=False)
+        elif kind=='bad-frames':c['row'](evidence_json={'frames':{'bad':1,'shape':2}})
+        elif kind=='out-of-window':c['row'](evidence_json={'frames':[{'time_sec':99},{'time_sec':100}]})
+        elif kind=='bad-counter':c['row']();c['change'](stats={'analyzed':'unknown'})
+        elif kind=='missing-frames':c['row'](evidence_json={})
+        elif kind=='empty-motion':c['row'](motion_type='')
+        elif kind=='unstarted':c['row']();c['change'](started_at=None)
+>       f=c['read']();assert not f['analysed'];assert f['result_count']==0;assert f['error_code']=='FALLBACK_NO_RESULTS'
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert not True
+
+tests/test_fallback_result_contract.py:56: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_fallback_result_contract.py::test_s03_success_without_usable_evidence_is_not_analysed[bad-frames]
+FAILED tests/test_fallback_result_contract.py::test_s03_success_without_usable_evidence_is_not_analysed[out-of-window]

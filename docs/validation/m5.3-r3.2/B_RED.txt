@@ -1,0 +1,550 @@
+.FF.FF..FFFF..F...FFFFFFFFFFFFFF..F.................F.....               [100%]
+=================================== FAILURES ===================================
+________________ test_b02_api_runs_parent_and_exactly_one_child ________________
+
+fallback_env = namespace(pid='9c8fda73-115a-4e30-b83f-72719ec6ae94', aid='95ffad4f-14a3-4182-b58c-475c4516cfb1', ids=['9e73a926-5da0-...0>, child_ids=['a092fa69-2e13-4a6f-88d7-bebd75b8cf24'], client=<starlette.testclient.TestClient object at 0x117eabb30>)
+
+    def test_b02_api_runs_parent_and_exactly_one_child(fallback_env):
+>       e=fallback_env;parent,child=e.finish(e.start());assert_complete(e,parent,child)
+                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_video_fallback_runner_e2e.py:137:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+env = namespace(pid='9c8fda73-115a-4e30-b83f-72719ec6ae94', aid='95ffad4f-14a3-4182-b58c-475c4516cfb1', ids=['9e73a926-5da0-...0>, child_ids=['a092fa69-2e13-4a6f-88d7-bebd75b8cf24'], client=<starlette.testclient.TestClient object at 0x117eabb30>)
+parent = <app.models.Job object at 0x1229dc170>
+child = <app.models.Job object at 0x122cc9700>
+
+    def assert_complete(env,parent,child):
+>       assert parent.status=='succeeded',parent.failures
+E       AssertionError: {'count': 1, 'items': [{'kind': 'video_analyze', 'ref': 'job', 'message': 'video_native was requested but is unavailable (unsupported); running multiframe instead', 'error_code': 'VIDEO_CAPABILITY_UNSUPPORTED'}]}
+E       assert 'partial_failed' == 'succeeded'
+E
+E         - succeeded
+E         + partial_failed
+
+tests/test_video_fallback_runner_e2e.py:117: AssertionError
+____ test_b03_successor_pending_running_and_terminal_are_real_runner_states ____
+
+fallback_env = namespace(pid='be1f89ef-c023-483b-9674-2338aa8aca85', aid='71e8d7a4-19fe-4a3f-97d8-1005920e18df', ids=['50697e4c-de76-...0>, child_ids=['adc77106-85a4-4c12-85d5-c301307ffdbc'], client=<starlette.testclient.TestClient object at 0x117f36e10>)
+
+    def test_b03_successor_pending_running_and_terminal_are_real_runner_states(fallback_env):
+        e=fallback_env;e.gate.clear();e.reply.clear();jid=e.start();parent=e.terminal(jid);sid=parent.stats['fallback_job_id'];assert e.read(sid).status=='pending'
+        assert e.client.post(f'/api/projects/{e.pid}/jobs/scan').status_code==409
+        e.gate.set();assert e.in_provider.wait(15);assert e.read(sid).status=='running';assert e.read(sid).started_at is not None
+>       e.reply.set();parent,child=e.finish(jid);assert_complete(e,parent,child);assert e.runner._futures[jid].done() and e.runner._futures[sid].done()
+                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_video_fallback_runner_e2e.py:145:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+env = namespace(pid='be1f89ef-c023-483b-9674-2338aa8aca85', aid='71e8d7a4-19fe-4a3f-97d8-1005920e18df', ids=['50697e4c-de76-...0>, child_ids=['adc77106-85a4-4c12-85d5-c301307ffdbc'], client=<starlette.testclient.TestClient object at 0x117f36e10>)
+parent = <app.models.Job object at 0x122d3f2f0>
+child = <app.models.Job object at 0x122d3db20>
+
+    def assert_complete(env,parent,child):
+>       assert parent.status=='succeeded',parent.failures
+E       AssertionError: {'count': 1, 'items': [{'kind': 'video_analyze', 'ref': 'job', 'message': 'video_native was requested but is unavailable (unsupported); running multiframe instead', 'error_code': 'VIDEO_CAPABILITY_UNSUPPORTED'}]}
+E       assert 'partial_failed' == 'succeeded'
+E
+E         - succeeded
+E         + partial_failed
+
+tests/test_video_fallback_runner_e2e.py:117: AssertionError
+______ test_b05_same_selected_segment_is_persisted_and_publicly_queryable ______
+
+fallback_env = namespace(pid='46aae5a8-ce97-475a-a236-9a19518fc443', aid='7c43db4e-6508-416d-a44f-05f476c4b02e', ids=['de228d3a-7324-...0>, child_ids=['f78b7e1d-7bc4-43b4-8d86-ae982bdfa34a'], client=<starlette.testclient.TestClient object at 0x1229ac3e0>)
+
+    def test_b05_same_selected_segment_is_persisted_and_publicly_queryable(fallback_env):
+>       e=fallback_env;parent,child=e.finish(e.start());assert_complete(e,parent,child)
+                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_video_fallback_runner_e2e.py:153:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+env = namespace(pid='46aae5a8-ce97-475a-a236-9a19518fc443', aid='7c43db4e-6508-416d-a44f-05f476c4b02e', ids=['de228d3a-7324-...0>, child_ids=['f78b7e1d-7bc4-43b4-8d86-ae982bdfa34a'], client=<starlette.testclient.TestClient object at 0x1229ac3e0>)
+parent = <app.models.Job object at 0x122d49880>
+child = <app.models.Job object at 0x122d49f70>
+
+    def assert_complete(env,parent,child):
+>       assert parent.status=='succeeded',parent.failures
+E       AssertionError: {'count': 1, 'items': [{'kind': 'video_analyze', 'ref': 'job', 'message': 'video_native was requested but is unavailable (unsupported); running multiframe instead', 'error_code': 'VIDEO_CAPABILITY_UNSUPPORTED'}]}
+E       assert 'partial_failed' == 'succeeded'
+E
+E         - succeeded
+E         + partial_failed
+
+tests/test_video_fallback_runner_e2e.py:117: AssertionError
+________ test_b06_selection_limit_force_and_consent_reach_the_successor ________
+
+fallback_env = namespace(pid='3d6c2ab4-efa4-4f89-84bd-05e3ef010328', aid='8f87bd05-6d2e-4ac1-868f-d6f22df406cb', ids=['6b390834-c386-...0>, child_ids=['3d475e55-e234-493a-8198-11dd82fd659a'], client=<starlette.testclient.TestClient object at 0x122d61460>)
+
+    def test_b06_selection_limit_force_and_consent_reach_the_successor(fallback_env):
+>       e=fallback_env;parent,child=e.finish(e.start());assert parent.config_snapshot['segment_ids']==child.config_snapshot['segment_ids']==[e.ids[0]];assert child.config_snapshot['limit']==1;assert child.config_snapshot['upload_acknowledged'] and child.config_snapshot.get('force') is True
+                                                                                                                                                                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert (True and None is True)
+E        +  where None = <built-in method get of dict object at 0x122d4ec00>('force')
+E        +    where <built-in method get of dict object at 0x122d4ec00> = {'segment_ids': ['6b390834-c386-43fb-8a37-3367fe72912d'], 'frame_count': 3, 'limit': 1, 'upload_acknowledged': True}.get
+E        +      where {'segment_ids': ['6b390834-c386-43fb-8a37-3367fe72912d'], 'frame_count': 3, 'limit': 1, 'upload_acknowledged': True} = <app.models.Job object at 0x1238769c0>.config_snapshot
+
+tests/test_video_fallback_runner_e2e.py:157: AssertionError
+_____ test_b09_failures_are_visible_and_never_claim_stored_results[model] ______
+
+fallback_env = namespace(pid='2612b461-778a-4b46-ab91-5e54c4080562', aid='0a27af0c-47a0-4b2f-9925-3c3b898188cf', ids=['3c435d1b-e752-...0>, child_ids=['c55d464b-f3a6-4ce2-b3e1-b7865247b391'], client=<starlette.testclient.TestClient object at 0x122957da0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x117f0db20>
+failure = 'model'
+
+    @pytest.mark.parametrize('failure',['model','ffmpeg','schedule'])
+    def test_b09_failures_are_visible_and_never_claim_stored_results(fallback_env,monkeypatch,failure):
+        from app.services.vision import motion,video_job
+        from app.ffmpeg import FFmpegError
+        e=fallback_env
+        if failure=='model':e.behaviour['mode']='error'
+        elif failure=='ffmpeg':monkeypatch.setattr(motion,'extract_frame',lambda *a,**kw: (_ for _ in ()).throw(FFmpegError('synthetic decode failure',code='MEDIA_UNREADABLE')))
+        else:
+            from app.services import job_service
+            original=job_service._create_locked
+            def fail_child(db,pid,request,builder,**kwargs):
+                if request.job_type=='motion_review':raise RuntimeError('private URL must not escape')
+                return original(db,pid,request,builder,**kwargs)
+            monkeypatch.setattr(job_service,'_create_locked',fail_child)
+            jid=e.start();parent=e.terminal(jid)
+            fb=e.client.get(f'/api/jobs/{jid}').json()['fallback']
+            assert parent.status=='partial_failed' and not fb['analysed']
+            assert fb['state']=='failed' and fb['error_code']=='FALLBACK_SCHEDULE_FAILED'
+            assert 'private URL' not in e.client.get(f'/api/jobs/{jid}').text
+            assert e.seen==[] and e.results()==[]
+            return
+>       parent,child=e.finish(e.start());assert child.status in ('failed','partial_failed');fb=e.client.get(f'/api/jobs/{parent.id}').json()['fallback'];assert not fb['analysed'];assert fb['error_code'];assert e.results()==[]
+                                                                                                                                                                                          ^^^^^^^^^^^^^^^^
+E       KeyError: 'error_code'
+
+tests/test_video_fallback_runner_e2e.py:198: KeyError
+_____ test_b09_failures_are_visible_and_never_claim_stored_results[ffmpeg] _____
+
+fallback_env = namespace(pid='0bb50817-b5eb-4310-93d8-7a2c83317449', aid='38d33a5d-5711-42a5-a2a4-dd73b6911f9b', ids=['118f210c-92c4-...0>, child_ids=['5b467f16-6a66-43d6-96da-e95647c16db5'], client=<starlette.testclient.TestClient object at 0x122d4a570>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x102f4e360>
+failure = 'ffmpeg'
+
+    @pytest.mark.parametrize('failure',['model','ffmpeg','schedule'])
+    def test_b09_failures_are_visible_and_never_claim_stored_results(fallback_env,monkeypatch,failure):
+        from app.services.vision import motion,video_job
+        from app.ffmpeg import FFmpegError
+        e=fallback_env
+        if failure=='model':e.behaviour['mode']='error'
+        elif failure=='ffmpeg':monkeypatch.setattr(motion,'extract_frame',lambda *a,**kw: (_ for _ in ()).throw(FFmpegError('synthetic decode failure',code='MEDIA_UNREADABLE')))
+        else:
+            from app.services import job_service
+            original=job_service._create_locked
+            def fail_child(db,pid,request,builder,**kwargs):
+                if request.job_type=='motion_review':raise RuntimeError('private URL must not escape')
+                return original(db,pid,request,builder,**kwargs)
+            monkeypatch.setattr(job_service,'_create_locked',fail_child)
+            jid=e.start();parent=e.terminal(jid)
+            fb=e.client.get(f'/api/jobs/{jid}').json()['fallback']
+            assert parent.status=='partial_failed' and not fb['analysed']
+            assert fb['state']=='failed' and fb['error_code']=='FALLBACK_SCHEDULE_FAILED'
+            assert 'private URL' not in e.client.get(f'/api/jobs/{jid}').text
+            assert e.seen==[] and e.results()==[]
+            return
+>       parent,child=e.finish(e.start());assert child.status in ('failed','partial_failed');fb=e.client.get(f'/api/jobs/{parent.id}').json()['fallback'];assert not fb['analysed'];assert fb['error_code'];assert e.results()==[]
+                                                                                                                                                                                          ^^^^^^^^^^^^^^^^
+E       KeyError: 'error_code'
+
+tests/test_video_fallback_runner_e2e.py:198: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.vision.motion:motion.py:400 Frame at 0.60s failed for 118f210c-92c4-49d1-90bb-b38551dc79a5 [MEDIA_UNREADABLE]
+WARNING  app.services.vision.motion:motion.py:400 Frame at 1.00s failed for 118f210c-92c4-49d1-90bb-b38551dc79a5 [MEDIA_UNREADABLE]
+WARNING  app.services.vision.motion:motion.py:400 Frame at 1.40s failed for 118f210c-92c4-49d1-90bb-b38551dc79a5 [MEDIA_UNREADABLE]
+____ test_b09_failures_are_visible_and_never_claim_stored_results[schedule] ____
+
+fallback_env = namespace(pid='39591a50-ae60-46e2-a7e6-ad00ad292de3', aid='8efdbd81-6443-4c77-b59f-805bdc6e9618', ids=['63cb0800-fc9b-...ack_env.<locals>.results at 0x123818680>, child_ids=[], client=<starlette.testclient.TestClient object at 0x117f69520>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x102f4e930>
+failure = 'schedule'
+
+    @pytest.mark.parametrize('failure',['model','ffmpeg','schedule'])
+    def test_b09_failures_are_visible_and_never_claim_stored_results(fallback_env,monkeypatch,failure):
+        from app.services.vision import motion,video_job
+        from app.ffmpeg import FFmpegError
+        e=fallback_env
+        if failure=='model':e.behaviour['mode']='error'
+        elif failure=='ffmpeg':monkeypatch.setattr(motion,'extract_frame',lambda *a,**kw: (_ for _ in ()).throw(FFmpegError('synthetic decode failure',code='MEDIA_UNREADABLE')))
+        else:
+            from app.services import job_service
+            original=job_service._create_locked
+            def fail_child(db,pid,request,builder,**kwargs):
+                if request.job_type=='motion_review':raise RuntimeError('private URL must not escape')
+                return original(db,pid,request,builder,**kwargs)
+            monkeypatch.setattr(job_service,'_create_locked',fail_child)
+            jid=e.start();parent=e.terminal(jid)
+            fb=e.client.get(f'/api/jobs/{jid}').json()['fallback']
+            assert parent.status=='partial_failed' and not fb['analysed']
+>           assert fb['state']=='failed' and fb['error_code']=='FALLBACK_SCHEDULE_FAILED'
+                                             ^^^^^^^^^^^^^^^^
+E           KeyError: 'error_code'
+
+tests/test_video_fallback_runner_e2e.py:194: KeyError
+_______ test_b10_noop_store_cannot_turn_a_successful_job_into_a_reading ________
+
+fallback_env = namespace(pid='cae92b7f-7a40-45e3-bd57-0956ccfe8345', aid='4d6d3c92-f85f-4138-9774-9ab4c2a887c4', ids=['8d2e6ff1-4098-...0>, child_ids=['d8da320d-5bd4-4f2f-9d46-cd2bea0f6cba'], client=<starlette.testclient.TestClient object at 0x117eabf80>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x122982c30>
+
+    def test_b10_noop_store_cannot_turn_a_successful_job_into_a_reading(fallback_env,monkeypatch):
+        from app.services.vision import motion
+        e=fallback_env;monkeypatch.setattr(motion,'_store',lambda *a,**kw:None);parent,child=e.finish(e.start());assert child.status=='succeeded';assert child.stats['analyzed']==1 and e.results()==[]
+>       fb=e.client.get(f'/api/jobs/{parent.id}').json()['fallback'];assert fb['analysed'] is False;assert fb['result_count']==0;assert fb['error_code']=='FALLBACK_NO_RESULTS'
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert True is False
+
+tests/test_video_fallback_runner_e2e.py:204: AssertionError
+__________ test_s04_partial_success_reports_only_the_persisted_subset __________
+
+fallback_env = namespace(pid='f5ac279e-8b7c-46ea-861b-ca4b38bec60c', aid='4aa7db54-4bce-4d5e-9f26-33947488b1f5', ids=['0fc5d139-a360-...0>, child_ids=['2778f2c0-02b3-493b-9128-3e8cd56efe37'], client=<starlette.testclient.TestClient object at 0x1229828d0>)
+
+    def test_s04_partial_success_reports_only_the_persisted_subset(fallback_env):
+        e=fallback_env;e.behaviour['mode']='partial';parent,child=e.finish(e.start(selected=e.ids[:2],limit=2));assert child.status=='partial_failed';assert len(e.results())==1
+>       fb=e.client.get(f'/api/jobs/{parent.id}').json()['fallback'];assert fb['analysed'] is False;assert fb['result_count']==1;assert fb['error_code']
+                                                                                                           ^^^^^^^^^^^^^^^^^^
+E       KeyError: 'result_count'
+
+tests/test_video_fallback_runner_e2e.py:220: KeyError
+_______ test_s02_completed_successor_requires_its_selected_real_reading ________
+
+contract = {'pid': 'ed3d7e04-8090-4004-9c07-a7561527344c', 'jid': '62089edd-b297-443c-9e9d-ede55f744726', 'child': 'c0291c1c-83f5-49e5-903b-d89f6c1b546b', 'sid': '774b304a-985c-456d-8859-6c433176f0e8', ...}
+
+    def test_s02_completed_successor_requires_its_selected_real_reading(contract):
+>       c=contract;c['row']();f=c['read']();assert f['analysed'] and f['result_count']==1
+                                                                     ^^^^^^^^^^^^^^^^^
+E       KeyError: 'result_count'
+
+tests/test_fallback_result_contract.py:38: KeyError
+_______ test_s03_success_without_usable_evidence_is_not_analysed[absent] _______
+
+contract = {'pid': '34116b79-955f-485f-a349-6dc257ddf835', 'jid': '145610f2-d2ef-4831-9ddd-fd9c6b48af42', 'child': 'aead9ea8-654c-4aa8-90c9-ef22d0464364', 'sid': '706280f4-2d8d-4118-bc9c-bb537d9d8b08', ...}
+kind = 'absent'
+
+    @pytest.mark.parametrize('kind',['absent','zero-stats','wrong-shot','historical','empty','wrong-method','wrong-range','superseded','unstarted'])
+    def test_s03_success_without_usable_evidence_is_not_analysed(contract,kind):
+        c=contract
+        if kind=='zero-stats':c['row']();c['change'](stats={'analyzed':0})
+        elif kind=='wrong-shot':c['row'](segment_id=c['other'])
+        elif kind=='historical':c['row'](created_at=c['start']-timedelta(seconds=1))
+        elif kind=='empty':c['row'](action_summary='')
+        elif kind=='wrong-method':c['row'](method='video_native')
+        elif kind=='wrong-range':c['row'](start_sec=0)
+        elif kind=='superseded':c['row'](is_current=False)
+        elif kind=='unstarted':c['row']();c['change'](started_at=None)
+>       f=c['read']();assert not f['analysed'];assert f['result_count']==0;assert f['error_code']=='FALLBACK_NO_RESULTS'
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert not True
+
+tests/test_fallback_result_contract.py:51: AssertionError
+_____ test_s03_success_without_usable_evidence_is_not_analysed[zero-stats] _____
+
+contract = {'pid': '49a04ecd-b56a-405e-bf62-7c37830a69b1', 'jid': '9082bdb0-450d-4540-a375-b50f90c0ef62', 'child': '37cd1496-b134-48d3-aa69-4354b3afd1be', 'sid': 'eb5b4f23-4f8a-412c-b6ec-34718a05dfca', ...}
+kind = 'zero-stats'
+
+    @pytest.mark.parametrize('kind',['absent','zero-stats','wrong-shot','historical','empty','wrong-method','wrong-range','superseded','unstarted'])
+    def test_s03_success_without_usable_evidence_is_not_analysed(contract,kind):
+        c=contract
+        if kind=='zero-stats':c['row']();c['change'](stats={'analyzed':0})
+        elif kind=='wrong-shot':c['row'](segment_id=c['other'])
+        elif kind=='historical':c['row'](created_at=c['start']-timedelta(seconds=1))
+        elif kind=='empty':c['row'](action_summary='')
+        elif kind=='wrong-method':c['row'](method='video_native')
+        elif kind=='wrong-range':c['row'](start_sec=0)
+        elif kind=='superseded':c['row'](is_current=False)
+        elif kind=='unstarted':c['row']();c['change'](started_at=None)
+>       f=c['read']();assert not f['analysed'];assert f['result_count']==0;assert f['error_code']=='FALLBACK_NO_RESULTS'
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert not True
+
+tests/test_fallback_result_contract.py:51: AssertionError
+_____ test_s03_success_without_usable_evidence_is_not_analysed[wrong-shot] _____
+
+contract = {'pid': 'b65312ff-7714-453b-8f40-6d9794e189c7', 'jid': '2cfb8627-b51a-4678-af0d-bd749ccbe003', 'child': '049b127f-81e4-42dd-9cd9-5af104978cac', 'sid': '0a3d3793-c675-4981-9033-6cde59ebc73f', ...}
+kind = 'wrong-shot'
+
+    @pytest.mark.parametrize('kind',['absent','zero-stats','wrong-shot','historical','empty','wrong-method','wrong-range','superseded','unstarted'])
+    def test_s03_success_without_usable_evidence_is_not_analysed(contract,kind):
+        c=contract
+        if kind=='zero-stats':c['row']();c['change'](stats={'analyzed':0})
+        elif kind=='wrong-shot':c['row'](segment_id=c['other'])
+        elif kind=='historical':c['row'](created_at=c['start']-timedelta(seconds=1))
+        elif kind=='empty':c['row'](action_summary='')
+        elif kind=='wrong-method':c['row'](method='video_native')
+        elif kind=='wrong-range':c['row'](start_sec=0)
+        elif kind=='superseded':c['row'](is_current=False)
+        elif kind=='unstarted':c['row']();c['change'](started_at=None)
+>       f=c['read']();assert not f['analysed'];assert f['result_count']==0;assert f['error_code']=='FALLBACK_NO_RESULTS'
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert not True
+
+tests/test_fallback_result_contract.py:51: AssertionError
+_____ test_s03_success_without_usable_evidence_is_not_analysed[historical] _____
+
+contract = {'pid': '7df2b164-afcc-4b82-bf4b-97e4ccadbf5d', 'jid': '92a79a55-5e2e-49ba-8016-e5b0eb1c1989', 'child': 'bb4f6f89-7f3f-4639-8a77-5594620340b0', 'sid': 'b7a62225-62dc-4c54-bfa0-cc801a948a8a', ...}
+kind = 'historical'
+
+    @pytest.mark.parametrize('kind',['absent','zero-stats','wrong-shot','historical','empty','wrong-method','wrong-range','superseded','unstarted'])
+    def test_s03_success_without_usable_evidence_is_not_analysed(contract,kind):
+        c=contract
+        if kind=='zero-stats':c['row']();c['change'](stats={'analyzed':0})
+        elif kind=='wrong-shot':c['row'](segment_id=c['other'])
+        elif kind=='historical':c['row'](created_at=c['start']-timedelta(seconds=1))
+        elif kind=='empty':c['row'](action_summary='')
+        elif kind=='wrong-method':c['row'](method='video_native')
+        elif kind=='wrong-range':c['row'](start_sec=0)
+        elif kind=='superseded':c['row'](is_current=False)
+        elif kind=='unstarted':c['row']();c['change'](started_at=None)
+>       f=c['read']();assert not f['analysed'];assert f['result_count']==0;assert f['error_code']=='FALLBACK_NO_RESULTS'
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert not True
+
+tests/test_fallback_result_contract.py:51: AssertionError
+_______ test_s03_success_without_usable_evidence_is_not_analysed[empty] ________
+
+contract = {'pid': 'a6c3385d-2178-40bc-a0aa-4b82288397d7', 'jid': '52ab85c4-14c2-41d1-b3a8-0f0911831b03', 'child': '233a5f3a-516f-4464-935e-8cfbdf7efbe8', 'sid': '94602461-08ee-4404-9e0f-36a024e6164d', ...}
+kind = 'empty'
+
+    @pytest.mark.parametrize('kind',['absent','zero-stats','wrong-shot','historical','empty','wrong-method','wrong-range','superseded','unstarted'])
+    def test_s03_success_without_usable_evidence_is_not_analysed(contract,kind):
+        c=contract
+        if kind=='zero-stats':c['row']();c['change'](stats={'analyzed':0})
+        elif kind=='wrong-shot':c['row'](segment_id=c['other'])
+        elif kind=='historical':c['row'](created_at=c['start']-timedelta(seconds=1))
+        elif kind=='empty':c['row'](action_summary='')
+        elif kind=='wrong-method':c['row'](method='video_native')
+        elif kind=='wrong-range':c['row'](start_sec=0)
+        elif kind=='superseded':c['row'](is_current=False)
+        elif kind=='unstarted':c['row']();c['change'](started_at=None)
+>       f=c['read']();assert not f['analysed'];assert f['result_count']==0;assert f['error_code']=='FALLBACK_NO_RESULTS'
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert not True
+
+tests/test_fallback_result_contract.py:51: AssertionError
+____ test_s03_success_without_usable_evidence_is_not_analysed[wrong-method] ____
+
+contract = {'pid': 'da0db022-0ffd-42c3-a6d1-1988dff11693', 'jid': '62d5c9e1-43a6-4ca4-b30c-2cf779659498', 'child': '296460d9-528a-43f3-bf83-8e4718353e7a', 'sid': 'd0600eb5-300d-4617-b337-4244537ba988', ...}
+kind = 'wrong-method'
+
+    @pytest.mark.parametrize('kind',['absent','zero-stats','wrong-shot','historical','empty','wrong-method','wrong-range','superseded','unstarted'])
+    def test_s03_success_without_usable_evidence_is_not_analysed(contract,kind):
+        c=contract
+        if kind=='zero-stats':c['row']();c['change'](stats={'analyzed':0})
+        elif kind=='wrong-shot':c['row'](segment_id=c['other'])
+        elif kind=='historical':c['row'](created_at=c['start']-timedelta(seconds=1))
+        elif kind=='empty':c['row'](action_summary='')
+        elif kind=='wrong-method':c['row'](method='video_native')
+        elif kind=='wrong-range':c['row'](start_sec=0)
+        elif kind=='superseded':c['row'](is_current=False)
+        elif kind=='unstarted':c['row']();c['change'](started_at=None)
+>       f=c['read']();assert not f['analysed'];assert f['result_count']==0;assert f['error_code']=='FALLBACK_NO_RESULTS'
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert not True
+
+tests/test_fallback_result_contract.py:51: AssertionError
+____ test_s03_success_without_usable_evidence_is_not_analysed[wrong-range] _____
+
+contract = {'pid': '10671b98-5041-42dc-b464-d6950a889cb2', 'jid': '0e65593f-506f-4688-8264-06cb931411cb', 'child': '8087393d-7a89-435d-b271-27881077c70e', 'sid': 'd05b4371-cda7-4e62-9b53-cfdda270a090', ...}
+kind = 'wrong-range'
+
+    @pytest.mark.parametrize('kind',['absent','zero-stats','wrong-shot','historical','empty','wrong-method','wrong-range','superseded','unstarted'])
+    def test_s03_success_without_usable_evidence_is_not_analysed(contract,kind):
+        c=contract
+        if kind=='zero-stats':c['row']();c['change'](stats={'analyzed':0})
+        elif kind=='wrong-shot':c['row'](segment_id=c['other'])
+        elif kind=='historical':c['row'](created_at=c['start']-timedelta(seconds=1))
+        elif kind=='empty':c['row'](action_summary='')
+        elif kind=='wrong-method':c['row'](method='video_native')
+        elif kind=='wrong-range':c['row'](start_sec=0)
+        elif kind=='superseded':c['row'](is_current=False)
+        elif kind=='unstarted':c['row']();c['change'](started_at=None)
+>       f=c['read']();assert not f['analysed'];assert f['result_count']==0;assert f['error_code']=='FALLBACK_NO_RESULTS'
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert not True
+
+tests/test_fallback_result_contract.py:51: AssertionError
+_____ test_s03_success_without_usable_evidence_is_not_analysed[superseded] _____
+
+contract = {'pid': 'cdf0f2c7-5c7c-4385-80ed-2b8758803c24', 'jid': '22db6cf6-1297-4f91-985f-227a3ec4fbf7', 'child': 'cbaa68ba-f94b-45e6-93de-ed787528b6c6', 'sid': 'af37b834-f999-443c-9be3-a3d80a538d01', ...}
+kind = 'superseded'
+
+    @pytest.mark.parametrize('kind',['absent','zero-stats','wrong-shot','historical','empty','wrong-method','wrong-range','superseded','unstarted'])
+    def test_s03_success_without_usable_evidence_is_not_analysed(contract,kind):
+        c=contract
+        if kind=='zero-stats':c['row']();c['change'](stats={'analyzed':0})
+        elif kind=='wrong-shot':c['row'](segment_id=c['other'])
+        elif kind=='historical':c['row'](created_at=c['start']-timedelta(seconds=1))
+        elif kind=='empty':c['row'](action_summary='')
+        elif kind=='wrong-method':c['row'](method='video_native')
+        elif kind=='wrong-range':c['row'](start_sec=0)
+        elif kind=='superseded':c['row'](is_current=False)
+        elif kind=='unstarted':c['row']();c['change'](started_at=None)
+>       f=c['read']();assert not f['analysed'];assert f['result_count']==0;assert f['error_code']=='FALLBACK_NO_RESULTS'
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert not True
+
+tests/test_fallback_result_contract.py:51: AssertionError
+_____ test_s03_success_without_usable_evidence_is_not_analysed[unstarted] ______
+
+contract = {'pid': 'f7961c3c-71f9-4218-9827-af74b2148f45', 'jid': '32f4452f-22bf-46f9-b61a-975171df2d2a', 'child': '709ce1e2-21e2-4437-b51f-90d22ed534b4', 'sid': '9adaf868-ba05-44e9-9a2c-f30fa02e7bc3', ...}
+kind = 'unstarted'
+
+    @pytest.mark.parametrize('kind',['absent','zero-stats','wrong-shot','historical','empty','wrong-method','wrong-range','superseded','unstarted'])
+    def test_s03_success_without_usable_evidence_is_not_analysed(contract,kind):
+        c=contract
+        if kind=='zero-stats':c['row']();c['change'](stats={'analyzed':0})
+        elif kind=='wrong-shot':c['row'](segment_id=c['other'])
+        elif kind=='historical':c['row'](created_at=c['start']-timedelta(seconds=1))
+        elif kind=='empty':c['row'](action_summary='')
+        elif kind=='wrong-method':c['row'](method='video_native')
+        elif kind=='wrong-range':c['row'](start_sec=0)
+        elif kind=='superseded':c['row'](is_current=False)
+        elif kind=='unstarted':c['row']();c['change'](started_at=None)
+>       f=c['read']();assert not f['analysed'];assert f['result_count']==0;assert f['error_code']=='FALLBACK_NO_RESULTS'
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert not True
+
+tests/test_fallback_result_contract.py:51: AssertionError
+__________ test_s04_partial_failure_counts_only_existing_valid_subset __________
+
+contract = {'pid': '1d05680a-ab07-4a07-80f7-9a734eb9b53a', 'jid': 'c35e5fe5-667b-4e69-b7aa-c295d47e9345', 'child': '163b8a8c-64d2-425d-ae97-77a233ce23a9', 'sid': '6bd12851-0ab3-49f6-b53e-b9488b701db3', ...}
+
+    def test_s04_partial_failure_counts_only_existing_valid_subset(contract):
+>       c=contract;c['row']();c['change'](status='partial_failed',stats={'analyzed':1,'total':2},failures={'count':1,'items':[{'error_code':'MODEL_BAD_REQUEST'}]});f=c['read']();assert not f['analysed'];assert f['result_count']==1;assert f['error_code']=='MODEL_BAD_REQUEST'
+                                                                                                                                                                                                                  ^^^^^^^^^^^^^^^^^
+E       KeyError: 'result_count'
+
+tests/test_fallback_result_contract.py:54: KeyError
+__ test_s05_terminal_fault_is_not_success_and_diagnostics_are_private[failed] __
+
+contract = {'pid': 'ae0f59d4-9bd6-430c-a455-6ac63cdac403', 'jid': '893d4888-b82c-4dda-a2dc-4d4487e56f44', 'child': '27d81989-92f2-49de-95a9-061614814461', 'sid': '7cb2b3f8-1914-4afe-b2b3-902a98c26853', ...}
+status = 'failed'
+
+    @pytest.mark.parametrize('status',['failed','cancelled','missing'])
+    def test_s05_terminal_fault_is_not_success_and_diagnostics_are_private(contract,status):
+        c=contract;c['row']()
+        if status=='missing':
+            with session_scope() as s:s.delete(s.get(Job,c['child']))
+        else:c['change'](status=status,error='private filesystem URL Key payload',failures={'items':[{'error_code':'bad secret not a code'}]})
+>       f=c['read']();assert not f['analysed'];assert f['error_code'];assert 'private' not in str(f) and 'secret' not in str(f)
+                                                      ^^^^^^^^^^^^^^^
+E       KeyError: 'error_code'
+
+tests/test_fallback_result_contract.py:62: KeyError
+_ test_s05_terminal_fault_is_not_success_and_diagnostics_are_private[cancelled] _
+
+contract = {'pid': '5819d64f-cb00-4eb6-a72a-bf3f48079f5f', 'jid': 'f929f63f-620e-4d99-b82c-c6cb2eaeb81a', 'child': '323e577b-80b5-4d23-928e-ad12ada396d2', 'sid': 'cc71c3e5-e444-44f7-b7bb-91f35af68eac', ...}
+status = 'cancelled'
+
+    @pytest.mark.parametrize('status',['failed','cancelled','missing'])
+    def test_s05_terminal_fault_is_not_success_and_diagnostics_are_private(contract,status):
+        c=contract;c['row']()
+        if status=='missing':
+            with session_scope() as s:s.delete(s.get(Job,c['child']))
+        else:c['change'](status=status,error='private filesystem URL Key payload',failures={'items':[{'error_code':'bad secret not a code'}]})
+>       f=c['read']();assert not f['analysed'];assert f['error_code'];assert 'private' not in str(f) and 'secret' not in str(f)
+                                                      ^^^^^^^^^^^^^^^
+E       KeyError: 'error_code'
+
+tests/test_fallback_result_contract.py:62: KeyError
+_ test_s05_terminal_fault_is_not_success_and_diagnostics_are_private[missing] __
+
+contract = {'pid': '7f8ceade-4d83-46b7-bc75-a2f7331bc690', 'jid': '6888461d-64db-4226-8262-7e1db65d1a45', 'child': '3a0b952e-acff-4b0a-a081-58f2b570cdf3', 'sid': '037ec7d4-a28f-4845-a476-a29c5a0a8353', ...}
+status = 'missing'
+
+    @pytest.mark.parametrize('status',['failed','cancelled','missing'])
+    def test_s05_terminal_fault_is_not_success_and_diagnostics_are_private(contract,status):
+        c=contract;c['row']()
+        if status=='missing':
+            with session_scope() as s:s.delete(s.get(Job,c['child']))
+        else:c['change'](status=status,error='private filesystem URL Key payload',failures={'items':[{'error_code':'bad secret not a code'}]})
+>       f=c['read']();assert not f['analysed'];assert f['error_code'];assert 'private' not in str(f) and 'secret' not in str(f)
+                                                      ^^^^^^^^^^^^^^^
+E       KeyError: 'error_code'
+
+tests/test_fallback_result_contract.py:62: KeyError
+_ test_s06_old_missing_or_foreign_successor_is_compatible_and_closed[foreign] __
+
+contract = {'pid': '1e247fbd-cf4d-44f8-98ed-396dad3c4022', 'jid': '8d59e244-5fdb-460b-b4b0-d39a41dccb03', 'child': '65387990-9d08-4568-afbc-2466020a3dd8', 'sid': '8e3d3c64-cc59-4db5-a14a-88b8ea7d695b', ...}
+state = 'foreign'
+
+    @pytest.mark.parametrize('state',['legacy','failed','foreign'])
+    def test_s06_old_missing_or_foreign_successor_is_compatible_and_closed(contract,state):
+        c=contract
+        with session_scope() as s:
+            if state=='foreign':
+                s.add(Project(id='different-project',name='foreign',source_roots=[]));s.flush();s.get(Job,c['child']).project_id='different-project'
+            else:s.get(Job,c['jid']).stats={} if state=='legacy' else {'fallback_state':'failed','fallback_schedule_error':'private internal detail'}
+>       f=c['read']();assert not f['analysed'];assert f.get('result_count',0)==0
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert not True
+
+tests/test_fallback_result_contract.py:71: AssertionError
+________ test_b23_the_runner_actually_executes_the_scheduled_successor _________
+
+fallback_env = namespace(pid='acff8910-8d05-4e91-8ed0-3eb76f0175ca', aid='7c6923f2-1bab-427b-80b3-3d8a58249538', ids=['144c6847-39e5-...0>, child_ids=['e6f8e1d2-151d-46b1-b2f1-bbe73fc7801e'], client=<starlette.testclient.TestClient object at 0x122d63ce0>)
+
+    @pytest.mark.needs_ffmpeg
+    def test_b23_the_runner_actually_executes_the_scheduled_successor(fallback_env):
+        """The API and real Runner must finish and persist the selected reading."""
+        parent, child = fallback_env.finish(fallback_env.start())
+>       assert_complete(fallback_env, parent, child)
+
+tests/test_fallback_job_tracking.py:311:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+env = namespace(pid='acff8910-8d05-4e91-8ed0-3eb76f0175ca', aid='7c6923f2-1bab-427b-80b3-3d8a58249538', ids=['144c6847-39e5-...0>, child_ids=['e6f8e1d2-151d-46b1-b2f1-bbe73fc7801e'], client=<starlette.testclient.TestClient object at 0x122d63ce0>)
+parent = <app.models.Job object at 0x12383aed0>
+child = <app.models.Job object at 0x123839e80>
+
+    def assert_complete(env,parent,child):
+>       assert parent.status=='succeeded',parent.failures
+E       AssertionError: {'count': 1, 'items': [{'kind': 'video_analyze', 'ref': 'job', 'message': 'video_native was requested but is unavailable (unsupported); running multiframe instead', 'error_code': 'VIDEO_CAPABILITY_UNSUPPORTED'}]}
+E       assert 'partial_failed' == 'succeeded'
+E
+E         - succeeded
+E         + partial_failed
+
+tests/test_video_fallback_runner_e2e.py:117: AssertionError
+------------------------------ Captured log setup ------------------------------
+ERROR    app.services.runner:runner.py:493 Job afcbc148-1016-47b0-aaf0-9fd1c8d9cf5c failed
+Traceback (most recent call last):
+  File "[repo]/backend/app/services/runner.py", line 480, in _run
+    task(job_id)
+  File "[repo]/backend/app/services/vision/video_job.py", line 552, in video_analyze_task
+    plan = plan_video_job(job_id)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "[repo]/backend/app/services/vision/video_job.py", line 336, in plan_video_job
+    effective, fallback_reason = resolve_mode(
+                                 ^^^^^^^^^^^^^
+  File "[repo]/backend/app/services/vision/video_job.py", line 308, in resolve_mode
+    raise ModelError(
+app.services.vision.errors.ModelError: VIDEO_CAPABILITY_UNVERIFIED: this endpoint has not been verified to accept video, and the request did not accept a fallback to multi-frame analysis
+=========================== short test summary info ============================
+FAILED tests/test_video_fallback_runner_e2e.py::test_b02_api_runs_parent_and_exactly_one_child
+FAILED tests/test_video_fallback_runner_e2e.py::test_b03_successor_pending_running_and_terminal_are_real_runner_states
+FAILED tests/test_video_fallback_runner_e2e.py::test_b05_same_selected_segment_is_persisted_and_publicly_queryable
+FAILED tests/test_video_fallback_runner_e2e.py::test_b06_selection_limit_force_and_consent_reach_the_successor
+FAILED tests/test_video_fallback_runner_e2e.py::test_b09_failures_are_visible_and_never_claim_stored_results[model]
+FAILED tests/test_video_fallback_runner_e2e.py::test_b09_failures_are_visible_and_never_claim_stored_results[ffmpeg]
+FAILED tests/test_video_fallback_runner_e2e.py::test_b09_failures_are_visible_and_never_claim_stored_results[schedule]
+FAILED tests/test_video_fallback_runner_e2e.py::test_b10_noop_store_cannot_turn_a_successful_job_into_a_reading
+FAILED tests/test_video_fallback_runner_e2e.py::test_s04_partial_success_reports_only_the_persisted_subset
+FAILED tests/test_fallback_result_contract.py::test_s02_completed_successor_requires_its_selected_real_reading
+FAILED tests/test_fallback_result_contract.py::test_s03_success_without_usable_evidence_is_not_analysed[absent]
+FAILED tests/test_fallback_result_contract.py::test_s03_success_without_usable_evidence_is_not_analysed[zero-stats]
+FAILED tests/test_fallback_result_contract.py::test_s03_success_without_usable_evidence_is_not_analysed[wrong-shot]
+FAILED tests/test_fallback_result_contract.py::test_s03_success_without_usable_evidence_is_not_analysed[historical]
+FAILED tests/test_fallback_result_contract.py::test_s03_success_without_usable_evidence_is_not_analysed[empty]
+FAILED tests/test_fallback_result_contract.py::test_s03_success_without_usable_evidence_is_not_analysed[wrong-method]
+FAILED tests/test_fallback_result_contract.py::test_s03_success_without_usable_evidence_is_not_analysed[wrong-range]
+FAILED tests/test_fallback_result_contract.py::test_s03_success_without_usable_evidence_is_not_analysed[superseded]
+FAILED tests/test_fallback_result_contract.py::test_s03_success_without_usable_evidence_is_not_analysed[unstarted]
+FAILED tests/test_fallback_result_contract.py::test_s04_partial_failure_counts_only_existing_valid_subset
+FAILED tests/test_fallback_result_contract.py::test_s05_terminal_fault_is_not_success_and_diagnostics_are_private[failed]
+FAILED tests/test_fallback_result_contract.py::test_s05_terminal_fault_is_not_success_and_diagnostics_are_private[cancelled]
+FAILED tests/test_fallback_result_contract.py::test_s05_terminal_fault_is_not_success_and_diagnostics_are_private[missing]
+FAILED tests/test_fallback_result_contract.py::test_s06_old_missing_or_foreign_successor_is_compatible_and_closed[foreign]
+FAILED tests/test_fallback_job_tracking.py::test_b23_the_runner_actually_executes_the_scheduled_successor

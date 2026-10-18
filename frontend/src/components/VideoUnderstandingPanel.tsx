@@ -301,12 +301,13 @@ function FallbackTracking({
   fallback?: JobFallbackOut | null
   stats?: JobOut['stats']
 }) {
-  // Nothing was handed over at all -- say nothing rather than imply a fallback.
-  if (!fallback || fallback.state === 'none') {
-    if (typeof stats?.fallback_schedule_error === 'string' && stats.fallback_schedule_error) {
+  // No successor: show the stable schedule diagnostic, never a blank Job.
+  if (!fallback || fallback.state === 'none' || fallback.state === 'failed') {
+    if (fallback?.state === 'failed' || (typeof stats?.fallback_schedule_error === 'string' && stats.fallback_schedule_error)) {
+      const code = fallback?.error_code || (String(stats?.fallback_schedule_error).startsWith('JobConflict') ? 'JobConflict' : 'FALLBACK_SCHEDULE_FAILED')
       return (
         <div className="mt-1 text-rose-300" data-testid="fallback-schedule-error">
-          回退未能排队：{stats.fallback_schedule_error}
+          回退未能排队：{code}。请到项目任务页查看或重试。
         </div>
       )
     }

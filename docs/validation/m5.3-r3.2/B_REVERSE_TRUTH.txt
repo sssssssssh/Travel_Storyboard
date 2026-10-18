@@ -1,0 +1,21 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_b10_noop_store_cannot_turn_a_successful_job_into_a_reading ________
+
+fallback_env = namespace(pid='9268dbe9-d115-4acc-97b5-b5446974fc7a', aid='4fde84de-cac3-45cc-a17c-acb18fb0dd57', ids=['29688372-4df8-...0>, child_ids=['a489f9d8-8b12-4fc7-b63d-7a919597088e'], client=<starlette.testclient.TestClient object at 0x1129f46b0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x112eaf890>
+
+    def test_b10_noop_store_cannot_turn_a_successful_job_into_a_reading(fallback_env, monkeypatch):
+        from app.services.vision import motion
+        e = fallback_env
+        monkeypatch.setattr(motion, '_store', lambda *a, **kw: None)
+        (parent, child) = e.finish(e.start())
+        assert child.status == 'succeeded'
+        assert child.stats['analyzed'] == 1 and e.results() == []
+        fb = e.client.get(f'/api/jobs/{parent.id}').json()['fallback']
+>       assert fb['analysed'] is False
+E       assert True is False
+
+tests/test_video_fallback_runner_e2e.py:298: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_video_fallback_runner_e2e.py::test_b10_noop_store_cannot_turn_a_successful_job_into_a_reading

@@ -40,7 +40,7 @@ from sqlalchemy import select
 
 from ...config import get_settings
 from ...database import begin_write, session_scope
-from ...models import Asset, Job, Segment
+from ...models import Asset, Job, Segment, SegmentMotionReview
 from ..runner import (
     JobCancelled,
     JobFailures,
@@ -60,7 +60,7 @@ from .errors import (
     MODEL_UPLOAD_DENIED,
     ModelError,
 )
-from ..job_service import VALID_JOB_TYPES
+from ..job_service import JobConflict, VALID_JOB_TYPES
 from .verdicts import source_identity
 from .video_capabilities import (
     UNSUPPORTED,
@@ -564,16 +564,8 @@ def video_analyze_task(job_id: str) -> None:
     }
     update_job(job_id, stats=dict(stats))
 
-    # Falling back is a *visible* decision, recorded before any work happens.
-    if plan.fallback_reason:
-        _record_failure(
-            failures,
-            code=plan.fallback_reason,
-            message=(
-                f"video_native was requested but is unavailable "
-                f"({plan.capabilities.state}); running {plan.effective_mode} instead"
-            ),
-        )
+    # The reason stays visible in stats. Successfully accepted degradation is
+    # not a business failure; only a failed successor enqueue is recorded below.
 
     # TSB-337: a fallback must be an *accounted* outcome, not an ambiguous
     # "complete". The existing image/multi-frame job types own the frame-based
@@ -620,7 +612,7 @@ def video_analyze_task(job_id: str) -> None:
         if not schedule.scheduled:
             _record_failure(
                 failures,
-                code=plan.fallback_reason or "VIDEO_MODE_NOT_NATIVE",
+                code="FALLBACK_SCHEDULE_FAILED",
                 message=(
                     f"video_native was not run and the {target_type} fallback "
                     f"could not be queued ({schedule.error})"
@@ -868,8 +860,11 @@ def _schedule_fallback(
             )
             successor_id = job.id
     except Exception as exc:  # noqa: BLE001 - reported, never swallowed
+        # Preserve the public conflict category without including exception text
+        # (which can contain workspace paths or private endpoint details).
+        category = "JobConflict" if isinstance(exc, JobConflict) else "FALLBACK_SCHEDULE_FAILED"
         return FallbackSchedule(
-            False, error=f"{type(exc).__name__}: {exc}", state="failed"
+            False, error=f"{category}: unable to enqueue successor", state="failed"
         )
     return FallbackSchedule(
         True, job_id=successor_id, job_type=target_type, state="scheduled"
@@ -877,40 +872,92 @@ def _schedule_fallback(
 
 
 def resolve_fallback_state(job: Job, session) -> dict:
-    """The live state of this job's fallback successor, for UI/reporting.
+    """Resolve live successor state and evidence, without mutating either Job.
 
-    TSB-354: ``fallback_state="scheduled"`` is written once, at queue time, and
-    then never updated -- so a UI reading it later would keep saying "已安排"
-    even after the successor finished, failed or was cancelled. This resolves the
-    successor's *current* status on read, and reports the terminal outcome
-    distinctly so a queued-then-failed fallback can never be shown as analysed.
+    A terminal state or optimistic counter alone cannot prove publication. Match
+    current multiframe rows to this project's selected shots, exact editable
+    interval and this Runner execution's time window. Historical/unrelated rows
+    must never turn an empty run into "analysed".
     """
+    import math
+    import re
+
     stats = dict(job.stats or {})
     successor_id = str(stats.get("fallback_job_id") or "")
-    if not successor_id:
-        return {
-            "state": stats.get("fallback_state", "none"),
-            "job_id": "",
-            "job_type": stats.get("fallback_job_type", ""),
-            "status": "",
-            # No successor means no frame-based analysis has happened or will.
-            "analysed": False,
-        }
-    successor = session.get(Job, successor_id)
-    if successor is None:
-        return {
-            "state": "missing", "job_id": successor_id,
-            "job_type": stats.get("fallback_job_type", ""), "status": "",
-            "analysed": False,
-        }
-    return {
-        "state": "resolved",
-        "job_id": successor.id,
-        "job_type": successor.job_type,
-        "status": successor.status,
-        # Only a *succeeded* successor means the frames were actually analysed.
-        "analysed": successor.status == "succeeded",
+    state = str(stats.get("fallback_state") or "none")
+    result = {
+        "state": state, "job_id": successor_id,
+        "job_type": str(stats.get("fallback_job_type") or ""), "status": "",
+        "analysed": False, "result_count": 0, "error_code": "",
     }
+    if not successor_id:
+        if state == "failed":
+            result["error_code"] = "FALLBACK_SCHEDULE_FAILED"
+        elif state not in ("none", ""):
+            result.update(state="missing", error_code="FALLBACK_JOB_MISSING")
+        return result
+    successor = session.get(Job, successor_id)
+    if successor is None or successor.project_id != job.project_id:
+        result.update(state="missing", error_code="FALLBACK_JOB_MISSING")
+        return result
+    result.update(state="resolved", job_type=successor.job_type, status=successor.status)
+    if successor.status in ("pending", "running", "cancelling"):
+        return result
+
+    def positive(value):
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
+    analyzed = positive((successor.stats or {}).get("analyzed"))
+    config = successor.config_snapshot or {}
+    if (successor.job_type == "motion_review" and analyzed
+            and successor.started_at is not None and successor.finished_at is not None):
+        query = select(SegmentMotionReview).join(
+            Segment, Segment.id == SegmentMotionReview.segment_id,
+        ).where(
+            SegmentMotionReview.project_id == job.project_id,
+            Segment.project_id == job.project_id,
+            SegmentMotionReview.asset_id == Segment.asset_id,
+            SegmentMotionReview.method == "multiframe",
+            SegmentMotionReview.status == "succeeded",
+            SegmentMotionReview.is_current.is_(True),
+            SegmentMotionReview.start_sec == Segment.start_sec,
+            SegmentMotionReview.end_sec == Segment.end_sec,
+            SegmentMotionReview.created_at >= successor.started_at,
+            SegmentMotionReview.created_at <= successor.finished_at,
+        )
+        selected = list(config.get("segment_ids") or [])
+        if selected:
+            query = query.where(SegmentMotionReview.segment_id.in_(selected))
+        rows = session.scalars(query).all()
+        def usable(row):
+            if not isinstance(row.action_summary, str) or not row.action_summary.strip() or not row.motion_type:
+                return False
+            evidence = row.evidence_json
+            frames = evidence.get("frames") if isinstance(evidence, dict) else None
+            return (isinstance(frames, list) and len(frames) >= 2
+                    and all(isinstance(frame, dict)
+                            and isinstance(frame.get("time_sec"), (int, float))
+                            and math.isfinite(frame["time_sec"])
+                            and row.start_sec < frame["time_sec"] < row.end_sec
+                            for frame in frames))
+
+        valid = {row.segment_id for row in rows if usable(row)}
+        result["result_count"] = min(len(valid), analyzed,
+                                     positive(config.get("limit") or get_settings().vision_max_segments_per_job))
+    result["analysed"] = successor.status == "succeeded" and result["result_count"] > 0
+    if successor.status == "succeeded" and not result["analysed"]:
+        result["error_code"] = "FALLBACK_NO_RESULTS"
+    elif successor.status in ("partial_failed", "failed", "cancelled"):
+        default = {"partial_failed": "FALLBACK_PARTIAL_FAILED", "failed": "FALLBACK_FAILED",
+                   "cancelled": "FALLBACK_CANCELLED"}[successor.status]
+        # Forward stable codes only, never raw worker errors or model payloads.
+        codes = [item.get("error_code") for item in (successor.failures or {}).get("items", [])]
+        result["error_code"] = next((code for code in codes
+                                     if isinstance(code, str) and re.fullmatch(r"[A-Z][A-Z0-9_]{1,63}", code)), default)
+    return result
 
 
 def _request_body_bytes(request) -> int:

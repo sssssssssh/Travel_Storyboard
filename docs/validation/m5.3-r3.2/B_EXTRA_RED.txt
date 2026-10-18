@@ -1,0 +1,51 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+___ test_s03_success_without_usable_evidence_is_not_analysed[missing-frames] ___
+
+contract = {'pid': '8282edb2-112f-4b67-9ba3-dc4585654955', 'jid': '959fc5a3-4b66-4b16-b2ae-15f9695d6c3d', 'child': '274461f7-fbd1-4918-94dc-162ee26b744b', 'sid': 'e81c70a3-a991-4364-a32f-e986133c091e', ...}
+kind = 'missing-frames'
+
+    @pytest.mark.parametrize('kind',['absent','zero-stats','wrong-shot','historical','empty','wrong-method','wrong-range','superseded','unstarted','missing-frames','empty-motion'])
+    def test_s03_success_without_usable_evidence_is_not_analysed(contract,kind):
+        c=contract
+        if kind=='zero-stats':c['row']();c['change'](stats={'analyzed':0})
+        elif kind=='wrong-shot':c['row'](segment_id=c['other'])
+        elif kind=='historical':c['row'](created_at=c['start']-timedelta(seconds=1))
+        elif kind=='empty':c['row'](action_summary='')
+        elif kind=='wrong-method':c['row'](method='video_native')
+        elif kind=='wrong-range':c['row'](start_sec=0)
+        elif kind=='superseded':c['row'](is_current=False)
+        elif kind=='missing-frames':c['row'](evidence_json={})
+        elif kind=='empty-motion':c['row'](motion_type='')
+        elif kind=='unstarted':c['row']();c['change'](started_at=None)
+>       f=c['read']();assert not f['analysed'];assert f['result_count']==0;assert f['error_code']=='FALLBACK_NO_RESULTS'
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert not True
+
+tests/test_fallback_result_contract.py:53: AssertionError
+____ test_s03_success_without_usable_evidence_is_not_analysed[empty-motion] ____
+
+contract = {'pid': '13499ba3-1659-4d1f-82f6-552ce2a593b3', 'jid': '38c58334-da55-44fb-8403-c1520333061d', 'child': '07ccb62b-d049-4ba3-8767-49e6f17ca311', 'sid': '2be18b1b-beb6-48db-a34a-e09c198b0dca', ...}
+kind = 'empty-motion'
+
+    @pytest.mark.parametrize('kind',['absent','zero-stats','wrong-shot','historical','empty','wrong-method','wrong-range','superseded','unstarted','missing-frames','empty-motion'])
+    def test_s03_success_without_usable_evidence_is_not_analysed(contract,kind):
+        c=contract
+        if kind=='zero-stats':c['row']();c['change'](stats={'analyzed':0})
+        elif kind=='wrong-shot':c['row'](segment_id=c['other'])
+        elif kind=='historical':c['row'](created_at=c['start']-timedelta(seconds=1))
+        elif kind=='empty':c['row'](action_summary='')
+        elif kind=='wrong-method':c['row'](method='video_native')
+        elif kind=='wrong-range':c['row'](start_sec=0)
+        elif kind=='superseded':c['row'](is_current=False)
+        elif kind=='missing-frames':c['row'](evidence_json={})
+        elif kind=='empty-motion':c['row'](motion_type='')
+        elif kind=='unstarted':c['row']();c['change'](started_at=None)
+>       f=c['read']();assert not f['analysed'];assert f['result_count']==0;assert f['error_code']=='FALLBACK_NO_RESULTS'
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert not True
+
+tests/test_fallback_result_contract.py:53: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_fallback_result_contract.py::test_s03_success_without_usable_evidence_is_not_analysed[missing-frames]
+FAILED tests/test_fallback_result_contract.py::test_s03_success_without_usable_evidence_is_not_analysed[empty-motion]

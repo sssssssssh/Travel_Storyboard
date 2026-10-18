@@ -1,0 +1,27 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_b03_successor_pending_running_and_terminal_are_real_runner_states ____
+
+fallback_env = namespace(pid='9765886a-9eaa-411d-8355-a7352014d394', aid='a093baa1-150e-4cd4-bba2-c2b446275a39', ids=['161f16f3-9a14-...0>, child_ids=['416694f5-d3a2-4ed8-8fd4-1c76fa4913ad'], client=<starlette.testclient.TestClient object at 0x112054e90>)
+
+    def test_b03_successor_pending_running_and_terminal_are_real_runner_states(fallback_env):
+        e = fallback_env
+        e.gate.clear()
+        e.reply.clear()
+        jid = e.start()
+        parent = e.terminal(jid)
+        sid = parent.stats['fallback_job_id']
+        assert e.read(sid).status == 'pending'
+        assert e.client.post(f'/api/projects/{e.pid}/jobs/scan').status_code == 409
+        e.gate.set()
+        assert e.in_provider.wait(15)
+        assert e.read(sid).status == 'running'
+>       assert e.read(sid).started_at is not None
+E       AssertionError: assert None is not None
+E        +  where None = <app.models.Job object at 0x124e10fb0>.started_at
+E        +    where <app.models.Job object at 0x124e10fb0> = <function fallback_env.<locals>.read at 0x124c231a0>('416694f5-d3a2-4ed8-8fd4-1c76fa4913ad')
+E        +      where <function fallback_env.<locals>.read at 0x124c231a0> = namespace(pid='9765886a-9eaa-411d-8355-a7352014d394', aid='a093baa1-150e-4cd4-bba2-c2b446275a39', ids=['161f16f3-9a14-...0>, child_ids=['416694f5-d3a2-4ed8-8fd4-1c76fa4913ad'], client=<starlette.testclient.TestClient object at 0x112054e90>).read
+
+tests/test_video_fallback_runner_e2e.py:204: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_video_fallback_runner_e2e.py::test_b03_successor_pending_running_and_terminal_are_real_runner_states

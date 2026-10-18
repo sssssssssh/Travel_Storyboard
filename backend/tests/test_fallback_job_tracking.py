@@ -23,9 +23,10 @@ import uuid
 
 import pytest
 from sqlalchemy import select
+from tests.test_video_fallback_runner_e2e import fallback_env, assert_complete
 
 from app.database import session_scope
-from app.models import Job, Project, SegmentMotionReview
+from app.models import Asset, Job, Project, Segment, SegmentMotionReview, utcnow
 from app.services.vision.video_job import (
     FallbackSchedule,
     _schedule_fallback,
@@ -179,7 +180,7 @@ def test_b17b_the_recorded_identity_is_resolvable(client):
 
 def _parent_with_successor(status: str) -> tuple[str, str, str]:
     """Parent job whose stats point at a successor in ``status``."""
-    pid, jid = _project_with_video_job()
+    pid, jid = _project_with_video_job(status="succeeded")
     sid = str(uuid.uuid4())
     with session_scope() as s:
         s.add(
@@ -195,6 +196,24 @@ def _parent_with_successor(status: str) -> tuple[str, str, str]:
             "fallback_job_type": "motion_review",
             "fallback_state": "scheduled",
         }
+    if status == 'succeeded':
+        # A positive contract fixture now includes actual selected evidence;
+        # succeeded with no evidence is separately rejected by S03.
+        from datetime import timedelta
+        aid, shot = str(uuid.uuid4()), str(uuid.uuid4())
+        with session_scope() as s:
+            s.add(Asset(id=aid, project_id=pid, source_path='contract-only', display_name='synthetic'))
+            s.flush()
+            s.add(Segment(id=shot, project_id=pid, asset_id=aid, start_sec=0, end_sec=2))
+            s.flush()
+            child = s.get(Job, sid)
+            child.started_at, child.finished_at = utcnow()-timedelta(seconds=1), utcnow()+timedelta(seconds=1)
+            child.config_snapshot = {'segment_ids': [shot], 'limit': 1}
+            child.stats = {'analyzed': 1}
+            s.add(SegmentMotionReview(project_id=pid, asset_id=aid, segment_id=shot,
+                start_sec=0, end_sec=2, method='multiframe', motion_type='pan',
+                action_summary='stored synthetic contract reading',
+                evidence_json={'frames': [{'time_sec': .5}, {'time_sec': 1.5}]}))
     return pid, jid, sid
 
 
@@ -301,86 +320,23 @@ def _motion_rows_for(pid: str):
         ).all()
 
 
-def test_b23_the_runner_actually_executes_the_scheduled_successor(client, monkeypatch):
-    """B23: 走**真实 Runner 入口**执行后继，并断言它真的跑完（不是只有 Job 行）。
-
-    任务书明确要求"完整回退调度—执行—入库 E2E"。只断言行被创建是不够的：
-    那正是 R3 的缺口 —— 任务排出来了，但没有任何证据表明它会被执行、会落库。
-    """
-    from app.services.vision import motion as motion_module
-
-    pid, jid = _project_with_video_job()
-    result = _schedule_fallback(
-        project_id=pid, target_type="motion_review",
-        plan=_Plan(segment_ids=[], limit=1),
-        upload_acknowledged=True, current_job_id=jid,
-    )
-    assert result.scheduled, result.error
-
-    # Execute the successor through its registered worker, recording that the real
-    # entry point was reached (rather than trusting the row's mere existence).
-    called: list[str] = []
-    real_entry = motion_module.motion_review_task
-
-    def spy(job_id: str):
-        called.append(job_id)
-        return real_entry(job_id)
-
-    from app.services.runner import TASK_REGISTRY
-
-    assert "motion_review" in TASK_REGISTRY, "后继类型必须已注册可执行的 worker"
-    # The runner dispatches through exactly this lookup, so substituting here
-    # exercises the same path a real worker would take.
-    monkeypatch.setitem(TASK_REGISTRY, "motion_review", spy)
-
-    TASK_REGISTRY["motion_review"](result.job_id)
-
-    assert called == [result.job_id], "必须真的通过注册入口执行后继"
-
-    with session_scope() as s:
-        successor = s.get(Job, result.job_id)
-        # It must have reached a terminal state rather than staying pending. The
-        # exact terminal may be `succeeded` or `failed` depending on whether real
-        # frames exist; what is forbidden is "still queued / never ran".
-        assert successor.status in {"running", "succeeded", "failed"}, (
-            f"后继必须被真实执行并进入终态，实际 {successor.status!r}"
-        )
-        assert successor.status != "pending" or successor.started_at is not None, (
-            "后继不得停留在「已排队但从未执行」"
-        )
 
 
-def test_b23b_the_successor_tracks_a_terminal_status_after_execution(client, monkeypatch):
-    """B23b: 执行后父 Job 解析出的终态必须跟随后继，而不是停在 scheduled。"""
-    from app.services.runner import TASK_REGISTRY
+@pytest.mark.needs_ffmpeg
+def test_b23_the_runner_actually_executes_the_scheduled_successor(fallback_env):
+    """The API and real Runner must finish and persist the selected reading."""
+    parent, child = fallback_env.finish(fallback_env.start())
+    assert_complete(fallback_env, parent, child)
 
-    pid, jid = _project_with_video_job()
-    result = _schedule_fallback(
-        project_id=pid, target_type="motion_review", plan=_Plan(limit=1),
-        upload_acknowledged=True, current_job_id=jid,
-    )
-    with session_scope() as s:
-        parent = s.get(Job, jid)
-        parent.stats = {
-            "fallback_scheduled": True,
-            "fallback_job_id": result.job_id,
-            "fallback_job_type": "motion_review",
-            "fallback_state": "scheduled",
-        }
 
-    monkeypatch.setitem(TASK_REGISTRY, "motion_review", lambda job_id: None)
-    TASK_REGISTRY["motion_review"](result.job_id)
-
-    with session_scope() as s:
-        successor = s.get(Job, result.job_id)
-        if not successor.status:
-            pytest.skip("successor status not set by stub")
-        resolved = resolve_fallback_state(s.get(Job, jid), s)
-    assert resolved["state"] == "resolved", (
-        "读到父 Job 时必须解析后继的**当前**状态，而不是回放排队那一刻的 "
-        "fallback_state='scheduled'"
-    )
-    assert resolved["status"] == successor.status
+@pytest.mark.needs_ffmpeg
+def test_b23b_the_successor_tracks_a_terminal_status_after_execution(fallback_env):
+    parent, child = fallback_env.finish(fallback_env.start())
+    assert child.status == 'succeeded'
+    assert child.finished_at is not None
+    assert fallback_env.results()
+    state = fallback_env.client.get(f'/api/jobs/{parent.id}').json()['fallback']
+    assert state['status'] == child.status and state['analysed']
 
 
 # ---------------------------------------------------------------------------

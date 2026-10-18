@@ -1,0 +1,57 @@
+
+> travel-storyboard-frontend@2.1.2 test
+> vitest run
+
+
+ RUN  v2.1.9 [repo]/frontend
+
+stderr | src/components/VideoFallbackPolling.test.tsx > F01 parent succeeded with pending child keeps fetching parent
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stderr | src/components/VisionPanel.test.tsx > unconfigured model shows guidance and sends no request
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stderr | src/pages/Project.test.tsx > shows background hashing file, bytes and signature mode
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stderr | src/pages/Export.test.tsx > RT15 restores all saved shots and keeps hints on save
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stderr | src/components/VideoUnderstandingPanel.test.tsx > an empty state says no reading exists rather than showing success
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stderr | src/pages/Review.test.tsx > loads persisted note and warns about a retained stale shot without overwriting note edits
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stderr | src/components/ReviewRequestCard.test.tsx > shows historic range, annotation, preview origin and edit-plan blocker; never auto selects
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/pages/Review.test.tsx (1 test) 311ms
+   ✓ loads persisted note and warns about a retained stale shot without overwriting note edits 310ms
+ ✓ src/components/ReviewRequestCard.test.tsx (5 tests) 351ms
+ ✓ src/pages/Export.test.tsx (3 tests) 421ms
+ ✓ src/pages/Project.test.tsx (8 tests) 576ms
+ ✓ src/components/VideoUnderstandingPanel.test.tsx (25 tests) 796ms
+ ✓ src/components/VisionPanel.test.tsx (21 tests) 832ms
+ ✓ src/__tests__/api-error-structure.test.ts (6 tests) 4ms
+ ✓ src/components/VideoFallbackPolling.test.tsx (19 tests) 1096ms
+ ✓ src/lib/api.test.ts (2 tests) 9ms
+ ✓ src/components/CleanupNotice.test.tsx (6 tests) 43ms
+ ✓ src/lib/useJob.test.tsx (1 test) 47ms
+stderr | src/App.test.tsx > application shell displays the release version built from package metadata
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/App.test.tsx (1 test) 28ms
+
+ Test Files  12 passed (12)
+      Tests  98 passed (98)
+   Start at  10:37:55
+   Duration  2.79s (transform 745ms, setup 0ms, collect 3.46s, tests 4.51s, environment 6.04s, prepare 857ms)

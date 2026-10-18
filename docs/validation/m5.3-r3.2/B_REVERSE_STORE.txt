@@ -1,0 +1,32 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ test_b05_same_selected_segment_is_persisted_and_publicly_queryable ______
+
+fallback_env = namespace(pid='6ef223a0-7e09-42bf-b77c-0a6fde80ada1', aid='8cd1bf7a-1f8f-47b4-afc2-1a30f54e70bb', ids=['f935d695-8bea-...0>, child_ids=['a7cde27d-b632-485b-ad5c-9b3a9fc82a23'], client=<starlette.testclient.TestClient object at 0x108c90c20>)
+
+    def test_b05_same_selected_segment_is_persisted_and_publicly_queryable(fallback_env):
+        e = fallback_env
+        (parent, child) = e.finish(e.start())
+>       assert_complete(e, parent, child)
+
+tests/test_video_fallback_runner_e2e.py:221:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+env = namespace(pid='6ef223a0-7e09-42bf-b77c-0a6fde80ada1', aid='8cd1bf7a-1f8f-47b4-afc2-1a30f54e70bb', ids=['f935d695-8bea-...0>, child_ids=['a7cde27d-b632-485b-ad5c-9b3a9fc82a23'], client=<starlette.testclient.TestClient object at 0x108c90c20>)
+parent = <app.models.Job object at 0x112b83ef0>
+child = <app.models.Job object at 0x112c21670>
+
+    def assert_complete(env, parent, child):
+        assert parent.status == 'succeeded', parent.failures
+        assert child.status == 'succeeded', child.failures
+        assert parent.started_at and parent.finished_at and child.started_at and child.finished_at
+        assert child.started_at >= parent.finished_at
+        assert child.stats['analyzed'] == 1
+        rows = env.results()
+>       assert len(rows) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/test_video_fallback_runner_e2e.py:165: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_video_fallback_runner_e2e.py::test_b05_same_selected_segment_is_persisted_and_publicly_queryable

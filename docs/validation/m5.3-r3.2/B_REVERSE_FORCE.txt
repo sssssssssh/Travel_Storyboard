@@ -1,0 +1,20 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_b06_selection_limit_force_and_consent_reach_the_successor ________
+
+fallback_env = namespace(pid='a51180bc-4b1f-4815-aab9-ed0178e12d4d', aid='9a6a2cd8-d7ab-476a-b504-db0d32d7027c', ids=['6d085a6d-b818-...0>, child_ids=['f71a1e6f-d42a-4e2d-8b04-3eede5596b0f'], client=<starlette.testclient.TestClient object at 0x1136da1b0>)
+
+    def test_b06_selection_limit_force_and_consent_reach_the_successor(fallback_env):
+        e = fallback_env
+        (parent, child) = e.finish(e.start())
+        assert parent.config_snapshot['segment_ids'] == child.config_snapshot['segment_ids'] == [e.ids[0]]
+        assert child.config_snapshot['limit'] == 1
+>       assert child.config_snapshot['upload_acknowledged'] and child.config_snapshot.get('force') is True
+E       AssertionError: assert (True and None is True)
+E        +  where None = <built-in method get of dict object at 0x148220980>('force')
+E        +    where <built-in method get of dict object at 0x148220980> = {'segment_ids': ['6d085a6d-b818-47f7-8db9-66a2912b4b47'], 'frame_count': 3, 'limit': 1, 'upload_acknowledged': True}.get
+E        +      where {'segment_ids': ['6d085a6d-b818-47f7-8db9-66a2912b4b47'], 'frame_count': 3, 'limit': 1, 'upload_acknowledged': True} = <app.models.Job object at 0x1481fb3b0>.config_snapshot
+
+tests/test_video_fallback_runner_e2e.py:227: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_video_fallback_runner_e2e.py::test_b06_selection_limit_force_and_consent_reach_the_successor

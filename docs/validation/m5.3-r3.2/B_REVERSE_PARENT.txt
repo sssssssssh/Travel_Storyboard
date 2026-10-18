@@ -1,0 +1,29 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________________ test_b02_api_runs_parent_and_exactly_one_child ________________
+
+fallback_env = namespace(pid='1a670670-a85a-402f-94bd-7f73f20e3ac8', aid='3bd50819-2323-4d58-97bc-6b72fc9ce674', ids=['55dac756-104d-...0>, child_ids=['b448cf1c-f23b-4b65-9a50-69acba505259'], client=<starlette.testclient.TestClient object at 0x10f238680>)
+
+    def test_b02_api_runs_parent_and_exactly_one_child(fallback_env):
+        e = fallback_env
+        (parent, child) = e.finish(e.start())
+>       assert_complete(e, parent, child)
+
+tests/test_video_fallback_runner_e2e.py:187:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+env = namespace(pid='1a670670-a85a-402f-94bd-7f73f20e3ac8', aid='3bd50819-2323-4d58-97bc-6b72fc9ce674', ids=['55dac756-104d-...0>, child_ids=['b448cf1c-f23b-4b65-9a50-69acba505259'], client=<starlette.testclient.TestClient object at 0x10f238680>)
+parent = <app.models.Job object at 0x10f7fc140>
+child = <app.models.Job object at 0x10f873da0>
+
+    def assert_complete(env, parent, child):
+>       assert parent.status == 'succeeded', parent.failures
+E       AssertionError: {'count': 1, 'items': [{'kind': 'video_analyze', 'ref': 'job', 'message': 'legacy degradation failure', 'error_code': 'VIDEO_CAPABILITY_UNSUPPORTED'}]}
+E       assert 'partial_failed' == 'succeeded'
+E
+E         - succeeded
+E         + partial_failed
+
+tests/test_video_fallback_runner_e2e.py:158: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_video_fallback_runner_e2e.py::test_b02_api_runs_parent_and_exactly_one_child

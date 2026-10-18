@@ -186,8 +186,10 @@ class FallbackOut(BaseModel):
     job_id: str = ""
     job_type: str = ""
     status: str = ""
-    #: True only when the successor actually **succeeded**.
+    #: True only when a successful successor has attributable persisted evidence.
     analysed: bool = False
+    result_count: int = 0
+    error_code: str = ""
 
 
 class JobOut(ORMModel):

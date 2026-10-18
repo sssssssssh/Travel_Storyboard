@@ -244,6 +244,7 @@ def semantic_attempt_history(segment_id: str, limit: int = Query(20, ge=1, le=10
 def _motion_config(project: Project, request: JobRequest) -> dict:
     options = request.options or {}
     return {
+        "force": bool(request.force),
         "segment_ids": list(options.get("segment_ids") or []),
         "frame_count": int(options.get("frame_count") or get_settings().motion_frame_count),
         "limit": int(options.get("limit") or get_settings().vision_max_segments_per_job),

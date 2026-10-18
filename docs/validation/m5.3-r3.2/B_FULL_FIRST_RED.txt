@@ -1,0 +1,70 @@
+............................ss.......................................... [  5%]
+........................................................ssssssssssssssss [ 10%]
+.....sss..s...ssssssssssss.............................................. [ 16%]
+........................................................................ [ 21%]
+..................ssss.s..................ssss.......................... [ 26%]
+........................................................................ [ 32%]
+........................................................................ [ 37%]
+........................................................................ [ 42%]
+........................................................................ [ 48%]
+..............................................s......................... [ 53%]
+........................................................................ [ 58%]
+........................................................................ [ 64%]
+........................................................................ [ 69%]
+......F................................................................. [ 74%]
+........................................................................ [ 80%]
+........................................................................ [ 85%]
+........................................................................ [ 90%]
+........................................................................ [ 96%]
+.....................................................                    [100%]
+=================================== FAILURES ===================================
+____________ test_v39c_a_foreign_live_job_still_blocks_the_fallback ____________
+
+client = <starlette.testclient.TestClient object at 0x1273d7d40>
+
+    def test_v39c_a_foreign_live_job_still_blocks_the_fallback(client):
+        """V39c: 只有自己的前驱可以豁免；其他活跃互斥任务仍必须冲突。
+
+        这是防止 TSB-348 的豁免被滥用的关键断言 —— 互斥语义不得被削弱。
+        """
+        import uuid as _uuid
+
+        from sqlalchemy import select
+
+        import app.services.vision.video_job as vj
+        from app.database import session_scope
+        from app.models import Job
+
+        pid, jid = _project_with_running_video_job(client)
+        with session_scope() as s:
+            s.add(
+                Job(
+                    project_id=pid, job_type="vision_analyze", status="running",
+                    config_snapshot={}, stats={}, failures={"count": 0, "items": []},
+                )
+            )
+        scheduled, error = vj._schedule_fallback(
+            project_id=pid, target_type="motion_review", plan=_FakePlan(),
+            upload_acknowledged=True, current_job_id=jid,
+        )
+        assert not scheduled, "存在其他活跃互斥任务时必须冲突，而不是照常排队"
+>       assert "JobConflict" in error
+E       AssertionError: assert 'JobConflict' in 'FALLBACK_SCHEDULE_FAILED: unable to enqueue successor'
+
+tests/test_video_fallback_execution.py:431: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    app.services.runner:runner.py:493 Job 1cfc1990-61ab-4088-8e28-a48837bbf77e failed
+Traceback (most recent call last):
+  File "[repo]/backend/app/services/runner.py", line 480, in _run
+    task(job_id)
+  File "[repo]/backend/app/services/vision/video_job.py", line 552, in video_analyze_task
+    plan = plan_video_job(job_id)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "[repo]/backend/app/services/vision/video_job.py", line 336, in plan_video_job
+    effective, fallback_reason = resolve_mode(
+                                 ^^^^^^^^^^^^^
+  File "[repo]/backend/app/services/vision/video_job.py", line 308, in resolve_mode
+    raise ModelError(
+app.services.vision.errors.ModelError: VIDEO_CAPABILITY_UNVERIFIED: this endpoint has not been verified to accept video, and the request did not accept a fallback to multi-frame analysis
+=========================== short test summary info ============================
+FAILED tests/test_video_fallback_execution.py::test_v39c_a_foreign_live_job_still_blocks_the_fallback

@@ -16,17 +16,17 @@ const tick = async (ms = 20) => {
 }
 function harness(options: { noFallback?: boolean; fast?: boolean } = {}) {
   vi.useFakeTimers()
-  const state = { status: 'pending', missing: false, networkError: false, started: 0 }
+  const state = { status: 'pending', missing: false, networkError: false, started: 0, scheduleFailed: false }
   const paths: string[] = []
   vi.mocked(api).mockImplementation(async (url, init) => {
     const path = url.split('?')[0]; paths.push(path)
     if (init?.method === 'POST') { state.started++; return { id: `parent-${state.started}`, status: options.fast ? 'succeeded' : 'pending' } as never }
     if (path.startsWith('/api/jobs/')) {
       if (state.networkError) throw new Error('temporary local service error')
-      return { id: path.split('/').pop(), project_id: 'p', status: 'succeeded', stats: {},
-        fallback: options.noFallback ? { state: 'none' } : { state: state.missing ? 'missing' : 'resolved', job_id: 'child-1', job_type: 'motion_review', status: state.status,
+      return { id: path.split('/').pop(), project_id: 'p', status: state.scheduleFailed ? 'partial_failed' : 'succeeded', stats: state.scheduleFailed ? {fallback_schedule_error:'private URL Key payload must not be rendered'} : {},
+        fallback: options.noFallback ? { state: 'none' } : { state: state.scheduleFailed ? 'failed' : state.missing ? 'missing' : 'resolved', job_id: state.scheduleFailed ? '' : 'child-1', job_type: 'motion_review', status: state.status,
           analysed: state.status === 'succeeded', result_count: ['succeeded', 'partial_failed'].includes(state.status) ? 1 : 0,
-          error_code: state.status === 'failed' ? 'MODEL_RESPONSE_INVALID' : '' } } as never
+          error_code: state.scheduleFailed ? 'FALLBACK_SCHEDULE_FAILED' : state.status === 'failed' ? 'MODEL_RESPONSE_INVALID' : '' } } as never
     }
     if (path.endsWith('/video-observations')) return [] as never
     if (path.endsWith('/video-coverage')) return { library_segments: 2, segments_with_video_reading: 0, segments_not_covered: 2, failed_attempts: 0, event_candidates: 0, complete: false } as never
@@ -67,7 +67,7 @@ test('F08 first GET already has a terminal parent and pending successor', async 
   const h=harness({ fast:true }); await h.start(); expect(h.gets()).toBe(1); h.state.status='succeeded'; await tick(1600); expect(h.gets()).toBe(2); expect(screen.getByTestId('fallback-analysed').textContent).toContain('已入库')
 })
 test('F09 project switch drops the old job and old results, including its polling', async () => {
-  const h=harness(); await h.start(); const n=h.gets(); h.switchProject(); await tick(5000); expect(h.gets()).toBe(n); expect(screen.queryByTestId('fallback-tracking')).toBeNull(); expect(screen.queryByText(/Mock derived frames/)).toBeNull(); expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false)
+  const h=harness(); await h.start(); h.state.status='succeeded'; await tick(1600); expect(screen.getByText(/Mock derived frames/)).toBeTruthy(); const n=h.gets(); h.switchProject(); await tick(5000); expect(h.gets()).toBe(n); expect(screen.queryByTestId('fallback-tracking')).toBeNull(); expect(screen.queryByText(/Mock derived frames/)).toBeNull(); expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false)
 })
 test('F09 unmount stops old requests', async () => {
   const h=harness(); await h.start(); h.rendered.unmount(); const n=h.gets(); await tick(5000); expect(h.gets()).toBe(n)
@@ -91,4 +91,13 @@ test('fallback permission is separate, defaults off, and is sent only after an e
 test('fallback remains denied in the request unless the separate switch was selected', async () => {
   harness(); await tick(); fireEvent.click(screen.getByRole('checkbox')); fireEvent.click(screen.getByRole('button',{name:'开始视频分析'})); await tick()
   const post=vi.mocked(api).mock.calls.find(([,options])=>options?.method==='POST')!; expect(JSON.parse(post[1]!.body as string).allow_fallback).toBe(false)
+})
+
+
+test('S06 a failed schedule shows only its stable code, with no blank successor or private error', async () => {
+  const h=harness(); h.state.scheduleFailed=true; await h.start(); expect(screen.getByTestId('fallback-schedule-error').textContent).toContain('FALLBACK_SCHEDULE_FAILED'); expect(screen.queryByTestId('fallback-tracking')).toBeNull(); expect(screen.queryByText(/private URL Key/)).toBeNull(); const n=h.gets(); await tick(4000); expect(h.gets()).toBe(n)
+})
+
+test('a newly accepted job replaces old polling and resets the UI pause', async () => {
+  const h=harness(); await h.start(); fireEvent.click(screen.getByRole('button',{name:'暂停状态刷新'})); h.state.status='pending'; fireEvent.click(screen.getByRole('button',{name:'开始视频分析'})); await tick(); const old=h.paths.filter(p=>p==='/api/jobs/parent-1').length; await tick(3200); expect(h.paths.filter(p=>p==='/api/jobs/parent-1').length).toBe(old); expect(h.paths.filter(p=>p==='/api/jobs/parent-2').length).toBeGreaterThan(1); expect(screen.getByRole('button',{name:'暂停状态刷新'})).toBeTruthy()
 })

@@ -1154,7 +1154,7 @@ A/B 报告 `AB_RESULTS.json` 的 `status` 为 `not_annotated`，**所有指标�
 | `::B16d` | 保持向后兼容：`scheduled, error = ...` 仍可解包 |
 | `::B17` | **断言 worker 源码**确实把后继身份写入父 Job stats |
 | `::B17b` | 写入的身份必须能被解析回真实存在的同一行 |
-| `::B18` | 六种后继状态逐一钉住：**只有 `succeeded` 的 `analysed` 为真** |
+| `::B18` | 六种后继状态逐一钉住：只有 `succeeded` 且本次选中镜头的有效多帧结果可核验时 `analysed` 才为真（R3.2 加强） |
 | `::B19` | 没有后继 ⇒ 永远不可能是"已分析" |
 | `::B20` | 后继行消失 ⇒ 报 `missing`，**不得假设成功** |
 | `::B21` | 成功的回退是预期降级，**不得**记入 failures（父 Job 不得假报 partial_failed） |
@@ -1170,7 +1170,7 @@ A/B 报告 `AB_RESULTS.json` 的 `status` 为 `not_annotated`，**所有指标�
 | --- | --- |
 | `VideoUnderstandingPanel.test.tsx` | 已排队 ⇒ 显示"已排队，尚未开始"，**不得**出现"已入库" |
 | 同上 | 运行中 ⇒ "正在分析"，仍**不得**显示已分析 |
-| 同上 | 只有 `succeeded` ⇒ 显示"已完成 / 已入库" |
+| 同上 | 只有 `succeeded` 且后端确认 `analysed` ⇒ 显示"已完成 / 已入库" |
 | 同上 | 失败 / 取消 ⇒ 明确显示终态，**不得**读成已分析 |
 | 同上 | 后继消失 ⇒ 显示"无法确认"，不得假设成功 |
 | 同上 | 排队失败 ⇒ 显示原因（`JobConflict` 等） |
@@ -1196,6 +1196,21 @@ A/B 报告 `AB_RESULTS.json` 的 `status` 为 `not_annotated`，**所有指标�
 |---|---|---|
 | VideoFallbackPolling F01/F02/F03/F08 | TSB-356 | 父终态后继续观察活跃后继；快任务首响应终态也不丢；子终态停止请求 |
 | F04/F05/F06/F10 | TSB-356 | 完成刷新并显示实际多帧结果；部分失败/失败/取消/缺失诚实呈现，不伪造原生视频记录 |
-| F07/F09 + network/pause + permission（17 场景合计） | TSB-356 | 普通 Job 不额外轮询、卸载/切项目隔离、错误恢复、界面暂停不取消任务，回退独立默认关闭 |
+| F07/F09 + network/pause + permission/new-job（前端本文件共 19 场景） | TSB-356 | 普通 Job 不额外轮询、卸载/切项目清除旧读数、新任务替换旧查询并恢复刷新、错误恢复、界面暂停不取消任务，回退独立默认关闭 |
+| test_video_fallback_runner_e2e B01 | TSB-357 | 无上传确认在业务授权边界拒绝：不抽帧、不请求模型；API 允许建立任务不等于上传获准 |
+| B02/B03 | TSB-357 | 正式 API → 真实 submit/_run，父成功、唯一子 pending→running→终态，真实开始/结束时间与锁互斥 |
+| B04/B05 | TSB-357 | 真实 FFmpeg、Provider 序列化 ≥2 张 JPEG、仅回环 Mock、去 EXIF、选中镜头实际入库且公开 API 可查 |
+| B06 | TSB-357 | segment_ids/limit/force/consent 传入子任务，不处理未选镜头 |
+| B07 | TSB-357/358 | 源 SHA/大小/mtime、评分/备注/检测与编辑边界、历史人工镜像及正式 verdict API 追加的判定历史在重跑后不变 |
+| B08（成功/排队取消/运行取消） | TSB-357/358 | 自有 stage 清理、锁释放；排队取消不抽帧/上传；取消历史父任务不取消子任务 |
+| B09（schedule/model/invalid/ffmpeg） | TSB-357/358 | 入队拒绝、Mock 400、无效 200、媒体失败均稳定诊断，不显示成功分析 |
+| B10 + 6 项逆向验证 | TSB-357/358/359 | 删除真实入库、绕过 Runner、仅凭状态判成功、丢 force、恢复父误报失败、移出强制媒体清单分别 RED |
+| test_fallback_result_contract S01/S02 | TSB-358 | 活跃子未完成；成功需同项目/资产/镜头/精确区间/本次时间窗/有效帧证据和正计数 |
+| S03（14 种空/失效/畸形证据） | TSB-358 | succeeded 空结果、零计数、历史/别的镜头、失效区间、缺帧或坏帧一律 FALLBACK_NO_RESULTS |
+| S04 + Runner S04 | TSB-358 | 真正部分成功仅报告实际入库子集和错误码，analysed=false |
+| S05/S06 + 前端 S06 | TSB-358 | 失败/取消/缺失/跨项目/旧 Job/调度失败兼容，不泄露原始错误或无限轮询 |
+| S07 | TSB-358 | 详情/列表读数一致、只读解析不更改人工状态和镜头边界 |
+
+以上逐一覆盖任务书 F01～F10、B01～B10、S01～S07 共 27 个验收编号；参数化场景数与编号数分开计。后端专项三个文件合计 65 passed / 0 skipped，其中新 Runner 17、状态契约 26、原追踪升级 22。两份新后端文件均加入 Required FFmpeg 清单；既有 skip guard 未放宽。
 
 T25 手动步骤补充：显式选择“允许本次回退”并单独确认上传；父任务结束后核对后继编号和 pending→running→终态；确认多帧卡出现且原生视频数量不增加；缺失/失败不可当成功。暂停只停界面刷新，取消应在项目页选择真实后继编号。真人与真实模型验收未执行，G5/G6 不变。

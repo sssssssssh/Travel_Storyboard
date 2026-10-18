@@ -1,0 +1,13 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______________ test_b10_media_suite_is_explicitly_forced_in_ci ________________
+
+    def test_b10_media_suite_is_explicitly_forced_in_ci():
+        from pathlib import Path
+        text = (Path(__file__).resolve().parents[2] / '.github/workflows/ci.yml').read_text(encoding='utf-8')
+>       assert 'tests/test_video_fallback_runner_e2e.py' in text
+E       AssertionError: assert 'tests/test_video_fallback_runner_e2e.py' in 'name: CI\n\non:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n  workflow_dispatch:\n\nconcur...n        run: pnpm run test\n\n      - name: Build\n        working-directory: frontend\n        run: pnpm run build\n'
+
+tests/test_video_fallback_runner_e2e.py:346: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_video_fallback_runner_e2e.py::test_b10_media_suite_is_explicitly_forced_in_ci
