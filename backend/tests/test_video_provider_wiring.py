@@ -188,7 +188,7 @@ def _make_source(path: Path, *, duration: float = 6.0) -> None:
     the product itself never uses.
     """
     cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
         "-f", "lavfi", "-i", f"testsrc=size=320x240:rate=10:duration={duration}",
         "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",

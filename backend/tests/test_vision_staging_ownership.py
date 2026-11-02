@@ -1,5 +1,6 @@
 """TSB-318: both workers use registered, exact Job-owned visual staging."""
 import os
+from collections import OrderedDict
 from pathlib import Path
 import uuid
 
@@ -155,7 +156,13 @@ def test_completed_receipt_cannot_delete_recreated_directory(project):
 
 
 def test_success_registry_is_bounded_and_failure_evidence_is_retained(project, monkeypatch):
-    pid = project['id']; baseline = len(cleanup._OWNERS)
+    pid = project['id']
+    # _OWNERS/_CLEANED are process-global; other tests leave entries behind and the
+    # bounded eviction below would then remove *their* rows, making the count
+    # assertion depend on test order. Start from a clean registry instead.
+    monkeypatch.setattr(cleanup, '_OWNERS', {})
+    monkeypatch.setattr(cleanup, '_CLEANED', OrderedDict())
+    baseline = len(cleanup._OWNERS)
     monkeypatch.setattr(cleanup, '_CLEANED_LIMIT', 4)
     for _ in range(8):
         jid, stage = visual_stage(pid, 'vision_analyze')

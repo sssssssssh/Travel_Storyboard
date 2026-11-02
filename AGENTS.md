@@ -113,13 +113,20 @@ docs(TSB-246): v2.0.4 发布记录、回归清单与实机验收门禁
 
 ```powershell
 cd backend
-# 全套（含真实 FFmpeg 解码，约 95s）
+# 全套（含真实 FFmpeg 解码）
 .\.venv\Scripts\python.exe -m pytest -q
 
 # 需要"缺工具/静默跳过即失败"时（CI media job 用的模式）
 $env:TSB_REQUIRE_FFMPEG = "1"
 .\.venv\Scripts\python.exe -m pytest -q
 ```
+
+> **耗时因机器差异极大，不要拿一个数字当基准。** macOS arm64 上约 1.5 分钟；
+> 同一份代码在 Windows 本机（`LongPathsEnabled=0`、媒体测试全跑）实测
+> **21 分 56 秒 / 1349 collected**。低于这个数量级的"全套通过"多半是没跑全。
+>
+> 想看到实时进度、定位卡在哪个用例，用 `-u -v` 直接写文件，不要接 `| tail`：
+> `... -u -m pytest -v > run.log`（管道会把输出憋到进程结束）。
 
 要计数时用 junitxml，比抓 stdout 可靠：
 
@@ -271,6 +278,30 @@ v2.0.7 起，先通过 `create_owned_staging` 原子新建并登记 Job/项目/�
 `terminate()` 只作用于直接子进程，孙进程会存活。Windows 走 Job Object
 （`KILL_ON_JOB_CLOSE`），POSIX 走独立进程组信号。作用域仅限本次启动，
 **禁止** `/IM`、`pkill`、`killall` 这类全局终止。
+
+### 5.10 测试里生成媒体必须用 `require_ffmpeg()` 返回的路径
+
+本机 FFmpeg **不在 PATH**（走 `locate_ffmpeg()` 找到 `bin/` 的副本），CI 才装进 PATH。
+所以测试里写死 `subprocess.run(["ffmpeg", ...])` 会**在本机报 WinError 2**，而 CI 全绿：
+
+- 2026-11-02 实测：`test_video_provider_wiring.py` 的 `_make_source()` 写死 `"ffmpeg"`，
+  连累 `test_video_e2e_formal_api.py`（它 import 同一个 helper）共 **17 个 ERROR**。
+  改成 `require_ffmpeg()` 返回值后，在 FFmpeg 仍不在 PATH 的同一台机器上 17/17 通过。
+
+这与 3.2「接线要单独测」是同一类缺陷：守卫在（`@needs_ffmpeg` + `require_ffmpeg()`），
+但**返回值被丢掉**，等于没接线。写新用例时自查：命令行的第 0 个元素是不是 `require_ffmpeg()`。
+
+### 5.11 两个已知的测试间偶发污染（Windows 本机）
+
+全量跑时偶发失败、**单独复跑即通过**的用例有两个，定位这类问题时先单独复跑，
+再用 `-u -v` 分文件排查，不要急着改断言：
+
+- `test_video_fallback_runner_e2e.py::test_b01_no_upload_consent...`：前序用例的后台
+  job 未收敛，晚到的抽帧被记进当前用例的 tracker（机制已定位，见
+  [docs/validation/win-local-2026-11-02.md](docs/validation/win-local-2026-11-02.md)）；
+- `test_vision_cleanup_status.py::test_successful_model_with_failed_cleanup...[motion]`：机制未定，观察项。
+
+与本文件 §六 一样，这类「间歇竞争」在复现前**不得**用 xfail/skip 压下去。
 
 ---
 

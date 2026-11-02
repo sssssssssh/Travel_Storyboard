@@ -381,6 +381,11 @@ pending ──worker 开始且无取消──► running ──► succeeded / p
 | M2 | 镜头识别 + 画质：场景边界、长镜头子段、代表帧、感知排重、画质指标 | ✅ |
 | M3 | 双轮 AI 闭环：脱敏分析包 + 复核请求导入 + 低清预览 + 可选直连模型 | ✅ |
 | M4 | 故事板 + 导出：剪辑时间线 CSV / JSON / OTIO、代理粗剪 | ✅ |
+| M5 | 视觉理解 + 动态复核：图像语义、逐镜头人工复核、证据缓存、HTTPS 传输 | ✅ 代码级完成，真人 UI 待验 |
+| M5.3 | 原生视频理解：镜头短片派生、能力门禁、预算台账、回退执行、A/B 评价 | ⚠️ 代码级完成，真实端点阻塞 |
+
+进度与门禁现状见 [README「当前进度与发布门禁」](../README.md#当前进度与发布门禁)；
+逐批明细见 [RELEASE_M5_3_R1](RELEASE_M5_3_R1.md) … [RELEASE_M5_3_R3_2](RELEASE_M5_3_R3_2.md)。
 
 具体验收场景见 [REGRESSION.md](REGRESSION.md) 的 T01–T19 清单（自动化部分由
 `backend/tests/` 覆盖，生成素材真实解码在独立 Ubuntu/Windows FFmpeg Job 必跑，旅行实片仍需手工）。

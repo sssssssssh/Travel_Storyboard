@@ -28,10 +28,63 @@
 | M2 | 镜头识别 + 画质：场景边界、长镜头子段、代表帧、感知排重、画质指标 | ✅ |
 | M3 | 双轮 AI 闭环：脱敏分析包 + 复核请求导入 + 低清预览 + 可选直连模型 | ✅ |
 | M4 | 故事板 + 导出：剪辑时间线 CSV / JSON / OTIO、代理粗剪 | ✅ |
+| M5 | 视觉理解 + 动态复核：图像语义、逐镜头人工复核、证据缓存、HTTPS 传输 | ✅ 代码级完成，真人 UI 待验 |
+| M5.3 | 原生视频理解：镜头短片派生、能力门禁、预算台账、回退执行、A/B 评价 | ⚠️ 代码级完成，真实端点阻塞 |
 
 > 说明：OTIO 为实验性中间格式（需在目标 NLE 实测）；直连模型需配置
 > `TRAVELSB_MODEL_BASE_URL` / `TRAVELSB_MODEL_API_KEY`，未配置时走离线分析包流程。
 > 未做真机验收前，M3/M4 建议按“可用但需实测”看待。
+
+## 当前进度与发布门禁
+
+**最新批次**：M5.3-R3.2（TSB-356～359），`main@506ca69`（2026-10-18）。本节的判定口径与
+[M5.3-R3.2 发布记录](docs/RELEASE_M5_3_R3_2.md) 一致：**代码级闭环通过，发布门禁未完成**。
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| G1 静态检查 + 单元测试 | PASS | 见下方[本机实测](#本机实测) |
+| G5 真实端点视频能力 | `blocked_by_endpoint` | PAI-EAS 端点全线 HTTP 503 `no healthy upstream`（文本/图片/视频一律），属外部部署状态 |
+| G6 真实 A/B（原生视频 vs 抽帧） | `not_evaluated` | 依赖 G5 |
+| 真人 UI 审阅 + 8～10 段真实旅行素材 | 未完成 | 现有仅 6 段同类型 HEVC；本轮 UI 实际用 2 段 / 17 镜头 |
+| Windows 真机人工走查 | 未完成 | CI 的 Windows 作业通过**不等于**真机验收 |
+| 200GB / 60+ 视频全量性能 | 未测 | 不得用耗时外推 |
+| HDR 色彩准确 | 未验收 | 合成 HDR 不构成证据 |
+| M6「AI 导演」成品化 | 未开始 | — |
+
+在 G5、G6 完成前，**不得**声称「视频模型已真正看懂旅行视频」或「视频输入优于抽帧」。
+完整未完成项清单见各批发布记录的「尚未完成」小节。
+
+### 本机实测（2026-11-02，Windows 开发机）
+
+环境：Windows 10 19045（`LongPathsEnabled=0`）、Python 3.13.7（`backend/.venv`）、
+FFmpeg 9.0.2（仓库自带，**不在 PATH**）、Node 22。命令与完整记录见
+[docs/validation/win-local-2026-11-02.md](docs/validation/win-local-2026-11-02.md)。
+
+| 项 | 结果 |
+|---|---|
+| 后端严格全量（`TSB_REQUIRE_FFMPEG=1`，从 `backend/` 运行） | 1349 collected / **1342 passed** / 2 failed / 5 skipped / 0 errors，22m51s |
+| 前端 typecheck / lint / test / build | 四项通过，**98 passed / 12 files** |
+
+两个失败用例**单独复跑均通过**，判定为测试间干扰（隔离缺陷），不是产品行为缺陷：
+
+- `test_b01_no_upload_consent_means_no_frames_and_no_model_request`：三轮全量中两次失败，机制已定位——前序用例遗留的后台 job 未收敛，晚到的抽帧被记进当前用例的 tracker；
+- `test_successful_model_with_failed_cleanup_is_partial_and_retry_is_model_free[motion]`：本轮失败、单独复跑通过，机制未定，作为观察项保留。
+
+5 个 skipped 均为白名单内的平台事实（3 项符号链接创建无权限 + 2 项链接平台专属）。
+本轮同批修复了 4 个测试基建缺陷（FFmpeg 接线、符号链接守卫、全局注册表隔离），只改 `backend/tests/`，不涉及产品代码。
+
+**已知缺口**：M5.3-R3.2 要求的「最终同 SHA CI 回执」
+`docs/validation/m5.3-r3.2/FINAL_HEAD_CI.local.json` 被 `.gitignore` 精确忽略，仓库内不存在。
+因此 `506ca69` 的 7/7 无法从仓库复核，只能追溯当次交付回复；重新放行前需按
+`.github/workflows/ci.yml` 再核验一次，且不能沿用被取代的中间批次绿色。
+
+### 版本口径
+
+产品版本以根目录 `VERSION` 为准（当前 **2.1.2**），后端 / API / 前端 / 启动器一致，
+前端 `package.json` 由 `python scripts/sync_version.py` 同步、CI 校验。
+
+`v2.1.3`、`M5.3-R1` … `M5.3-R3.2` 是**文档批次号**，不表示产品版本已提升；
+仓库当前**没有 git tag**，发布点以 `VERSION` + 发布记录中记录的 commit 为准。
 
 
 ## 技术栈

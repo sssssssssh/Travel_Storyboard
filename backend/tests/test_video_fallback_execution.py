@@ -275,7 +275,10 @@ def test_v37_a_dangling_link_is_not_reported_as_never_created():
 
     tmp = Path(tempfile.mkdtemp())
     dangling = tmp / "staging-dangling"
-    os.symlink(tmp / "does-not-exist", dangling)
+    try:
+        os.symlink(tmp / "does-not-exist", dangling)
+    except OSError:
+        pytest.skip("link creation is a platform fact")
 
     assert not Path(dangling).exists(), "前提：Path.exists() 跟随链接，悬空时为 False"
     assert vj.path_occupies_disk(dangling), (

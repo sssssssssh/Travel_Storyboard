@@ -94,7 +94,12 @@ def test_v17_a_dangling_leaf_symlink_is_refused_not_skipped(client, tmp_path):
     import shutil
 
     shutil.rmtree(stage)
-    os.symlink(str(tmp_path / "does_not_exist"), stage)
+    try:
+        os.symlink(str(tmp_path / "does_not_exist"), stage)
+    except OSError:
+        # Windows without SeCreateSymbolicLinkPrivilege cannot make the link at
+        # all; that is a platform fact, not a silent skip of the assertion.
+        pytest.skip("link creation is a platform fact")
 
     result = cleanup.cleanup_owned_staging(pid, stage, owner_job_id=jid)
     assert not result.ok, (
@@ -115,7 +120,10 @@ def test_v17b_a_dangling_link_never_grants_deletion_rights(client, tmp_path):
 
     shutil.rmtree(stage)
     victim = _victim(tmp_path)
-    os.symlink(str(victim), stage)  # now NOT dangling: it points at the victim
+    try:
+        os.symlink(str(victim), stage)  # now NOT dangling: it points at the victim
+    except OSError:
+        pytest.skip("link creation is a platform fact")
 
     cleanup.cleanup_owned_staging(pid, stage, owner_job_id=jid)
     assert (victim / "important.txt").exists(), (
