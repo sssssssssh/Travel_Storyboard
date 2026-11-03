@@ -94,12 +94,20 @@ jobs:
           print(f"backend job: collected={total} passed={total - failures - errors - skipped} "
                 f"failures={failures} errors={errors} skipped={skipped}")
 
+      # TSB-361: same reason as the media job — the failing node id has to be on
+      # the run page, not only in a log that requires a GitHub session.
+      - name: Annotate failures and skips
+        if: always()
+        working-directory: backend
+        run: >-
+          python ../scripts/ci_annotate.py backend-results.xml
+          --label "backend (py${{ matrix.python-version }}, ${{ matrix.os }})"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: backend-results-${{ matrix.os }}-py${{ matrix.python-version }}
           path: backend/backend-results.xml
-
   media:
     name: Required FFmpeg (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -227,53 +235,14 @@ jobs:
           tests/test_video_provider_wiring.py
           tests/test_video_capability_store.py
 
-      # TSB-361: when the mandatory-media job fails, the run page must say which
-      # test failed without anyone logging in to read the job log. Every failure
-      # becomes an `::error` annotation (public on the run page) and every skip
-      # is listed with its reason, so a silently skipped media test and an
-      # unexpected skip reason are both visible.
+      # TSB-361: a red job whose failing test id only lives in the (login-only)
+      # job log is not evidence. scripts/ci_annotate.py turns the junit XML into
+      # public `::error` / `::warning` annotations plus a job summary, so the run
+      # page names the test and its first assertion line.
       - name: Annotate failures and skips
         if: always()
         working-directory: backend
-        shell: python
-        run: |
-          import os, xml.etree.ElementTree as ET, pathlib, sys
-          path = pathlib.Path("media-results.xml")
-          if not path.exists():
-              print("no junit xml produced; pytest did not reach reporting")
-              sys.exit(0)
-          root = ET.parse(path).getroot()
-          suite = root.find("testsuite")
-          if suite is None:
-              suite = root
-          tests, failures, errors = (int(suite.get(key, 0)) for key in ("tests", "failures", "errors"))
-          skipped = int(suite.get("skipped", 0))
-          summary = (f"media job: collected={tests} passed={tests - failures - errors - skipped} "
-                     f"failures={failures} errors={errors} skipped={skipped}")
-          print(summary)
-          report = []
-          bad, skips = [], []
-          for case in suite.iter("testcase"):
-              nodeid = f"{case.get('classname', '?')}::{case.get('name', '?')}"
-              for tag in ("failure", "error"):
-                  node = case.find(tag)
-                  if node is not None:
-                      head = (node.get("message") or "").strip().splitlines()
-                      bad.append((tag, nodeid, head[0] if head else ""))
-              skip = case.find("skipped")
-              if skip is not None:
-                  skips.append((nodeid, (skip.get("message") or "").strip()))
-          for tag, nodeid, message in bad:
-              print(f"::error title={tag}::{nodeid} {message}"[:1000])
-          for nodeid, message in skips:
-              print(f"::warning title=skipped::{nodeid} {message}"[:1000])
-          report.append(summary)
-          report.extend(f"{tag.upper()}: {nodeid} {message}" for tag, nodeid, message in bad)
-          report.extend(f"SKIP: {nodeid} | {message}" for nodeid, message in skips)
-          handle = os.environ.get("GITHUB_STEP_SUMMARY")
-          if handle:
-              with open(handle, "a", encoding="utf-8") as out:
-                  out.write("### media-results (${{ matrix.os }})\n\n```\n" + "\n".join(report) + "\n```\n")
+        run: python ../scripts/ci_annotate.py media-results.xml --label "media (${{ matrix.os }})"
 
       - name: Record exact commit and platform evidence
         if: always()
