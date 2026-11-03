@@ -151,7 +151,7 @@ cd backend && TSB_REQUIRE_FFMPEG=1 python -m pytest --junitxml=tsb361-windows.xm
 
 junit 统计：`tests=1373 failures=0 errors=0 skipped=5`
 （[junit-summary.txt](validation/tsb361/junit-summary.txt)、
-[full-windows.log](validation/tsb361/full-windows.log)、
+[full-windows.txt](validation/tsb361/full-windows.txt)、
 [tsb361-windows.xml](validation/tsb361/tsb361-windows.xml)）。
 
 5 个 skip 全部是 `link creation is a platform fact`（Windows 无符号链接创建权限），
@@ -170,7 +170,7 @@ junit 统计：`tests=1373 failures=0 errors=0 skipped=5`
 ## 七、前端
 
 `pnpm run typecheck / lint / test / build` 四项 exit=0，**98 passed / 12 files**
-（[frontend.log](validation/tsb361/frontend.log)）。本轮无前端产品代码改动。
+（[frontend.txt](validation/tsb361/frontend.txt)）。本轮无前端产品代码改动。
 
 ## 八、GitHub Actions
 
@@ -241,12 +241,12 @@ junit 统计：`tests=1373 failures=0 errors=0 skipped=5`
 - [docs/REGRESSION.md](REGRESSION.md) 新增「TSB-360 / TSB-361 测试基建」小节
 - [docs/validation/tsb361/README.md](validation/tsb361/README.md)：RED/GREEN 命令、
   归因实验、顺序与重复验证
-- [docs/validation/tsb361/full-windows.log](validation/tsb361/full-windows.log)、
+- [docs/validation/tsb361/full-windows.txt](validation/tsb361/full-windows.txt)、
   [tsb361-windows.xml](validation/tsb361/tsb361-windows.xml)、
   [junit-summary.txt](validation/tsb361/junit-summary.txt)、
   [media-mandatory-windows.txt](validation/tsb361/media-mandatory-windows.txt)（CI 同款
   69 文件强制清单的本机复跑）、
-  [mixed-1.log](validation/tsb361/mixed-1.log)、
-  [repeat-3x.log](validation/tsb361/repeat-3x.log)、
-  [frontend.log](validation/tsb361/frontend.log)
+  [mixed-1.txt](validation/tsb361/mixed-1.txt)、
+  [repeat-3x.txt](validation/tsb361/repeat-3x.txt)、
+  [frontend.txt](validation/tsb361/frontend.txt)
 - 上一轮（TSB-360）：[docs/validation/win-local-2026-11-02.md](validation/win-local-2026-11-02.md)

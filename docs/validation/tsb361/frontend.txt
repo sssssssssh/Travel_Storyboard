@@ -1,0 +1,95 @@
+=== typecheck ===
+
+> travel-storyboard-frontend@2.1.2 typecheck F:\work\project\Travel_Storyboard\frontend
+> tsc --noEmit
+
+exit=0
+=== lint ===
+
+> travel-storyboard-frontend@2.1.2 lint F:\work\project\Travel_Storyboard\frontend
+> eslint .
+
+exit=0
+=== test ===
+
+> travel-storyboard-frontend@2.1.2 test F:\work\project\Travel_Storyboard\frontend
+> vitest run
+
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mF:/work/project/Travel_Storyboard/frontend[39m
+
+[90mstderr[2m | src/components/VideoFallbackPolling.test.tsx[2m > [22m[2mF01 parent succeeded with pending child keeps fetching parent
+[22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+[90mstderr[2m | src/pages/Project.test.tsx[2m > [22m[2mshows background hashing file, bytes and signature mode
+[22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+[90mstderr[2m | src/pages/Review.test.tsx[2m > [22m[2mloads persisted note and warns about a retained stale shot without overwriting note edits
+[22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+[90mstderr[2m | src/components/VideoUnderstandingPanel.test.tsx[2m > [22m[2man empty state says no reading exists rather than showing success
+[22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+[90mstderr[2m | src/pages/Export.test.tsx[2m > [22m[2mRT15 restores all saved shots and keeps hints on save
+[22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+[90mstderr[2m | src/components/VisionPanel.test.tsx[2m > [22m[2munconfigured model shows guidance and sends no request
+[22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ [32m✓[39m src/pages/Review.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 521[2mms[22m[39m
+   [33m[2m✓[22m[39m loads persisted note and warns about a retained stale shot without overwriting note edits [33m519[2mms[22m[39m
+[90mstderr[2m | src/components/ReviewRequestCard.test.tsx[2m > [22m[2mshows historic range, annotation, preview origin and edit-plan blocker; never auto selects
+[22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ [32m✓[39m src/components/ReviewRequestCard.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 1025[2mms[22m[39m
+   [33m[2m✓[22m[39m shows historic range, annotation, preview origin and edit-plan blocker; never auto selects [33m357[2mms[22m[39m
+   [33m[2m✓[22m[39m explicit selection creates a new request, preserves edited range during query refresh [33m340[2mms[22m[39m
+ [32m✓[39m src/pages/Export.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 1371[2mms[22m[39m
+   [33m[2m✓[22m[39m RT15 restores all saved shots and keeps hints on save [33m544[2mms[22m[39m
+   [33m[2m✓[22m[39m RT17 query refresh preserves dirty draft; explicit reload restores server [33m377[2mms[22m[39m
+   [33m[2m✓[22m[39m failed save retains the edited draft [33m448[2mms[22m[39m
+ [32m✓[39m src/pages/Project.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 1626[2mms[22m[39m
+   [33m[2m✓[22m[39m shows background hashing file, bytes and signature mode [33m382[2mms[22m[39m
+ [32m✓[39m src/components/VideoUnderstandingPanel.test.tsx [2m([22m[2m25 tests[22m[2m)[22m[33m 2277[2mms[22m[39m
+ [32m✓[39m src/components/VideoFallbackPolling.test.tsx [2m([22m[2m19 tests[22m[2m)[22m[33m 2293[2mms[22m[39m
+   [33m[2m✓[22m[39m F01 parent succeeded with pending child keeps fetching parent [33m392[2mms[22m[39m
+ [32m✓[39m src/components/VisionPanel.test.tsx [2m([22m[2m21 tests[22m[2m)[22m[33m 2932[2mms[22m[39m
+   [33m[2m✓[22m[39m consent checkbox gates the analyze button [33m458[2mms[22m[39m
+ [32m✓[39m src/__tests__/api-error-structure.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 17[2mms[22m[39m
+ [32m✓[39m src/lib/api.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 18[2mms[22m[39m
+ [32m✓[39m src/components/CleanupNotice.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[90m 95[2mms[22m[39m
+ [32m✓[39m src/lib/useJob.test.tsx [2m([22m[2m1 test[22m[2m)[22m[90m 76[2mms[22m[39m
+[90mstderr[2m | src/App.test.tsx[2m > [22m[2mapplication shell displays the release version built from package metadata
+[22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ [32m✓[39m src/App.test.tsx [2m([22m[2m1 test[22m[2m)[22m[90m 66[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m12 passed[39m[22m[90m (12)[39m
+[2m      Tests [22m [1m[32m98 passed[39m[22m[90m (98)[39m
+[2m   Start at [22m 09:47:01
+[2m   Duration [22m 27.82s[2m (transform 6.54s, setup 0ms, collect 33.67s, tests 12.32s, environment 91.53s, prepare 7.83s)[22m
+
+exit=0
+=== build ===
+
+> travel-storyboard-frontend@2.1.2 build F:\work\project\Travel_Storyboard\frontend
+> vite build
+
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 108 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[22m[32mindex.html                 [39m[1m[2m  0.42 kB[22m[1m[22m[2m │ gzip:  0.28 kB[22m
+[2mdist/[22m[35massets/index-Dxxgym2_.css  [39m[1m[2m 16.16 kB[22m[1m[22m[2m │ gzip:  3.87 kB[22m
+[2mdist/[22m[36massets/index-Q8POxtew.js   [39m[1m[2m290.38 kB[22m[1m[22m[2m │ gzip: 91.17 kB[22m
+[32m✓ built in 6.71s[39m
+exit=0

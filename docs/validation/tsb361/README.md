@@ -105,7 +105,7 @@ teardown 依次执行：
    使下一次启动的恢复扫描不再选中它们。
 
 上面两条 RED 命令在屏障打开后均为 `50 passed, 1 skipped` / `19 passed, 1 skipped`，
-无失败（见 `full-windows.log`、`mixed-1.log`）。
+无失败（见 `full-windows.txt`、`mixed-1.txt`）。
 
 ### 归因实验（两半各自的作用）
 
@@ -127,23 +127,28 @@ teardown 依次执行：
 |---|---|---|
 | A → B 混合（含前序视频/回退/staging/cancel/stability 用例） | `test_video_fallback_execution.py test_video_job.py test_b01... test_tsb361_job_lifecycle.py test_vision_cleanup_status.py` | 全绿 |
 | B → A 反向 | `cleanup[motion] test_tsb361_job_lifecycle.py test_b01... test_video_job.py test_video_fallback_execution.py` | 全绿 |
-| 相关后台 Job 用例混跑 | `mixed-1.log` | **131 passed, 1 skipped**（199.95s） |
-| 同一组连续 3 轮 | `repeat-3x.log` | 3 轮均 `131 passed, 1 skipped` |
+| 相关后台 Job 用例混跑 | `mixed-1.txt` | **131 passed, 1 skipped**（199.95s） |
+| 同一组连续 3 轮 | `repeat-3x.txt` | 3 轮均 `131 passed, 1 skipped` |
 | Windows 严格全量 | `--junitxml=tsb361-windows.xml` | 见下节 |
 
-`repeat-3x.log` 里第 1、3 轮的 `exit=1` 来自宿主安全删除钩子中断 `sessionfinish`，
+`repeat-3x.txt` 里第 1、3 轮的 `exit=1` 来自宿主安全删除钩子中断 `sessionfinish`，
 不是用例失败——两轮的点号行都没有 `F`，第 2 轮给出了 `131 passed, 1 skipped`。
 
 ## 五、Windows 严格全量
 
-见 `full-windows.log`（本轮最终结论）与 `junit-summary.txt`。
+见 `full-windows.txt`（本轮最终结论）与 `junit-summary.txt`。
 
 ## 六、文件清单
 
 | 文件 | 内容 |
 |---|---|
-| `full-windows.log` | `TSB_REQUIRE_FFMPEG=1 python -m pytest --junitxml=tsb361-windows.xml` 的输出 |
+| `full-windows.txt` | `TSB_REQUIRE_FFMPEG=1 python -m pytest --junitxml=tsb361-windows.xml` 的输出 |
 | `junit-summary.txt` | 从 junit XML 统计的 tests/failures/errors/skipped |
-| `mixed-1.log` | 相关用例混跑（A → B） |
-| `repeat-3x.log` | 同组连续 3 轮 |
-| `frontend.log` | 前端 typecheck / lint / test / build |
+| `media-mandatory-windows.txt` | 与 `ci.yml` 媒体作业**同一条命令**的 69 文件清单复跑统计（`tests=1275 failures=0 errors=0 skipped=5`） |
+| `mixed-1.txt` | 相关用例混跑（A → B） |
+| `repeat-3x.txt` | 同组连续 3 轮 |
+| `frontend.txt` | 前端 typecheck / lint / test / build |
+| `tsb361-windows.xml` | 严格全量的 junit 原始文件 |
+
+证据文件一律用 `.txt`/`.xml` 而不是 `.log`：仓库 `.gitignore` 忽略 `*.log`，
+用 `.log` 会出现"文档链接指向一个没入库的文件"。

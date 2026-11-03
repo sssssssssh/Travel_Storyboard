@@ -1,0 +1,12 @@
+=== round 1 ===
+...................................................s.................... [ 54%]
+............................................................             [100%][safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {"count":77,"threshold":50,"scope":"turn","targets":["\\\\?\\C:\\Users\\changan\\AppData\\Local\\Temp\\pytest-of-changan\\garbage-1909abf1-39c4-4ed0-9224-060c25fce863"],"targetCount":1}
+exit=1
+=== round 2 ===
+............................................................             [100%]
+131 passed, 1 skipped in 187.00s (0:03:06)
+exit=0
+=== round 3 ===
+...................................................s.................... [ 54%]
+............................................................             [100%][safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {"count":113,"threshold":50,"scope":"turn","targets":["\\\\?\\C:\\Users\\changan\\AppData\\Local\\Temp\\pytest-of-changan\\garbage-47e30d36-af26-4434-ab7a-8e62d041f412"],"targetCount":1}
+exit=1
