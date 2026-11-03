@@ -83,6 +83,9 @@ E        +  where 2 = len([1, 1])
 | `backend/tests/conftest.py` | 新增 `drain_background_jobs()`、`settle_unfinished_jobs()` 与 autouse 屏障 `_no_background_jobs_left_behind` |
 | `backend/tests/test_vision_cleanup_status.py` | `visual` fixture 装配抽成 `_pipeline(kind, …)`；新增 B01–B08；**既有用例一行未改** |
 | `backend/tests/test_tsb361_job_lifecycle.py` | 新增（A01–A09） |
+| `backend/tests/test_media_process_tree.py` | 取消触发条件由 `pid_file.exists()` 改为 `_pids_ready()`（§八·附），新增 2 项守卫 |
+| `scripts/ci_annotate.py` + `backend/tests/test_ci_annotate.py` | 新增：把 junit 的失败/跳过变成运行页注解，另加 8 项测试 |
+| `.github/workflows/ci.yml` | 后端作业与强制媒体作业各加一步 `Annotate failures and skips` |
 | `AGENTS.md` / `docs/REGRESSION.md` / `README.md` | 纪律、回归清单、实测数字 |
 | `docs/validation/tsb361/` | 证据（命令、日志、junit 统计） |
 
@@ -124,7 +127,8 @@ teardown 与用例体成败无关（pytest 对 fixture 的收尾是正常推进�
 | B07 | `test_b07_…` | 反复清理幂等（`removed_files` 1→0→0），邻接目录不受影响 |
 | B08 | `test_b08_…` | motion 与 semantic 在同一用例内逐字段比较 8 项清理状态契约，且与期望契约相等 |
 
-`collected` 由 **1349** 升到 **1373**（+14 A、+10 B）。B 组保留 `motion` 参数化。
+`collected` 由 **1349** 升到 **1383**（+14 A、+10 B、+8 注解器、+2 进程树守卫）。
+B 组保留 `motion` 参数化。
 
 **非空转证明**：把屏障关掉后，`test_tsb361_job_lifecycle.py` 有 6 项立刻变红，
 `A09` 在只保留 drain 时变红（`AttributeError: settle_unfinished_jobs`）。
@@ -133,12 +137,12 @@ teardown 与用例体成败无关（pytest 对 fixture 的收尾是正常推进�
 
 | 指标 | 修复前（基线 119531e） | 修复后（本轮） |
 |---|---:|---:|
-| collected | 1349 | **1373** |
-| passed | 1342 | **1368** |
+| collected | 1349 | **1383** |
+| passed | 1342 | **1378** |
 | failed | 2 | **0** |
 | errors | 0 | **0** |
 | skipped | 5 | 5（均为白名单平台事实） |
-| 后端全量耗时 | 22m51s | 16m45s |
+| 后端全量耗时 | 22m51s | 17m43s |
 
 耗时下降与"少跑两轮重试/差异来自主机负载"有关，不作为性能结论。
 
@@ -146,10 +150,10 @@ teardown 与用例体成败无关（pytest 对 fixture 的收尾是正常推进�
 
 ```
 cd backend && TSB_REQUIRE_FFMPEG=1 python -m pytest --junitxml=tsb361-windows.xml
-→ 1368 passed, 5 skipped in 1005.96s (0:16:45)，exit=0
+→ 1378 passed, 5 skipped in 1063.87s (0:17:43)，exit=0
 ```
 
-junit 统计：`tests=1373 failures=0 errors=0 skipped=5`
+junit 统计：`tests=1383 failures=0 errors=0 skipped=5`
 （[junit-summary.txt](validation/tsb361/junit-summary.txt)、
 [full-windows.txt](validation/tsb361/full-windows.txt)、
 [tsb361-windows.xml](validation/tsb361/tsb361-windows.xml)）。
@@ -165,7 +169,7 @@ junit 统计：`tests=1373 failures=0 errors=0 skipped=5`
 | B → A 反向 | 全绿 |
 | 相关后台 Job 用例混跑（8 个文件） | 131 passed, 1 skipped（199.95s） |
 | 同组连续 3 轮 | 3×`131 passed, 1 skipped` |
-| Windows 严格全量 | 1368 passed, 5 skipped, 0 failed, 0 errors |
+| Windows 严格全量 | 1378 passed, 5 skipped, 0 failed, 0 errors |
 
 ## 七、前端
 
@@ -178,8 +182,12 @@ junit 统计：`tests=1373 failures=0 errors=0 skipped=5`
 |---|---|---|
 | #83（TSB-359 收尾） | `506ca69` | 7/7 success |
 | #84（冻结基线） | `119531e` | 失败：Windows 三个作业在安装/校验步骤 `exit 127`（runner 环境），与本轮改动无关 |
-| #85 | `247a9b1` | 6/7：Frontend、4×Backend、`Required FFmpeg (ubuntu-latest)` 全绿；`Required FFmpeg (windows-latest)` 在 step 9（强制媒体 pytest）`exit 1` |
-| **#86（最终）** | **`4bdefec`** | **7/7 success，6m23s**；6 个 artifact 全部产出 |
+| #85 | `247a9b1` | 6/7：`Required FFmpeg (windows-latest)` 在 step 9（强制媒体 pytest）`exit 1`，无公开可读的失败用例名 |
+| #86 | `4bdefec` | 7/7 success（6m23s）——测试代码与 #85 完全相同，只多一步注解器 |
+| #87 | `6f31dd6` | 7/7 success（6m29s） |
+| #88 | `c652e9b` | 6/7：`Backend (Python 3.11)` `exit 1`；注解器当时只在媒体作业，失败用例名不可见 |
+| #89 | `e739f2d` | 6/7：注解器给出用例名——`test_media_process_tree::test_parent_exiting_first_still_reclaims_the_grandchild`，见下节 |
+| **#90（最终）** | **`<!-- FINAL_SHA -->`** | 见 §十一 |
 
 ### 关于 #85 的诚实交代
 
@@ -210,6 +218,38 @@ junit 统计：`tests=1373 failures=0 errors=0 skipped=5`
 用例（`test_ci_environment_isolation`、`test_ci_skip_guard`、`test_media_format_matrix`、
 `test_video_fallback_runner_e2e`、`test_video_model_switch_scope`）在改动后全绿。
 
+### 附：注解器第一次上岗就抓到第三个偶发（`test_media_process_tree`）
+
+`#88` 是一次纯文档提交，却在 `Backend (Python 3.11)` 上 `exit 1`；当时注解器只装在
+媒体作业里，运行页依旧只说"退出码 1"。把它装到 `backend` 作业后，`#89`（`e739f2d`）
+立刻给出用例名：
+
+```
+[failure] Required FFmpeg (ubuntu-latest)
+tests.test_media_process_tree::test_parent_exiting_first_still_reclaims_the_grandchild
+AssertionError: the tree was never observable
+```
+
+**根因在夹具，不在产品。** `_ORPHANING_SCRIPT` 先 `open(pid_file, "w")` 再写两个 pid；
+`Path.exists()` 在文件被创建的那一刻就为真，而内容还是空的。用例用
+`cancel_check=lambda: pid_file.exists()` 触发取消，于是取消可能落在"文件已存在、内容
+未落盘"的窗口里：整棵树被杀掉，文件永远停在空或半个 pid，随后的
+`_wait_file(pid_file, 5)` 必然失败。**断言没错，是触发条件比后置条件弱。**
+
+修法：新增 `_pids_ready()`（文件可读且正好两个 pid），取消触发与 `_wait_file` 共用
+同一个判定，5 个触发点（`test_media_process_tree.py`）全部替换。用例强度未变——仍然
+断言孙子进程被杀掉，只是"必须先观测到完整进程树"这一前提改由构造保证。
+
+- RED 证据：CI run #89 的注解原文（见上）；
+- 守卫：`test_a_half_written_pid_file_is_not_treated_as_observable` 复刻"空文件
+  `exists()` 为真、`_pids_ready()` 为假"的那一刻；
+  `test_a_missing_pid_file_is_not_an_error` 保证触发函数在 `run()` 的轮询里不抛异常；
+- 顺带把 5 个触发点的 `run()` 加上 `timeout=60`：一旦触发条件永远不成立，60 秒内
+  以 `FFmpegTimeout` 失败，而不是等默认的 3600 秒把整条流水线拖死（§十.5 记了这条
+  的来历）；
+- GREEN：该文件本机连续 3 轮 `12 passed`（[media-process-tree-3x.txt](validation/tsb361/media-process-tree-3x.txt)），
+  随后进入 Windows 严格全量与 CI 强制媒体作业。
+
 ## 九、是否修改了产品代码
 
 **没有。** `backend/app/` 一行未改。根因全部位于测试共享状态，改产品代码反而会
@@ -229,7 +269,14 @@ junit 统计：`tests=1373 failures=0 errors=0 skipped=5`
    同序全绿、#86 在相同测试代码上 7/7，但这不是因果结论；下一次再现时，新增的注解
    会直接给出用例名。同理，基线 `119531e`（run 4/7）的 Windows `exit 127` 属 runner
    环境，未在本轮处理。
-5. G5/G6（真实端点视频能力、真实 A/B）、真人素材验收、200GB 性能**状态不变**。
+5. **本机首次全量曾整段卡死（30 分钟无输出）**：卡在
+   `test_long_paths.py::test_run_classifies_command_failure`，`run()` 内的 `ffmpeg`
+   子进程随后消失、父进程仍在等。杀掉后用**新的仓库外 `TMPDIR`** 重跑同一棵树，
+   17m43s 全绿，单跑该用例也通过。判断为宿主/沙箱层面的偶发，不是用例逻辑；但它
+   说明"`run()` 的默认 `timeout=3600` 会把一次卡顿放大成整小时"——因此本轮给
+   `test_media_process_tree.py` 的 5 个取消触发都加了 `timeout=60`，卡住时 60 秒内
+   以 `FFmpegTimeout` 失败，而不是挂到 CI 超时。
+6. G5/G6（真实端点视频能力、真实 A/B）、真人素材验收、200GB 性能**状态不变**。
 
 ## 十一、最终 Commit SHA
 
@@ -253,6 +300,7 @@ junit 统计：`tests=1373 failures=0 errors=0 skipped=5`
   [junit-summary.txt](validation/tsb361/junit-summary.txt)、
   [media-mandatory-windows.txt](validation/tsb361/media-mandatory-windows.txt)（CI 同款
   69 文件强制清单的本机复跑）、
+  [media-process-tree-3x.txt](validation/tsb361/media-process-tree-3x.txt)、
   [mixed-1.txt](validation/tsb361/mixed-1.txt)、
   [repeat-3x.txt](validation/tsb361/repeat-3x.txt)、
   [frontend.txt](validation/tsb361/frontend.txt)

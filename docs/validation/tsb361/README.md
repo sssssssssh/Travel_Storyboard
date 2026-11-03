@@ -136,7 +136,8 @@ teardown 依次执行：
 
 ## 五、Windows 严格全量
 
-见 `full-windows.txt`（本轮最终结论）与 `junit-summary.txt`。
+见 `full-windows.txt`（本轮最终结论）与 `junit-summary.txt`：
+`1383 collected / 1378 passed / 0 failed / 0 errors / 5 skipped`，17m43s，exit=0。
 
 ## 六、文件清单
 
@@ -145,6 +146,7 @@ teardown 依次执行：
 | `full-windows.txt` | `TSB_REQUIRE_FFMPEG=1 python -m pytest --junitxml=tsb361-windows.xml` 的输出 |
 | `junit-summary.txt` | 从 junit XML 统计的 tests/failures/errors/skipped |
 | `media-mandatory-windows.txt` | 与 `ci.yml` 媒体作业**同一条命令**的 69 文件清单复跑统计（`tests=1275 failures=0 errors=0 skipped=5`） |
+| `media-process-tree-3x.txt` | `test_media_process_tree.py` 连续 3 轮（`_pids_ready()` 修复后） |
 | `mixed-1.txt` | 相关用例混跑（A → B） |
 | `repeat-3x.txt` | 同组连续 3 轮 |
 | `frontend.txt` | 前端 typecheck / lint / test / build |

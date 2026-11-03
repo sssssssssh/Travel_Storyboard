@@ -64,7 +64,7 @@ FFmpeg 9.0.2（仓库自带，**不在 PATH**）、Node 22。命令与完整记�
 
 | 项 | 结果 |
 |---|---|
-| 后端严格全量（`TSB_REQUIRE_FFMPEG=1`，从 `backend/` 运行） | 1373 collected / **1368 passed** / 0 failed / 0 errors / 5 skipped，16m45s |
+| 后端严格全量（`TSB_REQUIRE_FFMPEG=1`，从 `backend/` 运行） | 1383 collected / **1378 passed** / 0 failed / 0 errors / 5 skipped，17m43s |
 | 前端 typecheck / lint / test / build | 四项通过，**98 passed / 12 files** |
 
 5 个 skipped 均为白名单内的平台事实（Windows 无符号链接创建权限），逐项见

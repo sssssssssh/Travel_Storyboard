@@ -121,6 +121,22 @@ def _wait_gone(pid: int, timeout: float = 15.0) -> bool:
     return not _pid_alive(pid)
 
 
+def _pids_ready(path: Path) -> bool:
+    """Whether the pid file has been written **completely** (two pids).
+
+    The writer creates the file and then writes into it, so ``exists()`` is true
+    for a window in which the content is still empty. Using ``exists()`` as the
+    cancel trigger let the tree be killed inside that window, and the test then
+    failed with "the tree was never observable" — a harness race, not product
+    behaviour (observed on the mandatory-media CI job, TSB-361). Trigger and
+    postcondition therefore share this one predicate.
+    """
+    try:
+        return len(path.read_text().split()) == 2
+    except (OSError, ValueError):
+        return False
+
+
 def _wait_file(path: Path, timeout: float = 25.0) -> bool:
     """Wait for a pid file to appear *and* be readable and complete.
 
@@ -130,12 +146,8 @@ def _wait_file(path: Path, timeout: float = 25.0) -> bool:
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        try:
-            text = path.read_text().strip()
-            if text and len(text.split()) == 2:
-                return True
-        except (OSError, ValueError):
-            pass
+        if _pids_ready(path):
+            return True
         time.sleep(0.05)
     return False
 
@@ -217,7 +229,7 @@ def test_cancel_kills_the_whole_descendant_tree(tmp_path):
     pids: list[int] = []
     try:
         with pytest.raises(FFmpegCancelled):
-            run(cmd, cancel_check=lambda: pid_file.exists(), poll_interval=0.05)
+            run(cmd, cancel_check=lambda: _pids_ready(pid_file), poll_interval=0.05, timeout=60)
 
         assert _wait_file(pid_file), "the tree never started"
         pids = _read_pids(pid_file)
@@ -247,7 +259,7 @@ def test_cancel_reports_only_after_the_tree_is_stopped(tmp_path):
     pids: list[int] = []
     try:
         with pytest.raises(FFmpegCancelled):
-            run(cmd, cancel_check=lambda: pid_file.exists(), poll_interval=0.05)
+            run(cmd, cancel_check=lambda: _pids_ready(pid_file), poll_interval=0.05, timeout=60)
         pids = _read_pids(pid_file)
         # Immediately after the raise, nothing from the tree may still run.
         for pid in pids:
@@ -287,10 +299,13 @@ def test_parent_exiting_first_still_reclaims_the_grandchild(tmp_path):
     distinguishes real process-group/job-object reclamation from a
     ``terminate()`` on the parent.
 
-    The cancel is not requested until the pid file is readable, so the tree is
-    always observed before the parent can exit. That removes the race entirely —
-    an earlier version skipped when the parent won the race, which would let the
-    mandatory-media CI job fail on a platform where it happened to lose.
+    The cancel is not requested until the pid file is *complete* (two pids), so
+    the tree is always observable before the kill. That removes the race
+    entirely — an earlier version triggered on ``pid_file.exists()``, which is
+    already true while the writer has not flushed, so the kill could land on an
+    empty file and the mandatory-media CI job failed with "the tree was never
+    observable". An even earlier version skipped when the parent won the race,
+    which would let that job fail on a platform where it happened to lose.
     """
     pid_file = tmp_path / "pids.txt"
     marker = tmp_path / "grandchild.txt"
@@ -299,7 +314,7 @@ def test_parent_exiting_first_still_reclaims_the_grandchild(tmp_path):
     pids: list[int] = []
     try:
         with pytest.raises(FFmpegCancelled):
-            run(cmd, cancel_check=lambda: pid_file.exists(), poll_interval=0.02)
+            run(cmd, cancel_check=lambda: _pids_ready(pid_file), poll_interval=0.02, timeout=60)
 
         # By construction the file exists (that is what triggered the cancel),
         # so this is an assertion, not a coin flip.
@@ -390,7 +405,7 @@ def test_cancel_between_polls_still_reclaims_late_descendants(tmp_path):
     pids: list[int] = []
     try:
         with pytest.raises(FFmpegCancelled):
-            run(cmd, cancel_check=lambda: pid_file.exists(), poll_interval=0.05)
+            run(cmd, cancel_check=lambda: _pids_ready(pid_file), poll_interval=0.05, timeout=60)
         pids = _read_pids(pid_file)
         for pid in pids:
             assert _wait_gone(pid, 15)
@@ -441,7 +456,7 @@ def test_terminate_errors_do_not_leave_the_tree_running(tmp_path, monkeypatch):
     pids: list[int] = []
     try:
         with pytest.raises(FFmpegCancelled):
-            run(cmd, cancel_check=lambda: pid_file.exists(), poll_interval=0.05)
+            run(cmd, cancel_check=lambda: _pids_ready(pid_file), poll_interval=0.05, timeout=60)
         assert _wait_file(pid_file), "the tree never started"
         pids = _read_pids(pid_file)
         for pid in pids:
@@ -468,3 +483,31 @@ def test_no_global_name_based_kill_is_used():
             f"ffmpeg.py uses {forbidden!r} — global, name-based termination is "
             "forbidden: it would kill other projects' concurrent encodes"
         )
+
+
+def test_a_half_written_pid_file_is_not_treated_as_observable(tmp_path):
+    """The CI flake, pinned: an empty file exists but says nothing.
+
+    ``Path.exists()`` is true the instant the writer creates the file; the pids
+    arrive a moment later. Triggering the cancel on ``exists()`` therefore let
+    the kill land before the tree could be read.
+    """
+    pid_file = tmp_path / "pids.txt"
+    pid_file.write_text("", encoding="utf-8")
+
+    assert pid_file.exists() is True
+    assert _pids_ready(pid_file) is False, (
+        "an empty pid file must not count as observable — that is exactly what "
+        "made test_parent_exiting_first_still_reclaims_the_grandchild flaky"
+    )
+
+    pid_file.write_text("4321", encoding="utf-8")
+    assert _pids_ready(pid_file) is False, "one pid is not a tree"
+
+    pid_file.write_text("4321 4322", encoding="utf-8")
+    assert _pids_ready(pid_file) is True, "two pids means the writer finished"
+
+
+def test_a_missing_pid_file_is_not_an_error(tmp_path):
+    """The trigger runs inside ``run()``'s poll loop, so it must not raise."""
+    assert _pids_ready(tmp_path / "never-written.txt") is False

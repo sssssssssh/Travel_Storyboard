@@ -1,8 +1,8 @@
-命令: cd backend && TSB_REQUIRE_FFMPEG=1 python -m pytest --junitxml=tsb361-windows.xml
-主机: Windows 10 19045 / Python 3.13.7 / FFmpeg 9.0.2（仓库自带，不在 PATH）
-pytest 摘要行: 1368 passed, 5 skipped in 1005.96s (0:16:45)，exit=0
+命令: cd backend && TSB_REQUIRE_FFMPEG=1 python -m pytest -p no:cacheprovider --junitxml=tsb361-windows.xml
+主机: Windows 10 19045 (LongPathsEnabled=0) / Python 3.13.7 (backend/.venv) / FFmpeg 9.0.2（仓库自带）
+pytest 摘要行: 1378 passed, 5 skipped in 1063.87s (0:17:43)，exit=0
 
-tests=1373 failures=0 errors=0 skipped=5
+tests=1383 failures=0 errors=0 skipped=5
 SKIP tests.test_staging_leaf_substitution::test_v17_a_dangling_leaf_symlink_is_refused_not_skipped | link creation is a platform fact
 SKIP tests.test_staging_leaf_substitution::test_v17b_a_dangling_link_never_grants_deletion_rights | link creation is a platform fact
 SKIP tests.test_staging_leaf_substitution::test_v21d_a_linked_marker_is_not_proof | link creation is a platform fact

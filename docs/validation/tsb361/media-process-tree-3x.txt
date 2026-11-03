@@ -1,0 +1,12 @@
+命令: cd backend && python -m pytest tests/test_media_process_tree.py  （连续 3 轮）
+主机: Windows 10 19045 / Python 3.13.7 (backend/.venv) / FFmpeg 9.0.2（仓库自带）
+说明: 12 个用例；改动后取消触发改用 _pids_ready() 并加 timeout=60。
+
+round 1  exit=0  12 dots，0 F，100%
+round 2  exit=0  12 dots，0 F，100%
+round 3  exit=0  12 dots，0 F，100%
+
+对照（修复前的 RED，取自 CI run #89 的运行页注解）:
+  Required FFmpeg (ubuntu-latest)
+  tests.test_media_process_tree::test_parent_exiting_first_still_reclaims_the_grandchild
+  AssertionError: the tree was never observable

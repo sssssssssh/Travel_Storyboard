@@ -1256,8 +1256,21 @@ fail）+ `settle_unfinished_jobs()`（把 `pending/running/cancelling` 行落成
 | `::test_b08_...` | TSB-361 | motion 与 semantic 在同一条清理状态契约上逐字段相等，且与期望契约相等 |
 
 A 组 14 项 + B 组 10 项（B01/B02 各 2 个参数、其余各 1 个），`collected` 由 1349
-升到 1373。B 组保留 `motion` 参数化（任务书 §5.3 明确要求），未删除任何既有用例、
+升到 1383（+2 进程树守卫、+8 注解器）。B 组保留 `motion` 参数化（任务书 §5.3 明确要求），未删除任何既有用例、
 未新增 skip/xfail。
+
+此外补了两组与本轮 CI 直接相关的守卫：
+
+| 用例 | 任务 | 守护行为 |
+|---|---|---|
+| `test_media_process_tree.py::test_a_half_written_pid_file_is_not_treated_as_observable` | TSB-361 | 空 pid 文件 `exists()` 为真但 `_pids_ready()` 为假——取消触发不得用 `exists()` |
+| `::test_a_missing_pid_file_is_not_an_error` | TSB-361 | 触发函数在 `run()` 的轮询里对缺失文件返回假而不是抛异常 |
+| `test_ci_annotate.py`（8 项） | TSB-361 | 失败→`::error`（nodeid + 首行断言）、跳过→`::warning`（带原因）、缺 XML 不算失败、summary 落盘、截断到注解上限、两个 CI 作业都必须调用且读自己的 junit |
+
+`test_media_process_tree.py` 的 5 个取消触发点由 `pid_file.exists()` 统一换成
+`_pids_ready()`：文件刚被创建、内容还没落盘时 `exists()` 已为真，取消会落在那个窗口里，
+把整棵树杀掉后文件永远停在空/半个 pid，于是"the tree was never observable"——
+CI run #89 就是这么红的（见 [RELEASE_TSB_361.md](RELEASE_TSB_361.md) §八·附）。
 
 **验证口径**：修复前后用同一组"前序 + 目标"命令对照（红→绿），再叠加 A→B、B→A
 两种顺序、相关后台 Job 用例混跑、连续 3 轮、Windows 严格全量；证据在
