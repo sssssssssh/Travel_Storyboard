@@ -137,6 +137,46 @@ def drain_background_jobs(timeout: float = 60.0) -> list[str]:
                 pass
 
 
+def settle_unfinished_jobs(reason: str) -> list[str]:
+    """TSB-361 §5.2B: leave no job row the next app startup would resume.
+
+    ``app.main.lifespan`` calls ``resume_interrupted_jobs()`` on *every*
+    startup, and the ``client`` fixture starts that lifespan once per test. A
+    test that calls a task function directly -- ``video_analyze_task(job_id)``
+    in ``test_video_fallback_execution.py``, for instance -- never goes through
+    ``JobRunner._run``, so its row is never marked ``running`` and stays
+    ``pending``. The next test's startup then read that row as "interrupted
+    work" and re-dispatched it *into the next test's body*, where it ran against
+    that test's monkeypatched frame sampler and model stub. Draining futures at
+    teardown cannot catch it: the dispatch had not happened yet.
+
+    Settling each leftover row to a terminal state makes the recovery scan
+    ignore it. Returns the settled ids so the caller can report them.
+
+    Deliberately *not* a silent cleanup: the barrier fails the leaking test when
+    a job is still in flight, and this function only reconciles rows whose
+    worker has already stopped.
+    """
+    from sqlalchemy import select
+
+    from app.database import session_scope
+    from app.models import Job
+    from app.services.runner import ACTIVE_STATUSES, STATUS_CANCELLED, finalize_job
+
+    with session_scope() as s:
+        ids = [
+            job.id for job in s.scalars(
+                select(Job).where(Job.status.in_(ACTIVE_STATUSES))
+            ).all()
+        ]
+    for job_id in ids:
+        finalize_job(
+            job_id, STATUS_CANCELLED, allow_pending=True,
+            error=f"TSB-361: test teardown settled an unfinished job ({reason})",
+        )
+    return ids
+
+
 @pytest.fixture(autouse=True)
 def _no_background_jobs_left_behind():
     """TSB-361 §4.2A/D: drain global-runner jobs this test scheduled.
@@ -158,6 +198,7 @@ def _no_background_jobs_left_behind():
             "background jobs still running after test teardown; the test that "
             f"scheduled them must await their terminal state: {leftover}"
         )
+    settle_unfinished_jobs("background job barrier")
 
 
 @pytest.fixture(scope="session", autouse=True)
