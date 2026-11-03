@@ -187,7 +187,7 @@ junit 统计：`tests=1383 failures=0 errors=0 skipped=5`
 | #87 | `6f31dd6` | 7/7 success（6m29s） |
 | #88 | `c652e9b` | 6/7：`Backend (Python 3.11)` `exit 1`；注解器当时只在媒体作业，失败用例名不可见 |
 | #89 | `e739f2d` | 6/7：注解器给出用例名——`test_media_process_tree::test_parent_exiting_first_still_reclaims_the_grandchild`，见下节 |
-| **#90（最终）** | **`<!-- FINAL_SHA -->`** | 见 §十一 |
+| **#90（最终）** | **`1235058`** | **7/7 success（6m26s）**；6 个 artifact 全部产出 |
 
 ### 关于 #85 的诚实交代
 
@@ -280,13 +280,15 @@ AssertionError: the tree was never observable
 
 ## 十一、最终 Commit SHA
 
-- **交付 SHA（代码 + 测试 + 文档全部在内）：`6f31dd6`**
-  `docs(TSB-361): 证据文件改用 .txt 后缀，补强制媒体清单证据条目`
-- 该 SHA 的 CI：**run #87 → 7/7 success**（6m29s）
-- 本轮推送序列：`d3bbcd8` → `fbbf94c` → `247a9b1` → `4bdefec` → `c5ccccd` → `6f31dd6`
-- 四次推送里三次 7/7（#86 `4bdefec`、#87 `6f31dd6`，均 6m2x s），一次 6/7（#85
-  `247a9b1`，见 §八 的交代）
-- 本节所在的回填提交**只改这一个文件**，被测代码/测试/CI 定义与 `6f31dd6` 完全一致，
+- **交付 SHA（代码 + 测试 + 文档全部在内）：`1235058`**
+  `test(TSB-361): 进程树取消触发改用完整 pid 判定，修掉 CI 第三个偶发`
+- 该 SHA 的 CI：**run #90 → 7/7 success**（6m26s，6 个 artifact 全部产出）
+- 本轮推送序列：
+  `d3bbcd8` → `fbbf94c` → `247a9b1` → `4bdefec` → `c5ccccd` → `6f31dd6` →
+  `c652e9b` → `e739f2d` → `1235058`
+- 九次运行里 7/7 的是 `#83`(基线前)、`#86`、`#87`、**`#90`**；`#84`/`#85`/`#88`/`#89`
+  各有一次失败，逐条记在 §八（含 #85 未定位、#89 已定位并修掉）
+- 本节所在的回填提交**只改这一个文件**，被测代码/测试/CI 定义与 `1235058` 完全一致，
   因此上表就是最终交付树的证据
 
 ## 十二、发布记录与测试证据路径
