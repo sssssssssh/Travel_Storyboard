@@ -1,0 +1,12 @@
+命令: cd backend && (与 .github/workflows/ci.yml 媒体作业完全相同的 69 个文件清单，逐项相同顺序)
+      TSB_REQUIRE_FFMPEG=1 python -m pytest -v -rA --junitxml=media-results.xml <69 files>
+主机: Windows 10 19045 / Python 3.13.7 (backend/.venv) / FFmpeg 9.0.2（仓库自带，并加入 PATH 模拟 CI）
+pytest 摘要行: 未打印 —— 宿主安全删除钩子在 sessionfinish 拦截（[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED]），
+              进程退出码因此为 1，但用例本身 0 失败（见 docs/RELEASE_TSB_361.md §十.3）
+
+tests=1275 failures=0 errors=0 skipped=5 time=1094.693s
+SKIP tests.test_staging_ownership::test_internal_stage_alias_cannot_delete_another_stage | link creation is a platform fact
+SKIP tests.test_staging_leaf_substitution::test_v17_a_dangling_leaf_symlink_is_refused_not_skipped | link creation is a platform fact
+SKIP tests.test_staging_leaf_substitution::test_v17b_a_dangling_link_never_grants_deletion_rights | link creation is a platform fact
+SKIP tests.test_staging_leaf_substitution::test_v21d_a_linked_marker_is_not_proof | link creation is a platform fact
+SKIP tests.test_video_fallback_execution::test_v37_a_dangling_link_is_not_reported_as_never_created | link creation is a platform fact

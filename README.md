@@ -37,8 +37,9 @@
 
 ## 当前进度与发布门禁
 
-**最新批次**：M5.3-R3.2（TSB-356～359），`main@506ca69`（2026-10-18）。本节的判定口径与
-[M5.3-R3.2 发布记录](docs/RELEASE_M5_3_R3_2.md) 一致：**代码级闭环通过，发布门禁未完成**。
+**最新批次**：TSB-361（测试基建收口，含前置 TSB-360），`main@` 见
+[docs/RELEASE_TSB_361.md](docs/RELEASE_TSB_361.md)。功能口径仍以
+M5.3-R3.2（TSB-356～359，`main@506ca69`）为准：**代码级闭环通过，发布门禁未完成**。
 
 | 项 | 状态 | 说明 |
 |---|---|---|
@@ -54,24 +55,27 @@
 在 G5、G6 完成前，**不得**声称「视频模型已真正看懂旅行视频」或「视频输入优于抽帧」。
 完整未完成项清单见各批发布记录的「尚未完成」小节。
 
-### 本机实测（2026-11-02，Windows 开发机）
+### 本机实测（2026-11-03，Windows 开发机）
 
 环境：Windows 10 19045（`LongPathsEnabled=0`）、Python 3.13.7（`backend/.venv`）、
 FFmpeg 9.0.2（仓库自带，**不在 PATH**）、Node 22。命令与完整记录见
-[docs/validation/win-local-2026-11-02.md](docs/validation/win-local-2026-11-02.md)。
+[docs/validation/tsb361/](docs/validation/tsb361/)（本轮）与
+[docs/validation/win-local-2026-11-02.md](docs/validation/win-local-2026-11-02.md)（上一轮）。
 
 | 项 | 结果 |
 |---|---|
-| 后端严格全量（`TSB_REQUIRE_FFMPEG=1`，从 `backend/` 运行） | 1349 collected / **1342 passed** / 2 failed / 5 skipped / 0 errors，22m51s |
+| 后端严格全量（`TSB_REQUIRE_FFMPEG=1`，从 `backend/` 运行） | 1373 collected / **1368 passed** / 0 failed / 0 errors / 5 skipped，16m45s |
 | 前端 typecheck / lint / test / build | 四项通过，**98 passed / 12 files** |
 
-两个失败用例**单独复跑均通过**，判定为测试间干扰（隔离缺陷），不是产品行为缺陷：
+5 个 skipped 均为白名单内的平台事实（Windows 无符号链接创建权限），逐项见
+[docs/validation/tsb361/junit-summary.txt](docs/validation/tsb361/junit-summary.txt)。
 
-- `test_b01_no_upload_consent_means_no_frames_and_no_model_request`：三轮全量中两次失败，机制已定位——前序用例遗留的后台 job 未收敛，晚到的抽帧被记进当前用例的 tracker；
-- `test_successful_model_with_failed_cleanup_is_partial_and_retry_is_model_free[motion]`：本轮失败、单独复跑通过，机制未定，作为观察项保留。
-
-5 个 skipped 均为白名单内的平台事实（3 项符号链接创建无权限 + 2 项链接平台专属）。
-本轮同批修复了 4 个测试基建缺陷（FFmpeg 接线、符号链接守卫、全局注册表隔离），只改 `backend/tests/`，不涉及产品代码。
+上一轮遗留的两个偶发失败（`test_b01_no_upload_consent…` 与
+`test_successful_model_with_failed_cleanup…[motion]`）已由 **TSB-361** 定位并隔离：
+根因是"一个用例留下的可执行工作在另一个用例体内执行"，两条路径分别是
+「已提交未等待的回退子任务」和「未派发、被下一次启动恢复的 `pending` 行」。
+修复只在 `backend/tests/conftest.py` 加 teardown 屏障（等待 + 收敛），
+**产品代码零改动**；发布记录见 [docs/RELEASE_TSB_361.md](docs/RELEASE_TSB_361.md)。
 
 **已知缺口**：M5.3-R3.2 要求的「最终同 SHA CI 回执」
 `docs/validation/m5.3-r3.2/FINAL_HEAD_CI.local.json` 被 `.gitignore` 精确忽略，仓库内不存在。

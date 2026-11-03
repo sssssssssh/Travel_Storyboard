@@ -127,6 +127,17 @@ $env:TSB_REQUIRE_FFMPEG = "1"
 >
 > 想看到实时进度、定位卡在哪个用例，用 `-u -v` 直接写文件，不要接 `| tail`：
 > `... -u -m pytest -v > run.log`（管道会把输出憋到进程结束）。
+>
+> 两个本机取证的坑（TSB-361 踩过）：
+> 1. `pytest.ini` 已经带了 `-q`，命令行再加一次就是 `-qq`，**摘要行会整个消失**，
+>    只剩点号；要摘要就别再传 `-q`。
+> 2. pytest 的临时目录默认落在 `%TEMP%`，那里会被宿主的安全删除钩子拦下，
+>    进程在 `sessionfinish` 清理阶段被中断，**退出码变 1 而没有任何失败用例**。
+>    本机取证时把三个变量指到**仓库之外**的独立目录（只设 `TEMP`/`TMP` 不够，
+>    `TMPDIR` 优先级最高）：
+>    `TMPDIR=/d/tsb-tmp TEMP=/d/tsb-tmp TMP=/d/tsb-tmp python -m pytest ...`
+>    注意**不能指进仓库内**：`test_video_capability_store::test_a6b` 会断言
+>    能力记录不落在仓库里，指进去就会把两个无关用例跑红。
 
 要计数时用 junitxml，比抓 stdout 可靠：
 
@@ -291,17 +302,39 @@ v2.0.7 起，先通过 `create_owned_staging` 原子新建并登记 Job/项目/�
 这与 3.2「接线要单独测」是同一类缺陷：守卫在（`@needs_ffmpeg` + `require_ffmpeg()`），
 但**返回值被丢掉**，等于没接线。写新用例时自查：命令行的第 0 个元素是不是 `require_ffmpeg()`。
 
-### 5.11 两个已知的测试间偶发污染（Windows 本机）
+### 5.11 跨用例执行：所有后台 Job 必须在用例内收敛（TSB-361）
 
-全量跑时偶发失败、**单独复跑即通过**的用例有两个，定位这类问题时先单独复跑，
-再用 `-u -v` 分文件排查，不要急着改断言：
+「偶发失败、单独复跑即通过」的用例，根因几乎都在**跨用例执行**：一个用例留下
+可执行的东西，跑到下一个用例的体内。2026-11-03 定位并修掉了两条泄漏路径（都在
+`backend/tests/conftest.py` 的 autouse 屏障 `_no_background_jobs_left_behind` 里）：
 
-- `test_video_fallback_runner_e2e.py::test_b01_no_upload_consent...`：前序用例的后台
-  job 未收敛，晚到的抽帧被记进当前用例的 tracker（机制已定位，见
-  [docs/validation/win-local-2026-11-02.md](docs/validation/win-local-2026-11-02.md)）；
-- `test_vision_cleanup_status.py::test_successful_model_with_failed_cleanup...[motion]`：机制未定，观察项。
+1. **已提交、未等待**：用例直接调任务函数（如 `video_analyze_task(job_id)`），
+   回退路径会把 `motion_review` 子任务提交到**模块级 `runner`**，用例返回时它还在跑，
+   晚到的 `motion.extract_frame` 落进下一个用例 monkeypatch 的 tracker；
+2. **未派发、被恢复**：同一类用例从不把行改成 `running`，行留在 `pending`；下一个
+   用例的 `client` 启动 lifespan 时，`resume_interrupted_jobs()` 把它当成"上次进程
+   崩溃遗留"重新派发，于是它**在那个用例体内**执行。
 
-与本文件 §六 一样，这类「间歇竞争」在复现前**不得**用 xfail/skip 压下去。
+屏障在 teardown 做两件事：`drain_background_jobs()` 等待 `runner._futures` 全部完成
+（超时即 fail，不静默），`settle_unfinished_jobs()` 把仍是 `pending/running/cancelling`
+的行落成终态，使恢复扫描不再选中它们。
+
+写新用例时自查：
+
+- 触发真实后继任务的用例**不要**假设"我返回了任务就结束了"；
+- 直接调任务函数时，行会留在 `pending` —— 这是允许的（屏障负责收尾），但**不要**
+  依赖另一个用例的启动来"顺手"跑它；
+- 想验证隔离本身，参考 `tests/test_tsb361_job_lifecycle.py` 的成对用例写法。
+
+这类「间歇竞争」在复现前**不得**用 xfail/skip 压下去；修完必须用**混跑 + 重复 +
+全量**证明，不能拿单例通过当结论。
+
+CI 的 `Required FFmpeg (*)` 作业失败时，**先读运行页注解**：`.github/workflows/ci.yml`
+的 `Annotate failures and skips` 步骤会把 junit 里的每个 `failure/error` 变成 `::error`
+（带用例 nodeid 与首行断言），把每个 skip 连原因变成 `::warning`，并写进
+`GITHUB_STEP_SUMMARY`。因此"红叉但不知道是哪条用例"不再是可接受的现状，也不需要
+去要需要登录的作业日志。
+
 
 ---
 

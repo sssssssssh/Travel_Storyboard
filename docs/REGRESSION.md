@@ -1215,3 +1215,50 @@ A/B 报告 `AB_RESULTS.json` 的 `status` 为 `not_annotated`，**所有指标�
 以上逐一覆盖任务书 F01～F10、B01～B10、S01～S07 共 27 个验收编号；参数化场景数与编号数分开计。后端专项三个文件合计 65 passed / 0 skipped，其中新 Runner 17、状态契约 26、原追踪升级 22。两份新后端文件均加入 Required FFmpeg 清单；既有 skip guard 未放宽。
 
 T25 手动步骤补充：显式选择“允许本次回退”并单独确认上传；父任务结束后核对后继编号和 pending→running→终态；确认多帧卡出现且原生视频数量不增加；缺失/失败不可当成功。暂停只停界面刷新，取消应在项目页选择真实后继编号。真人与真实模型验收未执行，G5/G6 不变。
+
+
+## TSB-360 / TSB-361 测试基建（Windows 全量稳定性）
+
+TSB-360 修的是「跑不起来」（裸 `ffmpeg` 找不到、无符号链接权限、全局注册表跨用例
+累积）；TSB-361 修的是「跑起来但互相干扰」。两个偶发失败**同源**：一个用例留下的
+可执行工作，跑到另一个用例的体内。有两条泄漏路径，缺口都在 `backend/tests/conftest.py`
+的 autouse 屏障 `_no_background_jobs_left_behind`：
+
+1. **已提交、未等待** —— 直接调任务函数的用例把回退子任务提交到模块级 `runner` 后
+   就返回，晚到的 `motion.extract_frame` 落进下一个用例 monkeypatch 的 tracker；
+2. **未派发、被恢复** —— 同一类用例把行留在 `pending`，下一个用例的 `client` 启动
+   lifespan 时 `resume_interrupted_jobs()` 把它当"上次崩溃遗留"重新派发，
+   在**那个用例体内**执行。
+
+屏障因此是两步：`drain_background_jobs()`（等 `runner._futures` 全部完成，超时即
+fail）+ `settle_unfinished_jobs()`（把 `pending/running/cancelling` 行落成终态，
+使恢复扫描不再选中）。断言强度未降低：`test_vision_cleanup_status.py` 的既有用例
+一行未改，仍按全表快照比较。
+
+| 用例 | 任务 | 守护行为 |
+|---|---|---|
+| `test_tsb361_job_lifecycle.py::test_a01_a/_b` | TSB-361 | 用例留下仍在跑的后台 Job 即返回；下一用例看到 `succeeded`（真跑完），不是被兜底取消 |
+| `::test_a02_a/_b` | TSB-361 | 测试体之后才发的抽帧事件只落进发起它的用例，后一个用例 tracker 一条都没有 |
+| `::test_a03_two_concurrent_jobs_keep_their_own_trackers` | TSB-361 | 两个 Job 真并发（`threading.Barrier` 保证同时在跑），各自 tracker 无交集 |
+| `::test_a04_a/_b` | TSB-361 | 运行中取消：等 worker 自己退出后行才落 `cancelled`，`started_at/finished_at` 齐全 |
+| `::test_a05_cleanup_runs_even_when_the_body_fails` | TSB-361 | 主体断言失败时 teardown 仍把 Job 收干净（直接驱动屏障生成器复刻 pytest 行为） |
+| `::test_a06_a/_b` | TSB-361 | `future.add_done_callback` 的晚到回调不写进后来者的 tracker |
+| `::test_a07_a/_b` | TSB-361 | 后台任务抛异常 ⇒ `failed` + 错误原文可见，不假装成功 |
+| `::test_a08_repeating_the_same_scenario_yields_the_same_outcome` | TSB-361 | 同一场景连跑 3 轮，终态/统计/收敛性完全一致 |
+| `::test_a09_a_pending_row_is_never_resumed_into_a_later_test` | TSB-361 | `pending` 行落成终态后 `resume_interrupted_jobs()` 不再选中它（路径②） |
+| `test_vision_cleanup_status.py::test_b01_...` | TSB-361 | 模型成功 + 清理失败：请求次数、入库行数、staging 残留、`partial_failed`、`analyzed=1` 五项各自可见 |
+| `::test_b02_...` | TSB-361 | 连续两次 cleanup-retry 都不重新请求模型、不重复写结果 |
+| `::test_b03_...` | TSB-361 | 两个 Job 并发清理只动自己的暂存，`removed_bytes` 各自准确 |
+| `::test_b04_...` | TSB-361 | 注册表里他人遗留的登记不影响本 Job 结论，其文件与 stats 均不被改动 |
+| `::test_b05_...` | TSB-361 | receipt 丢失后同路径出现新目录 ⇒ `STAGING_NOT_OWNED`，一个字节都不删 |
+| `::test_b06_...` | TSB-361 | 删到一半抛 `OSError` ⇒ `CLEANUP_FAILED` + `retryable` + 残留字节 + 审计条目 |
+| `::test_b07_...` | TSB-361 | 同一目录反复清理幂等（`removed_files` 1→0→0），邻接目录不受影响 |
+| `::test_b08_...` | TSB-361 | motion 与 semantic 在同一条清理状态契约上逐字段相等，且与期望契约相等 |
+
+A 组 14 项 + B 组 10 项（B01/B02 各 2 个参数、其余各 1 个），`collected` 由 1349
+升到 1373。B 组保留 `motion` 参数化（任务书 §5.3 明确要求），未删除任何既有用例、
+未新增 skip/xfail。
+
+**验证口径**：修复前后用同一组"前序 + 目标"命令对照（红→绿），再叠加 A→B、B→A
+两种顺序、相关后台 Job 用例混跑、连续 3 轮、Windows 严格全量；证据在
+[docs/validation/tsb361/](validation/tsb361/)。单例通过不算关闭。
