@@ -90,6 +90,76 @@ def _isolated_data_dir() -> Path:
     return _TEST_DATA_DIR
 
 
+def drain_background_jobs(timeout: float = 60.0) -> list[str]:
+    """TSB-361 §4.2A: wait until every job on the *global* runner has finished.
+
+    Tests that trigger real successor jobs (the fallback path of
+    ``video_analyze_task`` submits a ``motion_review`` child through
+    ``job_service``) used to leave them running on the module-global runner.
+    Those late jobs then kept executing *inside later tests*, landing on
+    whatever those tests had monkeypatched — frame trackers (TSB-361 problem A)
+    and ``_sample_frames``/``_analyze_motion`` stubs (problem B) — and
+    corrupted their assertions.
+
+    After this returns (empty list) no background execution is in flight.
+    Runners created per-test (``JobRunner()`` instances) are the responsibility
+    of the fixture that created them; this only drains the shared one.
+
+    Returns the job ids still running after ``timeout`` seconds. Callers must
+    fail loudly on a non-empty result — a timeout may never be silent (C6).
+    """
+    import time as _time
+
+    from app.services.runner import runner as global_runner
+
+    deadline = _time.monotonic() + timeout
+    while True:
+        # Re-snapshot every round: finishing a job may submit a successor (the
+        # fallback path does exactly that), and that successor must be waited for
+        # too or the same leak simply moves one hop later.
+        pending = [
+            (jid, future) for jid, future in list(global_runner._futures.items())
+            if future is not None and not future.done()
+        ]
+        if not pending:
+            return []
+        if _time.monotonic() >= deadline:
+            return [jid for jid, _ in pending]
+        for _jid, future in pending:
+            remaining = deadline - _time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                future.result(timeout=remaining)
+            except Exception:  # noqa: BLE001 - the Job row already carries the failure
+                # ``_run`` records the job's own error on the Job row; swallowing
+                # it here must not hide *which* work is still in flight.
+                pass
+
+
+@pytest.fixture(autouse=True)
+def _no_background_jobs_left_behind():
+    """TSB-361 §4.2A/D: drain global-runner jobs this test scheduled.
+
+    Teardown runs after every test -- and after module fixtures such as
+    ``fallback_env`` have already waited on (and restored) their own private
+    runner -- so the next test starts with zero in-flight background work. A
+    job that never settles fails the test that leaked it; assertion failures
+    in the test body cannot skip this teardown.
+
+    The row reconciliation afterwards covers the *other* half of the same
+    defect: work that was never dispatched yet but that the next lifespan's
+    ``resume_interrupted_jobs`` would dispatch into a later test.
+    """
+    yield
+    leftover = drain_background_jobs()
+    if leftover:
+        pytest.fail(
+            "background jobs still running after test teardown; the test that "
+            f"scheduled them must await their terminal state: {leftover}"
+        )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _app_ready(_isolated_data_dir: Path) -> None:
     """Create the schema and import the app once, so TASK_REGISTRY is populated."""
