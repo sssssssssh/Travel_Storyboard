@@ -472,6 +472,116 @@ def test_w3_the_driver_passes_the_round_order_to_the_probe(tmp_path, monkeypatch
         assert call["probe_id"], "each round must carry a probe id"
 
 
+# --- W05/W06 (TSB-362 / R3): the still-frame control must actually send a frame
+
+
+def _captured_payloads(monkeypatch, **probe_kwargs):
+    """Run the *real* ``run_probe`` and return the payload it would have posted.
+
+    ``httpx.post`` is intercepted so no request leaves the process: this is a
+    loopback-free unit test of the request builder, not a network test.
+    """
+    import httpx
+
+    captured: list[dict] = []
+
+    class _Resp:
+        status_code = 200
+        text = '{"choices":[{"message":{"content":"{}"}}]}'
+
+        def json(self):
+            return {"choices": [{"message": {"content": "{}"}}]}
+
+        headers = {}
+
+    def _post(url, **kwargs):
+        captured.append(kwargs.get("json"))
+        return _Resp()
+
+    monkeypatch.setattr(httpx, "post", _post)
+    probe.run_probe(model_id="test-model", authorization=object(), **probe_kwargs)
+    assert len(captured) == 1, "run_probe must issue exactly one request"
+    return captured[0]
+
+
+def _content_parts(payload: dict) -> list[dict]:
+    return payload["messages"][0]["content"]
+
+
+def _part_types(payload: dict) -> list[str]:
+    return [p.get("type") for p in _content_parts(payload)]
+
+
+def test_w05_the_still_frame_control_sends_no_video(tmp_path, monkeypatch):
+    """W05 (R3): ``frame_only=True`` must never put a video part on the wire.
+
+    The defect this reproduces: ``run_probe`` declared ``frame_only`` but never
+    read it, so the "single-frame" negative control actually sent the full MP4.
+    A control that sends the whole clip almost always answers correctly, which
+    made ``classify_probe_outcome`` downgrade a genuinely temporal endpoint to
+    ``video_accepted_sampling_unknown`` -- locking the video channel shut on
+    false evidence.
+    """
+    from tests._media import needs_ffmpeg, require_ffmpeg
+
+    require_ffmpeg()
+    clip = probe.build_synthetic_clip(duration_sec=3.0, order=("red", "green", "blue"))
+    try:
+        payload = _captured_payloads(
+            monkeypatch,
+            clip=clip,
+            round_order=("red", "green", "blue"),
+            include_video=True,
+            frame_only=True,
+        )
+        types = _part_types(payload)
+        assert "video_url" not in types, (
+            "the still-frame control sent a video part; it is not a control at all "
+            f"-- parts were {types}"
+        )
+        assert "image_url" in types, (
+            "the still-frame control must send exactly one still frame, otherwise it "
+            f"duplicates the no-video control -- parts were {types}"
+        )
+        images = [p for p in _content_parts(payload) if p.get("type") == "image_url"]
+        assert len(images) == 1, "a single frame means exactly one image part"
+        uri = images[0]["image_url"]["url"]
+        assert uri.startswith("data:image/jpeg;base64,"), (
+            f"the frame must be a JPEG data URI, got {uri[:32]!r}"
+        )
+    finally:
+        import shutil
+
+        shutil.rmtree(clip.parent, ignore_errors=True)
+
+
+def test_w06_a_normal_round_still_sends_the_video(tmp_path, monkeypatch):
+    """W06: wiring guard -- fixing W05 must not stop the rounds sending video."""
+    from tests._media import require_ffmpeg
+
+    require_ffmpeg()
+    clip = probe.build_synthetic_clip(duration_sec=3.0, order=("red", "green", "blue"))
+    try:
+        payload = _captured_payloads(
+            monkeypatch,
+            clip=clip,
+            round_order=("red", "green", "blue"),
+            include_video=True,
+            frame_only=False,
+        )
+        types = _part_types(payload)
+        assert types.count("video_url") == 1, "a timed round must carry the clip"
+        assert "image_url" not in types, "a timed round must not degrade to a still"
+        video_uri = [p for p in _content_parts(payload) if p["type"] == "video_url"][0][
+            "video_url"
+        ]["url"]
+        assert video_uri.startswith("data:video/mp4;base64,")
+    finally:
+        import shutil
+
+        shutil.rmtree(clip.parent, ignore_errors=True)
+
+
 def test_w4_a_failing_round_blocks_verification(tmp_path, monkeypatch):
     """One bad round among three is enough to refuse."""
     clip = tmp_path / "fake.mp4"

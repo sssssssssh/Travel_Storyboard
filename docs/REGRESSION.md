@@ -1275,3 +1275,38 @@ CI run #89 就是这么红的（见 [RELEASE_TSB_361.md](RELEASE_TSB_361.md) §�
 **验证口径**：修复前后用同一组"前序 + 目标"命令对照（红→绿），再叠加 A→B、B→A
 两种顺序、相关后台 Job 用例混跑、连续 3 轮、Windows 严格全量；证据在
 [docs/validation/tsb361/](validation/tsb361/)。单例通过不算关闭。
+
+## TSB-362 真实端点验证（阶段 A 只读核对 + R3 帧对照接线）
+
+发布记录：[docs/RELEASE_TSB_362.md](RELEASE_TSB_362.md)
+证据目录：[docs/validation/tsb362/](validation/tsb362/)
+
+### TSB-362 / R3 单帧对照必须真的只发一帧
+
+**原缺陷**：`tools/probe_video_capability.py::run_probe` 声明了 `frame_only` 参数却
+**从未读取**（AST 实测函数体内 0 次引用），视频部件只由 `include_video` 决定。
+于是 `run_multi_round_probe` 的"单帧负对照"实际发送的是**完整 MP4**，等价于第 4 个
+视频轮次。它几乎必然答对，`classify_probe_outcome` 因此落到
+`video_accepted_sampling_unknown`，把一个**真能读时序**的端点判成未证实——
+而 `SENDABLE_STATES` 只认 `verified_native_video`，视频通道就被假证据永久锁死。
+
+**为什么 TSB-342 的 W1–W4 没抓到**：那组用例用 `_fake_probe_factory` 整体替换了
+`run_probe`，假探测**自己**遵守 `frame_only`（`_fake_probe_factory` 的 behaviour
+签名里就有该参数），所以真实实现的丢弃行为从未被覆盖；`test_w1` 对帧对照只断言
+`frame_control_attempted is True`，不检查 `frame_only` 是否真的生效。属
+AGENTS.md §3.2「接线要单独测」同一类缺陷。
+
+| 用例 | 任务 | 守护行为 |
+|---|---|---|
+| `test_probe_temporal_evidence.py::test_w05_the_still_frame_control_sends_no_video` | TSB-362 | 拦截 `httpx.post` 截获**真实** `run_probe` 构造的 payload：`frame_only=True` 时必须**没有** `video_url` 部件、**恰有 1 个** `image_url` 部件，且为 `data:image/jpeg;base64,` |
+| `::test_w06_a_normal_round_still_sends_the_video` | TSB-362 | 反向守卫：修复不得让正常轮次退化成静帧——`include_video=True, frame_only=False` 时恰有 1 个 `video_url`、0 个 `image_url` |
+| 反向验证 | TSB-362 | 把 `if frame_only:` 改回 `if False:` → W05 立刻红（`parts were ['text','video_url']`），W06 仍绿；恢复后 W05/W06 双双转绿 |
+
+**未发任何网络请求**：W05/W06 用 monkeypatch 拦截 `httpx.post`，只用 FFmpeg 生成
+本地合成短片与 1 帧 JPEG，属纯本地回环测试；真实端点调用仍受 `--execute` +
+`--i-authorize-real-upload` 双重授权保护。
+
+**修复副作用（已知且有意）**：单帧对照现在是真正的阴性对照，向后兼容地**多一次**本地
+FFmpeg 抽帧，并把 1 帧 JPEG（而非 MP4）作为 `image_url` 部件发出。抽帧失败时
+`run_probe` 返回 `FRAME_CONTROL_UNAVAILABLE` 且**不发送**，遵循 C6「不静默跳过」。
+

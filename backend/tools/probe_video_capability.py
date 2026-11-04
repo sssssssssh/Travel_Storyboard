@@ -158,6 +158,40 @@ def choose_probe_order() -> tuple[str, str, str]:
     return (colours[0], colours[1], colours[2])
 
 
+def build_still_frame(clip: Path) -> Path:
+    """Extract one still JPEG from ``clip`` for the single-frame control.
+
+    TSB-362 (R3): the still-frame control used to send the *whole clip*. The
+    ``frame_only`` flag was declared on :func:`run_probe` and never read, so the
+    control was really a fourth video round. It nearly always answered correctly,
+    which made :func:`classify_probe_outcome` report
+    ``video_accepted_sampling_unknown`` for endpoints that genuinely read time --
+    closing the video channel on false evidence.
+
+    The frame is taken from the clip's **last** third. That is deliberate: the
+    probe clip is painted in three distinct colour phases, so a single still
+    can only ever name one colour. A still frame therefore cannot produce a
+    valid three-colour ``order`` under :func:`parse_probe_order`, which is what
+    makes this a true negative control rather than a duplicate of the
+    prompt-only one.
+    """
+    from app.ffmpeg import extract_frame
+
+    out = Path(tempfile.mkdtemp(prefix=SYNTHETIC_DIR_PREFIX)) / "frame.jpg"
+    try:
+        # Last third: `ffprobe` is deliberately not consulted, because the probe
+        # clip's duration is known (it is generated a few lines above) and a
+        # container query would add a failure mode without adding evidence.
+        extract_frame(clip, time_sec=2.5, out_path=out)
+    except Exception:
+        # Never leave a half-made directory behind if the encode is refused.
+        import shutil
+
+        shutil.rmtree(out.parent, ignore_errors=True)
+        raise
+    return out
+
+
 def new_probe_id() -> str:
     """A fresh identifier so each round's request and answer pair up unambiguously."""
     import uuid
@@ -685,84 +719,106 @@ def run_probe(
         outcome.error_code = "LOCAL_SIZE_GUARD"
         return outcome
 
-    payload = {
-        "model": model_id,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        # TSB-341: ask for the clip's actual colour order, so the
-                        # answer can be checked against ground truth instead of
-                        # scanned for time-ish words.
-                        "text": build_probe_prompt(),
-                    },
-                    *(
-                        [
-                            {
-                                "type": "video_url",
-                                "video_url": {
-                                    "url": "data:video/mp4;base64,"
-                                    + base64.b64encode(data).decode("ascii")
-                                },
-                            }
-                        ]
-                        if include_video
-                        else []
-                    ),
-                ],
-            }
-        ],
-        "max_tokens": 400,
-    }
-    url = f"{settings.model_base_url.rstrip('/')}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {settings.model_api_key}",
-        "Content-Type": "application/json",
-    }
+    # TSB-362 (R3): `frame_only` was accepted and ignored, so the "single frame"
+    # control silently sent the whole MP4. It is wired here: a frame control
+    # carries one JPEG and no video part at all.
+    frame_path: Path | None = None
+    if frame_only:
+        try:
+            frame_path = build_still_frame(clip)
+        except Exception as exc:  # noqa: BLE001 - reported as an outcome, not raised
+            # C6: a control that could not be built is visible, never silently
+            # skipped -- otherwise the endpoint would look "unblocked by a frame".
+            outcome.error_code = "FRAME_CONTROL_UNAVAILABLE"
+            outcome.notes.append(f"still-frame control could not be built: {exc}")
+            return outcome
+        data = frame_path.read_bytes()
 
-    started = time.monotonic()
     try:
-        resp = httpx.post(url, json=payload, headers=headers, timeout=timeout_sec)
-    except httpx.TimeoutException as exc:
-        outcome.error_code = "MODEL_TIMEOUT"
-        outcome.notes.append(redact(str(exc), settings.model_api_key))
-    except httpx.HTTPError as exc:
-        outcome.error_code = "MODEL_NETWORK_ERROR"
-        outcome.notes.append(redact(str(exc), settings.model_api_key))
-    else:
-        outcome.http_status = resp.status_code
-        outcome.latency_ms = int((time.monotonic() - started) * 1000)
-        body = redact(resp.text[:2000], settings.model_api_key)
-        outcome.response_excerpt = body
-        try:
-            parsed = resp.json()
-        except ValueError:
-            parsed = {}
-        text = ""
-        try:
-            text = parsed["choices"][0]["message"]["content"] or ""
-        except (KeyError, IndexError, TypeError):
-            text = ""
-        outcome.usage_present = isinstance(parsed.get("usage"), dict) and bool(parsed.get("usage"))
-        if "no_video" in (text or "").lower():
-            # The model explicitly said it saw no video. That is a *negative*
-            # result and must not be softened into "accepted".
-            outcome.temporal_signal = False
-            outcome.temporal_signal_basis = "model reported NO_VIDEO"
-            outcome.notes.append("model explicitly reported no video content")
+        if frame_only:
+            media_part = {
+                "type": "image_url",
+                "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(data).decode("ascii")},
+            }
+        elif include_video:
+            media_part = {
+                "type": "video_url",
+                "video_url": {"url": "data:video/mp4;base64," + base64.b64encode(data).decode("ascii")},
+            }
         else:
-            # TSB-341: check the reported colour order against the clip that was
-            # actually sent. This can return False for a fluent wrong answer, which
-            # the previous keyword scan could not.
-            found, basis = evaluate_probe_answer(
-                text, expected_order=outcome.round_order
-            )
-            outcome.temporal_signal = found
-            outcome.temporal_signal_basis = basis
+            media_part = None
 
-    return outcome
+        payload = {
+            "model": model_id,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            # TSB-341: ask for the clip's actual colour order, so the
+                            # answer can be checked against ground truth instead of
+                            # scanned for time-ish words.
+                            "text": build_probe_prompt(),
+                        },
+                        *([media_part] if media_part is not None else []),
+                    ],
+                }
+            ],
+            "max_tokens": 400,
+        }
+        url = f"{settings.model_base_url.rstrip('/')}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {settings.model_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        started = time.monotonic()
+        try:
+            resp = httpx.post(url, json=payload, headers=headers, timeout=timeout_sec)
+        except httpx.TimeoutException as exc:
+            outcome.error_code = "MODEL_TIMEOUT"
+            outcome.notes.append(redact(str(exc), settings.model_api_key))
+        except httpx.HTTPError as exc:
+            outcome.error_code = "MODEL_NETWORK_ERROR"
+            outcome.notes.append(redact(str(exc), settings.model_api_key))
+        else:
+            outcome.http_status = resp.status_code
+            outcome.latency_ms = int((time.monotonic() - started) * 1000)
+            body = redact(resp.text[:2000], settings.model_api_key)
+            outcome.response_excerpt = body
+            try:
+                parsed = resp.json()
+            except ValueError:
+                parsed = {}
+            text = ""
+            try:
+                text = parsed["choices"][0]["message"]["content"] or ""
+            except (KeyError, IndexError, TypeError):
+                text = ""
+            outcome.usage_present = isinstance(parsed.get("usage"), dict) and bool(parsed.get("usage"))
+            if "no_video" in (text or "").lower():
+                # The model explicitly said it saw no video. That is a *negative*
+                # result and must not be softened into "accepted".
+                outcome.temporal_signal = False
+                outcome.temporal_signal_basis = "model reported NO_VIDEO"
+                outcome.notes.append("model explicitly reported no video content")
+            else:
+                # TSB-341: check the reported colour order against the clip that was
+                # actually sent. This can return False for a fluent wrong answer, which
+                # the previous keyword scan could not.
+                found, basis = evaluate_probe_answer(
+                    text, expected_order=outcome.round_order
+                )
+                outcome.temporal_signal = found
+                outcome.temporal_signal_basis = basis
+
+        return outcome
+    finally:
+        if frame_path is not None:
+            import shutil
+
+            shutil.rmtree(frame_path.parent, ignore_errors=True)
 
 
 def run_multi_round_probe(

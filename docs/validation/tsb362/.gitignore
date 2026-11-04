@@ -1,0 +1,10 @@
+# TSB-362 — local-only, never committed.
+#
+# The task book (§4.2) assumes `*.local.json` is already covered by the repo
+# .gitignore. It is not: the root .gitignore lists *exact* paths only
+# (e.g. docs/validation/m5.3-r3.2/FINAL_HEAD_CI.local.json), so a pattern-free
+# `probe-dry-run.local.json` is NOT ignored and `git add -A` would stage it.
+# This directory-level guard is the correction. Everything the probe writes
+# locally carries a redacted-but-still-sensitive endpoint/model report.
+*.local.json
+*.local.*
