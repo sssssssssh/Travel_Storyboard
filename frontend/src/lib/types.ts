@@ -576,3 +576,71 @@ export interface VideoRefusalOut {
   requested_mode: string
   remedy?: string
 }
+
+// --- TSB-367 plan operations ----------------------------------------------
+
+/** A diff field the server computes; never supplied by the client. */
+export interface PlanOperationDiff {
+  shots: {
+    added: string[]
+    removed: string[]
+    reordered: { shot_id: string; from: number; to: number }[]
+    trimmed: {
+      shot_id: string
+      before: { in: number; out: number; duration: number }
+      after: { in: number; out: number; duration: number }
+    }[]
+    locked: { shot_id: string; before: string[]; after: string[] }[]
+    replaced: {
+      old_shot_id: string
+      new_shot_id: string | null
+      new_asset_id: string
+      new_segment_id: string
+    }[]
+  }
+  sections: { added: string[]; removed: string[]; reordered: boolean }
+  constraints: { changed: boolean; before?: unknown; after?: unknown }
+  totals?: {
+    shots_before: number
+    shots_after: number
+    duration_before: number
+    duration_after: number
+  }
+}
+
+export type PlanOperationStatus =
+  | 'proposed'
+  | 'applied'
+  | 'rejected'
+  | 'stale'
+  | 'failed'
+
+/** The server's view of one operation (§7). */
+export interface PlanOperationOut {
+  operation_id: string
+  project_id: string
+  board_id: string
+  base_version_id: string
+  result_version_id: string | null
+  status: PlanOperationStatus
+  schema_version: number
+  operations: Record<string, unknown>[]
+  diff: PlanOperationDiff
+  reason: string
+  actor: string
+  error_code: string
+  error_detail: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+  /** True while the proposal is still waiting for the user's confirmation. */
+  requires_confirmation: boolean
+}
+
+/** The operation envelope the client submits (§4.1). */
+export interface PlanOperationRequest {
+  schema_version: 1
+  base_version_id: string
+  idempotency_key: string
+  operations: Record<string, unknown>[]
+  reason: string
+}

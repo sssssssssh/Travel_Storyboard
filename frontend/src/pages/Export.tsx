@@ -7,6 +7,7 @@ import type { BuildPlanResult, EditPlanOut, JobOut, SegmentListItem, StoryboardV
 import { formatTimeCode } from '../lib/format'
 import { useJob } from '../lib/useJob'
 import { Badge, Button, EmptyState, Spinner, inputClass } from '../components/ui'
+import { OperationPanel } from '../components/OperationPanel'
 
 interface DraftShot {
   /**
@@ -58,6 +59,8 @@ function ExportEditor({ id }: { id: string }) {
   //: P1-03: set after a successful restore so the sync effect reloads the editor
   //: even though `dirty` was true (the user had unsaved work before restoring).
   const [forceReload, setForceReload] = useState(false)
+  //: TSB-367: which structured operation the user wants to try, if any.
+  const [pendingOps, setPendingOps] = useState<Record<string, unknown>[]>([])
   function setDraft(value: SetStateAction<DraftShot[]>) {
     setEditor((current) => ({ ...current, dirty: true,
       draft: typeof value === 'function' ? value(current.draft) : value }))
@@ -394,6 +397,51 @@ function ExportEditor({ id }: { id: string }) {
               })}
             </ul>
           )}
+        </div>
+      )}
+
+      {/* TSB-367: minimal structured-operation workspace. */}
+      {storyboard.data && (
+        <div className="border-b border-ink-800">
+          <div className="flex items-center gap-2 px-6 py-2 text-xs">
+            <span className="text-slate-400">对第一个镜头：</span>
+            <Button
+              variant="ghost"
+              disabled={draft.length === 0}
+              onClick={() =>
+                draft.length &&
+                setPendingOps([{
+                  type: 'lock_shot',
+                  shot_id: draft[0].shot_id,
+                  locked: true,
+                  dimensions: ['range'],
+                }])
+              }
+            >
+              锁定裁剪区间
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={draft.length === 0}
+              onClick={() =>
+                draft.length &&
+                setPendingOps([{
+                  type: 'lock_shot',
+                  shot_id: draft[0].shot_id,
+                  locked: false,
+                  dimensions: ['range'],
+                }])
+              }
+            >
+              解除锁定
+            </Button>
+          </div>
+          <OperationPanel
+            projectId={id}
+            boardId={storyboard.data.board_id}
+            baseVersionId={storyboard.data.current_version_id ?? storyboard.data.version_id}
+            pendingOperations={pendingOps}
+          />
         </div>
       )}
 

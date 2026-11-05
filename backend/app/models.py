@@ -625,6 +625,64 @@ class LegacyPlanMigration(Base):
     )
 
 
+class PlanOperation(Base):
+    """One structured modification request (TSB-367).
+
+    Deliberately *not* a second copy of the plan: `operations` records the
+    **intent**, `diff` records what the server did, and the resulting content
+    lives in an immutable :class:StoryboardVersion. A failed or rejected
+    operation therefore cannot represent plan content at all.
+
+    State machine::
+
+        proposed --apply, checks pass--> applied
+        proposed --user rejects-------> rejected
+        proposed --base moved--------> stale
+        proposed --execution error---> failed
+
+    Terminal states are final: re-applying returns the original outcome rather
+    than creating a second version.
+    """
+
+    __tablename__ = "plan_operations"
+    __table_args__ = (
+        # One logical operation per key, per board (orphan BoardIds are covered by
+        # the trigger below).
+        UniqueConstraint("board_id", "idempotency_key",
+                         name="uq_plan_operation_idempotency"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    board_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("storyboards.id", ondelete="CASCADE"), index=True
+    )
+    base_version_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    #: Reserved for TSB-371 (conversation). Nullable now.
+    message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
+
+    #: The validated request envelope, kept verbatim for audit and replay.
+    operations: Mapped[list] = mapped_column(JSON, default=list)
+    #: Server-computed change summary (never accepted from a client).
+    diff: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(16), default="proposed", index=True)
+    #: User-facing explanation. Never model chain-of-thought.
+    reason: Mapped[str] = mapped_column(Text, default="")
+    result_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    error_code: Mapped[str] = mapped_column(String(64), default="")
+    error_detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    actor: Mapped[str] = mapped_column(String(16), default="user")
+    #: Digest of the request body, for same-key-different-payload detection.
+    payload_digest: Mapped[str] = mapped_column(String(64), default="")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class StoryboardSourceRef(Base):
     """Derived index: which Asset/Segment a version's shot pointed at (TSB-366).
 

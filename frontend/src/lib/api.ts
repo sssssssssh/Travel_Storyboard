@@ -230,6 +230,19 @@ export const endpoints = {
   storyboardVersion: (id: string, versionId: string) =>
     `/api/projects/${id}/storyboard/versions/${versionId}`,
   storyboardRestore: (id: string) => `/api/projects/${id}/storyboard/restore`,
+  // --- TSB-367 plan operations ---
+  planOperations: (id: string, boardId: string) =>
+    `/api/projects/${id}/storyboards/${boardId}/operations`,
+  planOperation: (id: string, boardId: string, operationId: string) =>
+    `/api/projects/${id}/storyboards/${boardId}/operations/${operationId}`,
+  planOperationApply: (id: string, boardId: string, operationId: string) =>
+    `/api/projects/${id}/storyboards/${boardId}/operations/${operationId}/apply`,
+  planOperationReject: (id: string, boardId: string, operationId: string) =>
+    `/api/projects/${id}/storyboards/${boardId}/operations/${operationId}/reject`,
+  versionDiff: (id: string, boardId: string, versionId: string) =>
+    `/api/projects/${id}/storyboards/${boardId}/versions/${versionId}/diff`,
+  migrationStatus: (id: string) => `/api/projects/${id}/storyboard/migration-status`,
+  retryMigration: (id: string) => `/api/projects/${id}/storyboard/retry-migration`,
 }
 
 /** Download URL that appends the token correctly (& not a second ?). */

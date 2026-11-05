@@ -134,6 +134,8 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     # TSB-366: relational invariants that a per-column CHECK cannot express.
     _create_storyboard_triggers()
+    # TSB-367: one applied operation per produced version.
+    _create_plan_operation_indexes()
     if pending:
         applied = _apply_migrations()
         if applied:
@@ -201,6 +203,61 @@ _STORYBOARD_TRIGGERS: tuple[tuple[str, str], ...] = (
         END
         """,
     ),
+    # --- TSB-367: PlanOperation invariants --------------------------------
+    (
+        "trg_plan_operation_base_same_board",
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_plan_operation_base_same_board
+        BEFORE INSERT ON plan_operations
+        BEGIN
+            SELECT RAISE(ABORT, 'base_version_id must belong to this board')
+            WHERE NOT EXISTS (
+                SELECT 1 FROM storyboard_versions v
+                WHERE v.id = NEW.base_version_id AND v.board_id = NEW.board_id
+            );
+        END
+        """,
+    ),
+    (
+        "trg_plan_operation_status_valid",
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_plan_operation_status_valid
+        BEFORE INSERT ON plan_operations
+        BEGIN
+            SELECT RAISE(ABORT, 'invalid plan operation status')
+            WHERE NEW.status NOT IN
+                ('proposed','applied','rejected','stale','failed');
+        END
+        """,
+    ),
+    (
+        "trg_plan_operation_terminal_immutable",
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_plan_operation_terminal_immutable
+        BEFORE UPDATE ON plan_operations
+        WHEN OLD.status IN ('applied','rejected')
+        BEGIN
+            SELECT RAISE(ABORT, 'a terminal plan operation cannot change');
+        END
+        """,
+    ),
+    (
+        "trg_plan_operation_applied_has_result",
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_plan_operation_applied_has_result
+        BEFORE UPDATE ON plan_operations
+        WHEN NEW.status = 'applied'
+        BEGIN
+            SELECT RAISE(ABORT, 'applied requires a result_version_id in this board')
+            WHERE NEW.result_version_id IS NULL
+               OR NOT EXISTS (
+                    SELECT 1 FROM storyboard_versions v
+                    WHERE v.id = NEW.result_version_id
+                      AND v.board_id = NEW.board_id
+                  );
+        END
+        """,
+    ),
     (
         "trg_storyboard_version_restore_target_same_board",
         """
@@ -217,6 +274,27 @@ _STORYBOARD_TRIGGERS: tuple[tuple[str, str], ...] = (
         """,
     ),
 )
+
+
+#: TSB-367: at most one applied operation may claim a given result version.
+#:
+#: A partial unique index expresses this exactly; a plain UNIQUE would also count
+#: the many `NULL` results of non-applied operations, which SQLite ignores for
+#: uniqueness anyway but the partial form documents the intent.
+_PLAN_OPERATION_INDEXES: tuple[str, ...] = (
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_plan_operation_applied_result
+    ON plan_operations(result_version_id)
+    WHERE result_version_id IS NOT NULL
+    """,
+)
+
+
+def _create_plan_operation_indexes() -> None:
+    """Install the PlanOperation indexes (idempotent)."""
+    with engine.begin() as conn:
+        for ddl in _PLAN_OPERATION_INDEXES:
+            conn.execute(text(ddl))
 
 
 def _create_storyboard_triggers() -> None:

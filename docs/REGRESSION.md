@@ -1479,3 +1479,90 @@ FFmpeg 抽帧，并把 1 帧 JPEG（而非 MP4）作为 `image_url` 部件发出
 `tests/test_vision_provider.py::test_status_classification[408-MODEL_TIMEOUT]` 在 `8f2d4eb`
 与本轮 HEAD 上**均失败**（已用 `git stash` 在纯净基线双向取证），属基线既有问题，
 本轮**未修复也未跳过**，不计入本轮缺陷。
+
+
+## TSB-367 结构化操作协议与引用校验
+
+发布记录：[docs/RELEASE_TSB_367.md](RELEASE_TSB_367.md)
+差距分析：[docs/validation/tsb367/GAP_ANALYSIS.md](validation/tsb367/GAP_ANALYSIS.md)
+
+**原缺陷**：任何 Storyboard 修改都只能整份覆盖提交（`POST /edit-plan` 全量替换），
+没有操作级校验、没有锁定规则、没有操作回执，也无法为未来 AI 调用提供安全中间层。
+
+### 阶段 0 遗留收口（`test_tsb367_stage0.py`，13 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_leftover_1_pending_migration_has_a_stable_error_code` | 迁移未完成 → **409 LEGACY_MIGRATION_PENDING**，含可操作 `action`，**不含**堆栈/SQL/路径 |
+| `test_leftover_1_a_pending_migration_is_never_answered_with_an_empty_plan` | 绝不用空方案回应待迁移项目 |
+| `test_leftover_1_an_unknown_project_is_still_a_plain_404` | 未知项目仍为 404 |
+| `test_leftover_2_migration_status_is_queryable_over_http` | 状态可查询 |
+| `test_leftover_2_retry_migrates_a_pending_project` | 授权用户可重试 |
+| `test_leftover_2_retry_is_idempotent_and_does_not_touch_migrated_projects` | 重试幂等，不建第二个 v1 |
+| `test_leftover_2_retry_leaves_a_projects_current_pointer_alone` | 重试不改已编辑项目的指针 |
+| `test_leftover_2_retry_then_read_works_after_a_failure` | 失败后重试可恢复读取 |
+| `test_leftover_2_retry_reports_a_still_failing_migration` | 持续失败时**不谎报成功** |
+| `test_leftover_3_a_revision_mentions_legacy_plan_migrations` | Alembic 与运行时建表一致 |
+| `test_leftover_3_downgrade_never_drops_the_legacy_plan_table` | downgrade 不删旧计划 |
+| `test_leftover_3_init_db_remains_the_runtime_entry_and_alembic_matches` | 两条路径表集合一致 |
+
+### 模型与状态机（`test_tsb367_model.py`，13 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_plan_operation_table_has_the_contract_columns` | 契约字段齐全 |
+| `test_status_values_are_a_closed_set` | 非法状态被数据库拒绝 |
+| `test_idempotency_key_is_unique_per_board` / `test_the_same_key_may_be_used_on_a_different_board` | 幂等键作用域正确 |
+| `test_base_version_must_belong_to_the_board` | base 必须属同 board |
+| `test_applied_requires_a_result_version_in_the_same_board` | applied 必须有同 board 结果版本 |
+| `test_applied_with_a_valid_result_version_is_accepted` | 合法 applied 可写入 |
+| `test_a_terminal_operation_cannot_be_rewritten` / `test_a_rejected_operation_is_also_terminal` | 终态不可改写 |
+| `test_only_one_applied_operation_per_result_version` | 一个结果版本只被一个操作认领 |
+| `test_lock_dimensions_validate_and_normalise` / `test_all_expands_to_every_dimension` / `test_legacy_boolean_lock_still_reads_back` | 锁定维度校验、`all` 展开、旧布尔兼容 |
+
+### 操作协议 Schema（`test_tsb367_schema.py`，32 项）
+
+信封必填字段、未知 `schema_version`、未知字段、**伪造服务端字段**（status/diff/result_version_id）、
+空/超限操作数、超长 reason、未知操作类型、每类操作的必填与互斥规则、NaN/Infinity/负数/字符串数字、
+倒置区间、未知锁维度、`replace` 不得由客户端指定新身份、未知约束字段、序列化稳定、
+**payload digest 与 key 无关而与内容相关**。
+
+### 纯函数执行器（`test_tsb367_executor.py`，31 项）
+
+输入快照**不被修改**；同输入同输出；八类操作的正向/负向/边界；锁定拒绝与放行；
+插入/替换的**服务端造身份**；跨项目与 asset-segment 不匹配拒绝；越界拒绝；
+删除锁定镜头拒绝；批量全有或全无；操作已删镜头报错清晰；约束冲突被报告；
+结果时间线连续。
+
+### 锁定矩阵（`test_tsb367_lock_matrix.py`，25 项）
+
+4 维度 × 5 操作 = **20 格逐格**断言；元测试比对代码矩阵与公布表；
+组合维度取并集；解锁后恢复可编辑；移动不丢锁。
+
+### 事务、并发、幂等（`test_tsb367_transactions.py`，16 项）
+
+propose 产生预览 diff 不建版本；apply 恰好建一个版本；**基版本逐字节不变**；
+SourceRef 同事务写入；失败批次**零副作用**；未知操作 404；
+过期 base 冲突；**同 base 两客户端只一个成功**；同 key 同 payload 返回原操作；
+同 key 异 payload 拒绝；applied 重放不建新版本；reject 不建版本且幂等；
+rejected 不可 apply；applied 不可 reject；跨项目操作不可见；跨 board base 拒绝。
+
+### API 契约（`test_tsb367_api.py`，19 项）
+
+propose→apply 闭环；读状态与 diff；reject 不建版本；未知类型 400；畸形信封 400；
+**伪造字段 422**（三种）；缺失镜头 404；锁定冲突 409；越界 422；过期 base 409；
+同 key 返回同一操作；同 key 异 payload 409；**跨项目 board/operation 均 404**；
+未知项目 404；版本 diff 与首版空 diff。
+
+### 前端（`OperationPanel.test.tsx`，7 项）
+
+展示**服务端 diff**（本地不计算）；确认恰好 apply 一次；拒绝走 reject 且无版本；
+**409 保留待提交操作**并提示；apply 失败显示错误而非成功；无待提交操作时按钮禁用。
+
+### 反向验证
+
+| 破坏项 | 结果 |
+|---|---|
+| 去掉 apply 时 base_version CAS | 并发用例变红 |
+| 去掉 `_check_lock` | 锁定矩阵多格变红 |
+| 绕过幂等键检查 | 幂等两项变红 |

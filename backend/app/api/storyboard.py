@@ -34,9 +34,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from ..models import Project
+from ..services.storyboard_migration import migration_status, retry_migration
 from ..services.storyboard_schema import SnapshotError
 from ..services.storyboard_service import (
     BaseVersionRequired,
+    LegacyMigrationPending,
     RestoreNotAllowed,
     StoryboardNotFound,
     VersionConflict,
@@ -122,6 +125,21 @@ def _http(exc: Exception) -> HTTPException:
             "code": "INVALID_SNAPSHOT", "message": str(exc),
             "issues": exc.issues,
         })
+    if isinstance(exc, LegacyMigrationPending):
+        # TSB-367 stage 0: a project whose legacy plan has not been migrated must
+        # never be answered with an empty board or a generic 500. The body is
+        # limited to what a user can act on — no stack, no SQL, no database path,
+        # and nothing from any other project.
+        return HTTPException(status_code=409, detail={
+            "code": "LEGACY_MIGRATION_PENDING",
+            "message": (
+                "这个项目的旧剪辑计划尚未完成迁移，暂时不能显示方案。"
+                "请先重试迁移；旧计划数据仍然完好保留。"
+            ),
+            "state": "pending",
+            "action": "retry the legacy migration",
+            "retry_endpoint": "/api/projects/{project_id}/storyboard/retry-migration",
+        })
     raise exc
 
 
@@ -130,7 +148,7 @@ def read_current_storyboard(project_id: str, db: Session = Depends(get_db)):
     """The project's current storyboard version."""
     try:
         return get_current_version(project_id=project_id).to_api()
-    except StoryboardNotFound as exc:
+    except (StoryboardNotFound, LegacyMigrationPending) as exc:
         raise _http(exc) from None
 
 
@@ -203,3 +221,41 @@ def restore(project_id: str, body: RestoreRequest, db: Session = Depends(get_db)
         RestoreNotAllowed, SnapshotError,
     ) as exc:
         raise _http(exc) from None
+
+# ---------------------------------------------------------------------------
+# TSB-367 stage 0 - legacy-plan migration status and retry
+# ---------------------------------------------------------------------------
+# Both routes sit under the same /api auth middleware and the same project
+# existence check as every other storyboard route, so a caller can only ask about
+# a project it can already read. Unknown ids get the ordinary 404; nothing about
+# another project's state is ever revealed.
+
+
+@router.get("/projects/{project_id}/storyboard/migration-status")
+def read_migration_status(project_id: str, db: Session = Depends(get_db)):
+    """Whether this project's legacy plan has been migrated, and why not."""
+    if db.get(Project, project_id) is None:
+        raise HTTPException(status_code=404, detail={
+            "code": "STORYBOARD_NOT_FOUND", "message": "project not found",
+        })
+    return migration_status(project_id=project_id)
+
+
+@router.post("/projects/{project_id}/storyboard/retry-migration")
+def retry_legacy_migration(project_id: str, db: Session = Depends(get_db)):
+    """Re-run the legacy migration for one project (idempotent)."""
+    if db.get(Project, project_id) is None:
+        raise HTTPException(status_code=404, detail={
+            "code": "STORYBOARD_NOT_FOUND", "message": "project not found",
+        })
+    outcome = retry_migration(project_id=project_id)
+    status = outcome["status"]
+    if status["state"] == "failed":
+        raise HTTPException(status_code=409, detail={
+            "code": "LEGACY_MIGRATION_PENDING",
+            "message": "migration still failing; legacy data kept intact, retry later",
+            "state": "failed",
+            "action": "retry the legacy migration",
+            "attempts": status.get("attempts", 0),
+        })
+    return outcome

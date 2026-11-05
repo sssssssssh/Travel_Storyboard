@@ -43,6 +43,15 @@ REASONS = frozenset(
 )
 
 
+#: TSB-367 lock dimensions (§5.3). `all` is a shorthand for the union of the
+#: other three rather than a fourth independent dimension.
+LOCK_REFERENCE = "reference"
+LOCK_RANGE = "range"
+LOCK_POSITION = "position"
+LOCK_ALL = "all"
+LOCK_DIMENSIONS = (LOCK_REFERENCE, LOCK_RANGE, LOCK_POSITION, LOCK_ALL)
+
+
 class SnapshotError(ValueError):
     """A snapshot did not validate. Carries the field-level reasons."""
 
@@ -114,8 +123,51 @@ class ShotSnapshot(BaseModel):
     #: Added by later tasks; absent (``None``) in a migrated legacy plan so a
     #: reader can tell "not stated" from "stated as empty".
     reason: str | None = None
-    locked: bool | None = None
+    #: TSB-367: lock dimensions. `None` means unlocked (identical to the
+    #: pre-TSB-367 single-boolean meaning when it was absent). A list holds any of
+    #: `reference` / `range` / `position` / `all` so one shot can protect,
+    #: say, its range but still be replaceable. Stored in the version snapshot, so
+    #: every lock change is itself a new immutable version.
+    locked: list[str] | None = None
     source_signature: str | None = None
+
+    @field_validator("locked", mode="before")
+    @classmethod
+    def _lock_dimensions(cls, value):
+        """Normalise and validate the lock dimensions.
+
+        `True`/`False` are accepted for backward compatibility with the single
+        boolean the field used before TSB-367 and are mapped onto the equivalent
+        dimension list; anything outside the matrix is refused so a typo cannot
+        silently disable a lock.
+        """
+        if value is None or value is False:
+            return None
+        if value is True:
+            return ["all"]
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("locked must be a list of lock dimensions")
+        dims = [str(v).strip().lower() for v in value]
+        unknown = [d for d in dims if d not in LOCK_DIMENSIONS]
+        if unknown:
+            raise ValueError(f"unknown lock dimension(s): {unknown}")
+        if not dims:
+            return None
+        # Stored sorted+unique so two logically equal locks compare equal.
+        return sorted(set(dims))
+
+    def lock_set(self) -> frozenset[str]:
+        """The effective lock set; `all` is expanded to every dimension."""
+        dims = set(self.locked or ())
+        if LOCK_ALL in dims:
+            # ll is shorthand for the union of the concrete dimensions; it is
+            # not itself a dimension, so it must not appear in the effective set.
+            return frozenset(
+                d for d in LOCK_DIMENSIONS if d != LOCK_ALL
+            )
+        return frozenset(dims)
 
     @field_validator("shot_id")
     @classmethod

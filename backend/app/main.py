@@ -17,6 +17,7 @@ from .api import (
     export,
     storyboard,
     jobs,
+    plan_operations,
     media,
     packages,
     projects,
@@ -135,6 +136,7 @@ app.include_router(packages.router, prefix="/api")
 app.include_router(story.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
 app.include_router(storyboard.router, prefix="/api")
+app.include_router(plan_operations.router, prefix="/api")
 
 
 @app.get("/api", include_in_schema=False)

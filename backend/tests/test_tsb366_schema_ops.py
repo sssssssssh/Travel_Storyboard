@@ -49,15 +49,30 @@ def _load_version_module():
 
 
 def test_the_alembic_revision_declares_the_same_triggers_as_the_app():
-    """One source of truth for the storyboard invariants (§7.1)."""
+    """One source of truth for the trigger invariants (§7.1, TSB-367 §2.3).
+
+    The check spans **every** revision, not just 0001: TSB-367 added plan-operation
+    invariants, and if those were added to the app without a matching revision the
+    two bootstrap paths would enforce different rules — exactly the drift this test
+    exists to catch.
+    """
     from app.database import _STORYBOARD_TRIGGERS
 
-    revision = _load_version_module()
     app_names = {name for name, _ddl in _STORYBOARD_TRIGGERS}
-    rev_names = {name for name, _ddl in revision.TRIGGERS}
+
+    rev_names: set[str] = set()
+    for path in (BACKEND / "alembic" / "versions").glob("*.py"):
+        spec = importlib.util.spec_from_file_location(f"rev_{path.stem}", path)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for attr in ("TRIGGERS", "PLAN_OPERATION_TRIGGERS"):
+            for name, _ddl in getattr(module, attr, ()):
+                rev_names.add(name)
+
     assert rev_names == app_names, (
-        f"trigger sets drifted — app-only: {app_names - rev_names}, "
-        f"revision-only: {rev_names - app_names}"
+        f"trigger sets drifted — app-only: {sorted(app_names - rev_names)}, "
+        f"revision-only: {sorted(rev_names - app_names)}"
     )
 
 
