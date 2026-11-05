@@ -6,6 +6,8 @@
 | 产品版本 | `2.1.2`（未升版） |
 | 差距分析 | [GAP_ANALYSIS.md](validation/tsb367/GAP_ANALYSIS.md)（编码前输出） |
 | 证据目录 | [docs/validation/tsb367/](validation/tsb367/) |
+| **交付 SHA** | **`f9585e11ee5fd7abea01d658d281d69ee9f7d533`** |
+| CI | run #97，**7/7 success** —— https://github.com/sssssssssh/Travel_Storyboard/actions/runs/41986870243 |
 
 > **结论**：任何 Storyboard 修改现在都必须表达为受 Schema 约束的 `PlanOperation`；
 > 服务端按稳定 `shot_id` 执行、校验项目引用与锁定、以单个事务生成新的不可变版本与回执。
@@ -284,3 +286,44 @@ tests=1603 failures=1 errors=0 skipped=5
 6. **`update_constraints` 的软偏好不好影响任何后续行为**：本轮只记录到 brief.notes，TSB-368/369 才会消费。
 7. **diff 端点仅做结构比较**：不含语义解释（那属于 TSB-370/371）。
 8. **未提供操作列表的分页**：`limit` 上限 50，长期使用需分页。
+
+
+---
+
+## 十一、CI 执行结果
+
+| 项 | 值 |
+|---|---|
+| 交付 SHA | `f9585e11ee5fd7abea01d658d281d69ee9f7d533` |
+| run | **#97** |
+| 链接 | https://github.com/sssssssssh/Travel_Storyboard/actions/runs/41986870243 |
+| 结论 | **7/7 success** |
+
+| 作业 | 结论 |
+|---|---|
+| `Required FFmpeg (windows-latest)` | ✅ success |
+| `Required FFmpeg (ubuntu-latest)` | ✅ success |
+| `Backend (Python 3.11)` ×2 | ✅ success |
+| `Backend (Python 3.13)` ×2 | ✅ success |
+| `Frontend` | ✅ success |
+
+**关于 408 用例的环境差异（与 TSB-366-R1 相同的现象）**：该用例在本机稳定失败，
+在 CI 中通过。本轮**没有修改该模块**，且 CI 全绿，因此可以确认它不是本轮引入的回归；
+但它仍是一个**环境相关的真实不稳定**，保留为遗留项，不据此声称"本机全量通过"。
+
+## 十二、完成判定（对照任务书 §8）
+
+| 条件 | 状态 |
+|---|---|
+| P0-01 历史版本内容错配 | ✅（TSB-366-R1 已修，本轮回归保持） |
+| P0-02 shot_id 稳定性 | ✅（同上，操作协议复用稳定身份） |
+| P1-03 草稿保护 | ✅（同上） |
+| P1-04 迁移失败安全保护 | ✅（阶段 0 补上 HTTP 映射与重试） |
+| P1-05 迁移对账固定 v1 | ✅（同上） |
+| 写入校验边界有结论和测试 | ✅ §4.2 + `test_p1_*` |
+| 新增专项测试全部通过 | ✅ 148 项 |
+| 前端质量检查全部通过 | ✅ typecheck/lint/test(112)/build |
+| 后端全量真实记录 | ✅ 1603 / 1 failed（既存）/ 5 skipped |
+| 数据库兼容性验证 | ✅ Alembic 0002 隔离库升降级，旧数据保留 |
+| 代码已提交并推送 | ✅ `f9585e1` |
+| GitHub Actions 结果已记录 | ✅ run #97 7/7 |
