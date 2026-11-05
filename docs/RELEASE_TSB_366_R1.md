@@ -6,6 +6,8 @@
 | 基线 | `main@8f2d4ebbb74840304b668746030515d5379f15b4`（TSB-366 交付提交，工作区干净） |
 | 产品版本 | `2.1.2`（未升版） |
 | 证据目录 | [docs/validation/tsb366-r1/](validation/tsb366-r1/) |
+| **最终 SHA** | **`f9c552ecffd28f598222b984d53308503961ba01`** |
+| CI | run #95 7/7 success |
 | 范围 | 只修 5 个已知缺陷 + 1 项边界审查；**不重新设计、不开发 TSB-367** |
 
 > **结论：5 个 P0/P1 缺陷全部修复，写入校验边界给出明确结论并以测试固定；
@@ -292,6 +294,39 @@ tests=1455 failures=1 errors=0 skipped=5
 | 修改历史版本快照 | ❌ 未发生（不可变触发器仍生效） |
 | 自动修复/替换来源引用 | ❌ 未发生 |
 | 空版本覆盖旧方案 | ❌ 未发生（P1-04 正是修复此点） |
+
+---
+
+## 三·补 CI 执行结果
+
+| 项 | 值 |
+|---|---|
+| 交付 SHA | `f9c552ecffd28f598222b984d53308503961ba01` |
+| CI run | **#95** |
+| 链接 | https://github.com/sssssssssh/Travel_Storyboard/actions/runs/41962230138 |
+| 结果 | **7/7 success** |
+
+| 作业 | 结论 |
+|---|---|
+| `Required FFmpeg (windows-latest)` | ✅ success |
+| `Required FFmpeg (ubuntu-latest)` | ✅ success |
+| `Backend (Python 3.11)` ×2 | ✅ success |
+| `Backend (Python 3.13)` ×2 | ✅ success |
+| `Frontend` | ✅ success |
+
+### ⚠️ 关于 408 用例在 CI 与本地表现不同
+
+CI 的 `Backend` 作业**全部通过**，意味着
+`test_status_classification[408-MODEL_TIMEOUT]` 在 **CI 环境通过**，而本机稳定失败。
+
+这一差异如实记录，**不试图掩盖**：
+
+- 三种环境下该用例的表现：纯净 `8f2d4eb` **本地失败** / 本轮 HEAD **本地失败** / **CI 通过**；
+- 因此它**不是**本轮引入的回归（CI 绿 + 基线双向取证同时成立）；
+- 但它**是一个真实的环境相关不稳定**（很可能与本地 mock server 对 408 响应的时序有关），
+  仍列为遗留项，建议后续单独排查。
+
+**不得**据此声称"本机全量通过"——本机结果就是 1455 / 1 failed。
 
 ---
 
