@@ -320,6 +320,13 @@ class EditPlanShotIn(BaseModel):
     #: Ignored for ordering — the position in ``shots`` is authoritative
     #: (audit P1-05). Kept optional so existing clients still validate.
     order: int | None = None
+    #: TSB-366-R1 (P0-02): the identity this shot already had.
+    #:
+    #: The editor must send it back so an ordinary edit keeps the same shot
+    #: identity; omitting it is only correct for a *newly added* shot, which then
+    #: receives a fresh stable id. It must never be derived from the array index.
+    shot_id: str | None = None
+    section_id: str | None = None
     asset_id: str
     segment_id: str
     source_in_sec: float

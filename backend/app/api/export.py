@@ -132,12 +132,20 @@ def get_edit_plan(
     version_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    """The plan document (legacy shape). Reads the current version by default."""
+    """The plan document (legacy shape). Reads the current version by default.
+
+    TSB-366-R1 (P0-01): the resolved version must be passed *into* the renderer.
+    The previous form built the document from the current version and then
+    relabelled it with the requested ``version_id``, so asking for a historical
+    version returned that version's id with the current version's shots.
+    """
     _require_project(project_id, db)
     view = _resolve_version(project_id, version_id)
-    data = export_json(project_id)
+    # One version id flows all the way down: resolve → render → respond.
+    data = export_json(project_id, version_id=view.version_id)
     data["version_id"] = view.version_id
     data["board_id"] = view.board_id
+    data["version_no"] = view.version_no
     return data
 
 

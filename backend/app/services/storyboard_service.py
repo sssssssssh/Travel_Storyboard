@@ -98,6 +98,42 @@ class BaseVersionRequired(StoryboardError):
     """A write arrived without ``base_version_id`` (§5.4 compatibility error)."""
 
 
+class LegacyMigrationPending(StoryboardError):
+    """Legacy rows exist but no migration has happened yet (TSB-366-R1 / P1-04).
+
+    Raised instead of quietly creating an empty initial version. That silent
+    creation was the defect: it produced a board, and the next migration run then
+    skipped the project ("storyboard already exists"), permanently hiding the
+    user's real plan behind an empty one.
+    """
+
+    def __init__(self, project_id: str, reason: str) -> None:
+        super().__init__(
+            f"LEGACY_MIGRATION_PENDING: project {project_id} has legacy plan rows "
+            f"that have not been migrated ({reason}); refusing to create an empty "
+            "storyboard. Run the migration (or retry it) first."
+        )
+        self.project_id = project_id
+        self.reason = reason
+
+
+class InvalidReference(StoryboardError):
+    """A new write referenced an Asset/Segment that is not valid here.
+
+    Raised only when the caller explicitly opts into rejection
+    (``reject_invalid_references=True``). Migration and history-preserving
+    paths keep the permissive behaviour required by TSB-366 §3.2.
+    """
+
+    def __init__(self, state: str, issues: list[dict]) -> None:
+        super().__init__(
+            "INVALID_REFERENCE: the submitted plan references sources that do not "
+            f"exist in this project ({state})"
+        )
+        self.state = state
+        self.issues = issues
+
+
 class RestoreNotAllowed(StoryboardError):
     """The target version's references are too broken to promote (§4.3)."""
 
@@ -385,26 +421,68 @@ def load_storyboard_version(
         return _run(s)
 
 
-def get_current_version(*, project_id: str, session: Session | None = None) -> VersionView:
-    """The project's current version. Creates an empty v1 if the board is new."""
-    view = None
-    try:
-        view = load_storyboard_version(project_id=project_id, session=session)
-    except StoryboardNotFound:
-        view = None
-    if view is not None:
-        return view
-    # A project with no board yet gets one with an empty initial version, so the
-    # Export page has something lawful to read (§4.1) and a base to save against.
-    return save_version(
-        project_id=project_id,
-        base_version_id=None,
-        shots=[],
-        actor="system",
-        reason="initial",
-        allow_initial=True,
-        session=session,
+def _assert_no_pending_legacy_migration(session: Session, project_id: str) -> None:
+    """Refuse to fabricate an empty plan while legacy rows are unmigrated.
+
+    Three cases (TSB-366-R1 / P1-04):
+
+    * no legacy rows -> nothing to preserve, an empty board is correct;
+    * legacy rows + a recorded failure -> refuse and name the failure;
+    * legacy rows + no record at all -> refuse (the migration has not run yet).
+    """
+    from ..models import EditPlanShot, LegacyPlanMigration
+
+    legacy = int(
+        session.scalar(
+            select(func.count()).select_from(EditPlanShot).where(
+                EditPlanShot.project_id == project_id
+            )
+        )
+        or 0
     )
+    if not legacy:
+        return
+
+    record = session.scalars(
+        select(LegacyPlanMigration).where(LegacyPlanMigration.project_id == project_id)
+    ).first()
+    if record is not None and record.state == "failed":
+        raise LegacyMigrationPending(
+            project_id, f"previous attempt failed: {record.error or 'unknown error'}"
+        )
+    # No record, or a 'pending' record: the migration has not completed.
+    raise LegacyMigrationPending(project_id, f"{legacy} legacy shot(s) not migrated yet")
+
+
+def get_current_version(*, project_id: str, session: Session | None = None) -> VersionView:
+    """The project's current version. Creates an empty v1 if the board is new.
+
+    TSB-366-R1 (P1-04): the auto-created empty version is only lawful when there
+    is no legacy plan to preserve. Otherwise this raises
+    :class:`LegacyMigrationPending` and writes nothing.
+    """
+
+    def _run(s: Session) -> VersionView:
+        try:
+            return load_storyboard_version(project_id=project_id, session=s)
+        except StoryboardNotFound:
+            pass
+        # No board yet: is it safe to create one?
+        _assert_no_pending_legacy_migration(s, project_id)
+        return save_version(
+            project_id=project_id,
+            base_version_id=None,
+            shots=[],
+            actor="system",
+            reason="initial",
+            allow_initial=True,
+            session=s,
+        )
+
+    if session is not None:
+        return _run(session)
+    with session_scope() as s:
+        return _run(s)
 
 
 def get_version(
@@ -616,6 +694,7 @@ def save_version(
     brief: BriefSnapshot | None = None,
     constraints: ConstraintsSnapshot | None = None,
     allow_initial: bool = False,
+    reject_invalid_references: bool = False,
     session: Session | None = None,
 ) -> VersionView:
     """Create a new version from ``snapshot`` (or from ``shots``).
@@ -659,6 +738,31 @@ def save_version(
             document = snapshot
         validation = validate_references(s, project_id=project_id, shots=document.shots)
         document.validation_summary = validation
+
+        # TSB-366-R1 — the write-validation boundary, stated explicitly.
+        #
+        # There are two legitimate intents, and they must not share one rule:
+        #
+        # * **Preserve history** (default, ``reject_invalid_references=False``):
+        #   an editor/save may record a plan whose references have since gone bad
+        #   (source re-detected, segment needs review). Dropping those shots would
+        #   destroy user work (§4 P1: 不得因为旧数据引用异常而直接删除镜头), so the
+        #   shot is kept verbatim and the version is marked ``needs_review`` /
+        #   ``invalid``. Nothing is auto-replaced or auto-bound.
+        #
+        # * **Reject clearly broken references** (``reject_invalid_references=True``):
+        #   a caller that is building a *new* plan wants a hard error instead of a
+        #   silently-degraded version. Only ``invalid`` states are refused — a
+        #   ``needs_review`` plan is still savable, because "the source changed"
+        #   is a legitimate thing to record and to fix later.
+        #
+        # Either way, a cross-project asset/segment is never treated as valid:
+        # ``validate_references`` resolves ids strictly within this project.
+        if reject_invalid_references and validation.state == "invalid":
+            raise InvalidReference(
+                validation.state,
+                [i.model_dump() for i in validation.issues],
+            )
 
         if board is None:
             board = Storyboard(project_id=project_id, title="")

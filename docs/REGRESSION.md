@@ -1418,3 +1418,64 @@ FFmpeg 抽帧，并把 1 帧 JPEG（而非 MP4）作为 `image_url` 部件发出
 | `shows the current storyboard version and sends base_version_id on save` | 显示 `vN`；保存提交 `base_version_id` |
 | `a 409 conflict keeps the draft and shows the conflict banner` | 冲突时**草稿保留**并提示 |
 | `the history panel lists versions and offers restore for non-current ones` | 历史面板列出并标记当前版本 |
+
+
+## TSB-366-R1 版本化底座质量收口
+
+发布记录：[docs/RELEASE_TSB_366_R1.md](RELEASE_TSB_366_R1.md)
+证据目录：[docs/validation/tsb366-r1/](validation/tsb366-r1/)
+
+**原缺陷**（5 项，均在 `8f2d4eb` 实测复现）：
+
+| 编号 | 问题 | 案例后果 |
+|---|---|---|
+| P0-01 | 历史版本读取时 `export_json` 未收到 `version_id` | 请求 v1(3 镜头) 返回 v1 标签 + v2 的 8 个镜头 |
+| P0-02 | 前端 `DraftShot` 无 `shot_id` | 只改一个时长，全部镜头身份重建 |
+| P1-03 | 恢复历史版本无确认且直接 `dirty=false` | 未保存草稿被静默丢弃 |
+| P1-04 | 迁移失败被吞 + 无 board 时自动建空版本 | 空方案取代旧方案，迁移永久跳过 |
+| P1-05 | 对账以 `current_version_id` 为基准 | 编辑后对账对象变成 v2/v3 |
+
+### 专项用例（`backend/tests/test_tsb366r1_regressions.py`，24 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_p0_01_get_edit_plan_returns_the_requested_historical_version` | 请求 v1 必须得到 v1 的 3 个镜头与 v1 的总时长 |
+| `test_p0_01_json_export_of_a_historical_version_is_self_consistent` | JSON 镜头数/segment/入点全属 v1 |
+| `test_p0_01_csv_export_of_a_historical_version_is_self_consistent` | CSV 行数属 v1 |
+| `test_p0_01_otio_export_of_a_historical_version_is_self_consistent` | OTIO clip 数属 v1 |
+| `test_p0_01_reading_a_historical_version_does_not_move_the_pointer` | 四种读取入口均不改 `current_version_id` |
+| `test_p0_01_the_default_read_still_returns_the_current_version` | 不带 version_id 的兼容行为不变 |
+| `test_p0_02_an_edit_round_trip_preserves_every_shot_id` | 改时长不改变任何身份 |
+| `test_p0_02_adding_a_shot_only_creates_one_new_identity` | 新增只产生 1 个新 id |
+| `test_p0_02_removing_a_shot_leaves_the_others_untouched` | 删除不影响其他身份 |
+| `test_p0_02_reordering_keeps_identity_tied_to_the_shot_content` | 排序后 `shot_id→segment_id` 不变，时间线按数组顺序 |
+| `test_p0_02_the_legacy_endpoint_preserves_shot_ids_too` | HTTP 写路径同样保留身份 |
+| `test_p1_04_a_project_with_no_legacy_plan_may_initialize_an_empty_board` | 新项目正常初始化空 v1 |
+| `test_p1_04_a_migrated_legacy_project_reads_its_v1` | 迁移后正常读 v1 |
+| `test_p1_04_a_failed_migration_must_not_yield_an_empty_initial_version` | 失败后拒绝造空版本且不写数据 |
+| `test_p1_04_a_failed_migration_records_a_queryable_error_then_retries` | 失败可查、重试成功 |
+| `test_p1_04_a_retry_is_idempotent_and_leaves_migrated_projects_alone` | 重试不重复建版本 |
+| `test_p1_04_retry_does_not_disturb_a_project_that_has_been_edited` | 重试不改当前指针 |
+| `test_p1_04_the_legacy_rows_are_never_modified_by_migration_or_retry` | 旧行逐字段不变 |
+| `test_p1_05_reconcile_still_targets_v1_after_later_edits` | 编辑后对账仍以 v1 为基准 |
+| `test_p1_05_reconcile_detects_real_drift_against_v1` | 真实差异能被发现 |
+| `test_p1_05_reconcile_reports_a_missing_migration_version` | 缺迁移版本被报告 |
+| `test_p1_05_reconcile_never_modifies_any_version` | 对账只读 |
+| `test_p1_cross_project_asset_and_segment_are_never_treated_as_valid` | 跨项目引用永不视为有效 |
+| `test_p1_a_new_version_may_not_save_a_shot_whose_asset_is_absent` | 显式拒绝模式返回可识别错误 |
+
+### 前端专项（`Export.test.tsx`，新增 8 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `P0-02 keeps every shot_id through load, edit and save` | 保存 payload 中身份完整 |
+| `P0-02 an added shot receives a new id while the others keep theirs` | 新镜头交由服务端分配 id |
+| `P1-03 restoring a clean editor needs no confirmation` | 无草稿时不打扰用户 |
+| `P1-03 cancelling the confirmation sends no restore request and keeps the draft` | 取消 → **0 请求**、草稿不变 |
+| `P1-03 confirming sends the restore request` | 确认 → 恰好 1 次请求 |
+
+### 已知遗留
+
+`tests/test_vision_provider.py::test_status_classification[408-MODEL_TIMEOUT]` 在 `8f2d4eb`
+与本轮 HEAD 上**均失败**（已用 `git stash` 在纯净基线双向取证），属基线既有问题，
+本轮**未修复也未跳过**，不计入本轮缺陷。

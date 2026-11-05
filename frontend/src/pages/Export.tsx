@@ -9,6 +9,15 @@ import { useJob } from '../lib/useJob'
 import { Badge, Button, EmptyState, Spinner, inputClass } from '../components/ui'
 
 interface DraftShot {
+  /**
+   * TSB-366-R1 (P0-02): the shot's stable identity, as returned by the server.
+   *
+   * It must survive load → edit → save, otherwise an ordinary edit (changing one
+   * duration) constructs a *new* shot and loses the link to history. A shot the
+   * user has just added has no id yet; the server mints one on save and the page
+   * picks it up from the response.
+   */
+  shot_id?: string
   asset_id: string
   segment_id: string
   source_in_sec: number
@@ -46,6 +55,9 @@ function ExportEditor({ id }: { id: string }) {
   const [showHistory, setShowHistory] = useState(false)
   const [conflict, setConflict] = useState<string | null>(null)
   const [restoredNotice, setRestoredNotice] = useState<string | null>(null)
+  //: P1-03: set after a successful restore so the sync effect reloads the editor
+  //: even though `dirty` was true (the user had unsaved work before restoring).
+  const [forceReload, setForceReload] = useState(false)
   function setDraft(value: SetStateAction<DraftShot[]>) {
     setEditor((current) => ({ ...current, dirty: true,
       draft: typeof value === 'function' ? value(current.draft) : value }))
@@ -78,6 +90,8 @@ function ExportEditor({ id }: { id: string }) {
   function loadServer(data: EditPlanOut) {
     // Keep every persisted edit field; array position remains authoritative.
     return [...data.shots].sort((a, b) => a.order - b.order).map((shot) => ({
+      // P0-02: carry the identity through, never re-derive it from the index.
+      ...(shot.shot_id ? { shot_id: shot.shot_id } : {}),
       asset_id: shot.asset_id, segment_id: shot.segment_id,
       source_in_sec: shot.source_in_sec, source_out_sec: shot.source_out_sec,
       target_duration_sec: shot.target_duration_sec, story_role: shot.story_role,
@@ -86,13 +100,14 @@ function ExportEditor({ id }: { id: string }) {
       evidence: shot.evidence, confidence: shot.confidence, review_status: shot.review_status,
     }))
   }
-  if (plan.data && plan.data !== editor.server && !dirty) {
+  if (plan.data && plan.data !== editor.server && (!dirty || forceReload)) {
     setEditor({
       draft: loadServer(plan.data),
       dirty: false,
       server: plan.data,
       baseVersionId: plan.data.version_id ?? null,
     })
+    if (forceReload) setForceReload(false)
   }
 
   const save = useMutation({
@@ -143,21 +158,55 @@ function ExportEditor({ id }: { id: string }) {
         }),
       }),
     onSuccess: async (v) => {
-      setRestoredNotice(`已恢复版本 v${v.version_no}（恢复自所选历史版本）`)
+      // P1-03: the editor must end up showing the *restored* content, and may
+      // only be marked clean once it actually does.
+      //
+      // The strategy: clear the "server" marker so the existing sync effect
+      // reloads the editor from the freshly fetched plan, and only mark the draft
+      // as clean once that new plan has arrived. Marking `dirty = false` here
+      // unconditionally was the defect — it declared the old draft saved while
+      // the user's edits silently vanished.
+      setRestoredNotice(`已恢复版本 v${v.version_no}（新建版本，历史未被改写）`)
       setShowHistory(false)
-      setEditor((current) => ({ ...current, dirty: false }))
+      // Force the next fetched plan to become the editor content, whatever the
+      // draft's dirty flag says; `dirty` is cleared only by that sync.
+      setForceReload(true)
       await qc.invalidateQueries({ queryKey: ['edit-plan', id] })
       await qc.invalidateQueries({ queryKey: ['storyboard', id] })
+      await qc.invalidateQueries({ queryKey: ['storyboard-versions', id] })
+      // The sync effect below takes over: it sets draft + baseVersionId + dirty.
     },
     onError: (error) => {
+      // P1-03 requirement 9: on failure the draft, baseVersionId and dirty flag
+      // are left exactly as they were — only a message is shown.
       const status = (error as { status?: number }).status
       setRestoredNotice(
         status === 409
-          ? '恢复失败：方案已被修改，请刷新后再试。'
-          : `恢复失败：${error.message}`,
+          ? '恢复失败：方案已被修改，你的草稿保持不变，请刷新后再试。'
+          : `恢复失败：${error.message}（草稿保持不变）`,
       )
     },
   })
+
+  /**
+   * P1-03: restoring replaces the editor content, so it is only sent after the
+   * user has seen what it will do to their unsaved work.
+   *
+   * - clean editor: no confirmation needed (nothing can be lost);
+   * - dirty editor: an explicit confirm is required, and cancel sends **no**
+   *   request at all.
+   */
+  function requestRestore(targetVersionId: string) {
+    if (!dirty) {
+      restore.mutate(targetVersionId)
+      return
+    }
+    const confirmed = window.confirm(
+      '恢复历史版本会替换当前编辑内容，你尚未保存的修改将会丢失。\n\n确定要恢复吗？',
+    )
+    if (!confirmed) return
+    restore.mutate(targetVersionId)
+  }
 
   const roughcut = useMutation({
     mutationFn: () => api<JobOut>(endpoints.createJob(id, 'roughcut'), { method: 'POST' }),
@@ -335,7 +384,7 @@ function ExportEditor({ id }: { id: string }) {
                       <Button
                         variant="ghost"
                         disabled={restore.isPending}
-                        onClick={() => restore.mutate(v.version_id)}
+                        onClick={() => requestRestore(v.version_id)}
                       >
                         恢复此版本
                       </Button>

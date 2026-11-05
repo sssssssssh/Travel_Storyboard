@@ -587,6 +587,44 @@ class StoryboardVersion(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
 
+class LegacyPlanMigration(Base):
+    """Per-project record of the legacy-plan migration (TSB-366-R1 / P1-04).
+
+    Why a table instead of just a log line: the failure mode this fixes is
+
+        migration fails -> user opens the board -> an *empty* v1 is auto-created
+        -> migration now sees a board and skips forever
+
+    so the migration outcome must be durable and queryable *before* any read can
+    decide whether it is allowed to create an initial version. ``state`` is the
+    one value readers branch on:
+
+    * ``pending``  — legacy rows exist but no migration has been attempted;
+    * ``failed``   — an attempt raised; ``error`` explains why, and reads refuse
+                     to fabricate an empty plan;
+    * ``done``     — migrated (or the project legitimately has no legacy plan).
+
+    One row per project (``UNIQUE(project_id)``) so a retry updates in place and
+    cannot accumulate history of its own.
+    """
+
+    __tablename__ = "legacy_plan_migrations"
+    __table_args__ = (
+        UniqueConstraint("project_id", name="uq_legacy_migration_project"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    state: Mapped[str] = mapped_column(String(16), default="pending")
+    #: Readable, non-sensitive reason for a failure (exception type + message).
+    error: Mapped[str] = mapped_column(Text, default="")
+    legacy_shot_count: Mapped[int] = mapped_column(Integer, default=0)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class StoryboardSourceRef(Base):
     """Derived index: which Asset/Segment a version's shot pointed at (TSB-366).
 

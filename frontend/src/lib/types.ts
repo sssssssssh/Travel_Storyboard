@@ -243,6 +243,10 @@ export interface ImportResult {
 export interface EditPlanShotOut {
   id: string
   project_id: string
+  /** TSB-366-R1 (P0-02): the shot's stable identity, preserved across edits. */
+  shot_id?: string
+  /** The section this shot belongs to, when the version assigns one. */
+  section_id?: string | null
   order: number
   asset_id: string
   segment_id: string

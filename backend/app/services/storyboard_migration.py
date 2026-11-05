@@ -41,6 +41,7 @@ from ..database import begin_write, session_scope
 from ..models import (
     Asset,
     EditPlanShot,
+    LegacyPlanMigration,
     Project,
     Segment,
     Storyboard,
@@ -213,11 +214,54 @@ def migrate_project(session: Session, project_id: str) -> dict[str, Any]:
     }
 
 
+def _legacy_shot_count(session: Session, project_id: str) -> int:
+    """How many legacy rows this project has (the "is there anything to migrate")."""
+    return int(
+        session.scalar(
+            select(func.count()).select_from(EditPlanShot).where(
+                EditPlanShot.project_id == project_id
+            )
+        )
+        or 0
+    )
+
+
+def _upsert_status(
+    session: Session,
+    *,
+    project_id: str,
+    state: str,
+    error: str = "",
+    legacy_shot_count: int = 0,
+) -> None:
+    """Record the migration outcome for one project (idempotent, in-transaction)."""
+    row = session.scalars(
+        select(LegacyPlanMigration).where(LegacyPlanMigration.project_id == project_id)
+    ).first()
+    if row is None:
+        row = LegacyPlanMigration(
+            project_id=project_id, state=state, error=error,
+            legacy_shot_count=legacy_shot_count, attempts=1,
+        )
+        session.add(row)
+    else:
+        row.state = state
+        row.error = error
+        row.legacy_shot_count = legacy_shot_count
+        row.attempts = int(row.attempts or 0) + 1
+    session.flush()
+
+
 def migrate_legacy_edit_plans(project_ids: list[str] | None = None) -> dict[str, int]:
     """Migrate every project's legacy plan, one transaction per project.
 
     Returns the report §3.2 asks for: projects / migrated / empty / invalid /
     skipped / failed. Every project is accounted for exactly once.
+
+    TSB-366-R1 (P1-04): each attempt also writes a :class:`LegacyPlanMigration`
+    row, **including failures**, so a later read can tell "this project still
+    needs migrating" from "this project simply has no plan". A failure is
+    therefore queryable rather than only logged.
     """
     report = {
         "projects": 0,
@@ -239,10 +283,37 @@ def migrate_legacy_edit_plans(project_ids: list[str] | None = None) -> dict[str,
             # already-migrated project down with it (§3.2).
             with session_scope() as s:
                 begin_write(s)
+                legacy_count = _legacy_shot_count(s, project_id)
                 outcome = migrate_project(s, project_id)
-        except Exception:  # noqa: BLE001 - reported, never swallowed silently
+                if outcome["action"] != "skipped":
+                    _upsert_status(
+                        s, project_id=project_id, state="done",
+                        legacy_shot_count=legacy_count,
+                    )
+                else:
+                    # Already migrated: make sure the status row agrees.
+                    row = s.scalars(select(LegacyPlanMigration).where(
+                        LegacyPlanMigration.project_id == project_id)).first()
+                    if row is None:
+                        _upsert_status(
+                            s, project_id=project_id, state="done",
+                            legacy_shot_count=legacy_count,
+                        )
+        except Exception as exc:  # noqa: BLE001 - recorded, never swallowed silently
             logger.exception("legacy plan migration failed for project %s", project_id)
             report["failed"] += 1
+            # The failure record is written in its OWN transaction: the failed
+            # project's transaction rolled back, so it cannot carry this row.
+            try:
+                with session_scope() as s2:
+                    begin_write(s2)
+                    _upsert_status(
+                        s2, project_id=project_id, state="failed",
+                        error=f"{type(exc).__name__}: {exc}"[:800],
+                        legacy_shot_count=_legacy_shot_count(s2, project_id),
+                    )
+            except Exception:  # noqa: BLE001 - a status write must not mask the cause
+                logger.exception("could not record migration failure for %s", project_id)
             continue
 
         action = outcome["action"]
@@ -259,6 +330,51 @@ def migrate_legacy_edit_plans(project_ids: list[str] | None = None) -> dict[str,
     return report
 
 
+def migration_status(*, project_id: str) -> dict[str, Any]:
+    """Queryable migration state for one project (P1-04 requirement 4).
+
+    ``state`` is ``done`` / ``failed`` / ``pending``. A project that was never
+    seen by the migrator and has no legacy rows reports ``not_applicable``.
+    """
+    with session_scope() as s:
+        row = s.scalars(
+            select(LegacyPlanMigration).where(
+                LegacyPlanMigration.project_id == project_id
+            )
+        ).first()
+        if row is not None:
+            return {
+                "project_id": project_id,
+                "state": row.state,
+                "error": row.error or "",
+                "attempts": int(row.attempts or 0),
+                "legacy_shot_count": int(row.legacy_shot_count or 0),
+            }
+        has_board = s.scalars(
+            select(Storyboard.id).where(Storyboard.project_id == project_id)
+        ).first() is not None
+        legacy = _legacy_shot_count(s, project_id)
+        if has_board:
+            return {"project_id": project_id, "state": "done", "error": "",
+                    "attempts": 0, "legacy_shot_count": legacy}
+        if legacy:
+            return {"project_id": project_id, "state": "pending", "error": "",
+                    "attempts": 0, "legacy_shot_count": legacy}
+        return {"project_id": project_id, "state": "not_applicable", "error": "",
+                "attempts": 0, "legacy_shot_count": 0}
+
+
+def retry_migration(*, project_id: str) -> dict[str, Any]:
+    """Re-run the migration for one project, safely and idempotently.
+
+    Safe because :func:`migrate_project` skips a project that already owns a
+    board, so retrying a migrated (or since-edited) project cannot create a
+    second v1 or move the current pointer.
+    """
+    report = migrate_legacy_edit_plans(project_ids=[project_id])
+    return {"report": report, "status": migration_status(project_id=project_id)}
+
+
 def reconcile_project(session: Session, project_id: str) -> list[str]:
     """Compare the legacy rows with version 1 and list any drift (§3.3).
 
@@ -270,12 +386,24 @@ def reconcile_project(session: Session, project_id: str) -> list[str]:
     board = session.scalars(
         select(Storyboard).where(Storyboard.project_id == project_id)
     ).first()
-    if board is None or board.current_version_id is None:
+    if board is None:
         return [f"{project_id}: no storyboard"]
 
-    version = session.get(StoryboardVersion, board.current_version_id)
+    # TSB-366-R1 (P1-05): always compare against the *migrated* version, never
+    # ``current_version_id``. After the user edits the plan the pointer holds v2
+    # or v3, so using it would reconcile "legacy rows vs. a later edit" — a
+    # comparison that says nothing about migration quality (and reports drift on
+    # every edited project).
+    version = session.scalars(
+        select(StoryboardVersion)
+        .where(
+            StoryboardVersion.board_id == board.id,
+            StoryboardVersion.reason == "legacy_import",
+        )
+        .order_by(StoryboardVersion.version_no)
+    ).first()
     if version is None:
-        return [f"{project_id}: current version missing"]
+        return [f"{project_id}: no legacy_import version to reconcile against"]
 
     legacy = session.scalars(
         select(EditPlanShot)

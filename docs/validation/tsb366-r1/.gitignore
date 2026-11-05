@@ -1,0 +1,6 @@
+# TSB-366-R1 — local-only run artifacts, never committed.
+# Root .gitignore lists exact paths only, so new directories need their own guard.
+*.local.json
+*.local.txt
+*.local.xml
+*.local.*
