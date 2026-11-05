@@ -1310,3 +1310,12 @@ AGENTS.md §3.2「接线要单独测」同一类缺陷。
 FFmpeg 抽帧，并把 1 帧 JPEG（而非 MP4）作为 `image_url` 部件发出。抽帧失败时
 `run_probe` 返回 `FRAME_CONTROL_UNAVAILABLE` 且**不发送**，遵循 C6「不静默跳过」。
 
+## TSB-365 纯审计索引（2026-11-05）
+
+本轮未新增或执行测试，不改变既有用例、T01–T25 或发布门禁。
+现有用例→能力证据映射见 [能力矩阵](audit/TSB-365_CURRENT_CAPABILITY_MATRIX.md)。
+新增能力的待编写用例、任务号及可观察验收标准见
+[目标架构 §6](audit/TSB-365_TARGET_ARCHITECTURE.md#6-分阶段任务拆分与验收)。
+这些是后续任务要求，不计入当前通过数。审计交付记录见
+[TSB-365](RELEASE_V2_1_2_TSB365_AUDIT.md)。
+
