@@ -224,6 +224,12 @@ export const endpoints = {
   exportJson: (id: string) => `/api/projects/${id}/export/json`,
   exportCsv: (id: string) => `/api/projects/${id}/export/csv`,
   exportOtio: (id: string) => `/api/projects/${id}/export/otio`,
+  // --- TSB-366 storyboard versions ---
+  storyboard: (id: string) => `/api/projects/${id}/storyboard`,
+  storyboardVersions: (id: string) => `/api/projects/${id}/storyboard/versions`,
+  storyboardVersion: (id: string, versionId: string) =>
+    `/api/projects/${id}/storyboard/versions/${versionId}`,
+  storyboardRestore: (id: string) => `/api/projects/${id}/storyboard/restore`,
 }
 
 /** Download URL that appends the token correctly (& not a second ?). */

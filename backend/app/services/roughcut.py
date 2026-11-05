@@ -30,7 +30,7 @@ from ..ffmpeg import (
     safe_unlink,
     safe_write_text,
 )
-from ..models import Asset, EditPlanShot, Job, Segment
+from ..models import Asset, Job, Segment
 from ..paths import project_cache_dir, rel_to_data
 from .runner import (
     JobCancelled,
@@ -81,7 +81,7 @@ def _long_replace(src: Path, dst: Path) -> None:
     safe_replace(src, dst)
 
 
-def _clamp_duration(shot: EditPlanShot, asset: Asset) -> float:
+def _clamp_duration(shot: "PlannedShot", asset: Asset) -> float:
     """Planned duration, never longer than the source actually has.
 
     Audit P1-05: requesting ``target_duration_sec`` blindly could overrun the
@@ -165,6 +165,32 @@ def roughcut_task(job_id: str) -> None:
         cleanup_staging_or_log(project_id, stage, owner_job_id=job_id)
 
 
+class PlannedShot:
+    """A snapshot shot presented with the attribute names the encoder uses.
+
+    TSB-366 keeps the encode loop untouched by adapting the version snapshot to
+    the same surface the legacy ``EditPlanShot`` row offered. Seconds stay raw
+    floats from the snapshot — no rounding on the way through.
+    """
+
+    __slots__ = ("source_in_sec", "source_out_sec", "target_duration_sec",
+                 "asset_id", "segment_id", "label", "id", "shot_id", "order")
+
+    def __init__(self, shot: dict, asset, order: int = 0) -> None:
+        # Position in the snapshot *is* the timeline order (documented rule).
+        self.order = order
+        # `id` is the stable snapshot shot_id, so log/failure messages keep
+        # naming the same shot the user sees in the version history.
+        self.shot_id = str(shot.get("shot_id") or "")
+        self.id = self.shot_id
+        self.asset_id = str(shot.get("asset_id") or "")
+        self.segment_id = str(shot.get("segment_id") or "")
+        self.source_in_sec = float(shot.get("source_in_sec") or 0.0)
+        self.source_out_sec = float(shot.get("source_out_sec") or 0.0)
+        self.target_duration_sec = float(shot.get("target_duration_sec") or 0.0)
+        self.label = self.segment_id or self.asset_id
+
+
 def _project_for_job(job_id: str) -> str | None:
     with session_scope() as s:
         job = s.get(Job, job_id)
@@ -174,17 +200,19 @@ def _project_for_job(job_id: str) -> str | None:
 def _roughcut_body(job_id: str, project_id: str, stage: Path) -> None:
     failures = JobFailures(job_id)
 
-    with session_scope() as s:
-        shots = s.scalars(
-            select(EditPlanShot)
-            .where(EditPlanShot.project_id == project_id)
-            .order_by(EditPlanShot.order)
-        ).all()
-        assets = {
-            a.id: a for a in s.scalars(select(Asset).where(Asset.project_id == project_id)).all()
-        }
-        segments = {g.id: g for g in s.scalars(select(Segment).where(Segment.project_id == project_id)).all()}
-        pairs = [(sh, assets.get(sh.asset_id)) for sh in shots]
+    # TSB-366: the rough cut reads the *storyboard version*, not the legacy
+    # table, so it can never disagree with JSON/CSV/OTIO exported at the same
+    # moment (§5.3). A shot object here is the snapshot dict plus the resolved
+    # Asset, wrapped so the existing encode loop keeps working unchanged.
+    from ..services.storyboard_service import load_export_context
+
+    ctx = load_export_context(project_id=project_id)
+    segments = ctx.segments
+    pairs = [
+        (PlannedShot(shot, ctx.assets.get(str(shot.get("asset_id") or "")), index),
+         ctx.assets.get(str(shot.get("asset_id") or "")))
+        for index, shot in enumerate(ctx.shots)
+    ]
 
     work = project_cache_dir(project_id) / "roughcut"
     safe_mkdir(work)

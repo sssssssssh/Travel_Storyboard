@@ -265,7 +265,10 @@ def main() -> int:
         "story_role": "highlight",
         "review_status": "approved",
     } for s in selected]
-    r = api.http.post(f"/api/projects/{pid}/edit-plan", json={"shots": shots})
+    # TSB-366: a plan save must declare the version it was based on.
+    base = api.http.get(f"/api/projects/{pid}/storyboard").json()["version_id"]
+    r = api.http.post(f"/api/projects/{pid}/edit-plan",
+                      json={"shots": shots, "base_version_id": base})
     if r.status_code not in (200, 201):
         raise SystemExit(f"edit-plan -> HTTP {r.status_code}: {r.text}")
     plan = r.json()

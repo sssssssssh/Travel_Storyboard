@@ -132,12 +132,106 @@ def init_db() -> None:
         if backup:
             logger.info("Database backed up to %s before migration", backup)
     Base.metadata.create_all(bind=engine)
+    # TSB-366: relational invariants that a per-column CHECK cannot express.
+    _create_storyboard_triggers()
     if pending:
         applied = _apply_migrations()
         if applied:
             logger.info("Applied schema migrations: %s", ", ".join(applied))
         _legacy_backfill(applied)
     _backfill_motion_verdicts()
+
+
+#: TSB-366 — cross-row invariants the storyboard tables depend on.
+#:
+#: Each of these is a rule the task book states as a *guarantee* ("parent 必须属于
+#: 同一 board"、"历史快照不可原地覆盖"、"current_version_id 必须属于该 board").
+#: SQLAlchemy cannot express them as column constraints, and enforcing them only
+#: in the service layer would mean a direct INSERT could bypass them. SQLite
+#: triggers make the guarantee true for every writer, including a future one that
+#: forgets to call the service.
+_STORYBOARD_TRIGGERS: tuple[tuple[str, str], ...] = (
+    (
+        "trg_storyboard_version_parent_same_board",
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_storyboard_version_parent_same_board
+        BEFORE INSERT ON storyboard_versions
+        WHEN NEW.parent_version_id IS NOT NULL
+        BEGIN
+            SELECT RAISE(ABORT, 'parent_version_id must belong to the same board')
+            WHERE NOT EXISTS (
+                SELECT 1 FROM storyboard_versions p
+                WHERE p.id = NEW.parent_version_id AND p.board_id = NEW.board_id
+            );
+        END
+        """,
+    ),
+    (
+        "trg_storyboard_current_version_same_board",
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_storyboard_current_version_same_board
+        BEFORE UPDATE OF current_version_id ON storyboards
+        WHEN NEW.current_version_id IS NOT NULL
+        BEGIN
+            SELECT RAISE(ABORT, 'current_version_id must belong to this board')
+            WHERE NOT EXISTS (
+                SELECT 1 FROM storyboard_versions v
+                WHERE v.id = NEW.current_version_id AND v.board_id = NEW.id
+            );
+        END
+        """,
+    ),
+    # Snapshot columns are write-once. A version row may gain nothing but the
+    # pointer bookkeeping, so history cannot be rewritten in place (TSB-366 §2.2).
+    (
+        "trg_storyboard_version_immutable",
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_storyboard_version_immutable
+        BEFORE UPDATE ON storyboard_versions
+        WHEN NEW.shots IS NOT OLD.shots
+          OR NEW.sections IS NOT OLD.sections
+          OR NEW.brief IS NOT OLD.brief
+          OR NEW.constraints IS NOT OLD.constraints
+          OR NEW.validation_summary IS NOT OLD.validation_summary
+          OR NEW.version_no IS NOT OLD.version_no
+          OR NEW.parent_version_id IS NOT OLD.parent_version_id
+          OR NEW.schema_version IS NOT OLD.schema_version
+        BEGIN
+            SELECT RAISE(ABORT, 'storyboard version snapshots are immutable');
+        END
+        """,
+    ),
+    (
+        "trg_storyboard_version_restore_target_same_board",
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_storyboard_version_restore_target_same_board
+        BEFORE INSERT ON storyboard_versions
+        WHEN NEW.restore_of_version_id IS NOT NULL
+        BEGIN
+            SELECT RAISE(ABORT, 'restore_of_version_id must belong to the same board')
+            WHERE NOT EXISTS (
+                SELECT 1 FROM storyboard_versions r
+                WHERE r.id = NEW.restore_of_version_id AND r.board_id = NEW.board_id
+            );
+        END
+        """,
+    ),
+)
+
+
+def _create_storyboard_triggers() -> None:
+    """Install the storyboard invariants (idempotent)."""
+    with engine.begin() as conn:
+        existing = {
+            row[0]
+            for row in conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='trigger'")
+            ).fetchall()
+        }
+        for name, ddl in _STORYBOARD_TRIGGERS:
+            if name in existing:
+                continue
+            conn.execute(text(ddl))
 
 
 def _backfill_motion_verdicts() -> None:

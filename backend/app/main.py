@@ -15,6 +15,7 @@ from . import __version__
 from .api import (
     assets,
     export,
+    storyboard,
     jobs,
     media,
     packages,
@@ -60,6 +61,17 @@ FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # TSB-366: freeze each project's legacy EditPlan as storyboard version 1.
+    # Idempotent (an existing board is skipped), per-project atomic, and it never
+    # deletes the legacy rows during the compatibility window.
+    try:
+        from .services.storyboard_migration import migrate_legacy_edit_plans
+
+        _legacy_report = migrate_legacy_edit_plans()
+        if _legacy_report.get("migrated") or _legacy_report.get("failed"):
+            logger.info("Storyboard legacy import: %s", _legacy_report)
+    except Exception:  # noqa: BLE001 - a migration must not stop the server
+        logger.exception("Storyboard legacy import failed; storyboards stay unversioned")
     token = get_token()
     logger.info("=" * 60)
     logger.info("Travel Storyboard v%s", __version__)
@@ -122,6 +134,7 @@ app.include_router(media.router, prefix="/api")
 app.include_router(packages.router, prefix="/api")
 app.include_router(story.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
+app.include_router(storyboard.router, prefix="/api")
 
 
 @app.get("/api", include_in_schema=False)

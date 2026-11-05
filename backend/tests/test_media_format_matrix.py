@@ -129,7 +129,8 @@ def test_format_runs_real_scan_detect_proxy_and_export(name,client,tmp_path,monk
     assert abs(actual.duration_sec-(end-start))<=max(.25,.1*(end-start))
     assert actual.video.width/actual.video.height==pytest.approx(display_ratio,rel=.025)
     plan={'asset_id':item['asset_id'],'segment_id':sid,'source_in_sec':start,'source_out_sec':end,'target_duration_sec':end-start,'review_status':'confirmed'}
-    saved=client.post(f'/api/projects/{pid}/edit-plan',json={'shots':[plan]}).json();assert saved['created']==1
+    _base=client.get(f'/api/projects/{pid}/storyboard').json()['version_id']
+    saved=client.post(f'/api/projects/{pid}/edit-plan',json={'shots':[plan],'base_version_id':_base}).json();assert saved['created']==1
     for fmt in ('json','csv','otio'):
         exported=client.get(f'/api/projects/{pid}/export/{fmt}');assert exported.status_code==200 and exported.content
     rough=job(client,pid,'roughcut');assert rough['status']=='succeeded',rough

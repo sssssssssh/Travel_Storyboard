@@ -1319,3 +1319,102 @@ FFmpeg 抽帧，并把 1 帧 JPEG（而非 MP4）作为 `image_url` 部件发出
 这些是后续任务要求，不计入当前通过数。审计交付记录见
 [TSB-365](RELEASE_V2_1_2_TSB365_AUDIT.md)。
 
+
+
+## TSB-366 方案版本与兼容迁移
+
+发布记录：[docs/RELEASE_TSB_366.md](RELEASE_TSB_366.md)
+证据目录：[docs/validation/tsb366/](validation/tsb366/)
+
+**原缺陷**：`EditPlanShot` 每次保存先 `DELETE` 全部行再重插，没有历史、没有身份、
+没有并发保护；任何调用方都能无版本保护地全量替换计划。
+
+### 模型与约束（`test_tsb366_storyboard_model.py`，14 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_models_exist_with_the_required_columns` | 三张表与 §2 规定的字段齐全 |
+| `test_one_master_storyboard_per_project_is_enforced_by_the_database` | 每项目最多一个主方案，由 `UNIQUE(project_id)` 保证（第二个 INSERT 抛 IntegrityError） |
+| `test_version_no_is_unique_per_board` | 同 board `version_no` 唯一 |
+| `test_two_boards_may_each_have_a_version_one` | 唯一性只在 board 内作用，不误伤其他项目 |
+| `test_parent_version_must_belong_to_the_same_board` | 跨 board 父版本被触发器拒绝 |
+| `test_current_version_must_belong_to_the_same_board` | 当前指针不得指向别的 board |
+| `test_snapshot_requires_a_schema_version` / `_rejects_unknown_fields` | 快照必须带 schema_version；未知字段拒绝 |
+| `test_snapshot_preserves_second_precision` | 秒数不提前取整 |
+| `test_snapshot_requires_stable_shot_ids` / `_round_trips_through_json` | 每个镜头有稳定 id；JSON 往返一致 |
+| `test_source_ref_is_unique_per_version_and_shot` | 派生索引唯一 |
+| `test_deleting_a_storyboard_never_deletes_assets_or_segments` | 删除方案**不删素材**（历史证据不丢） |
+| `test_reading_a_version_does_not_change_the_current_pointer` | 读历史不改变 current |
+
+### 迁移（`test_tsb366_migration.py`，10 项，对应任务书 §7.2 的 10 个数据集）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_a_normal_legacy_plan_imports_losslessly_as_version_1` | 全部字段 + 数组顺序无损；旧表行仍在 |
+| `test_an_empty_legacy_plan_yields_an_empty_version_with_no_invented_shots` | 空计划不虚构镜头 |
+| `test_the_same_file_name_under_different_asset_ids_stays_distinct` | 同名文件按 Asset ID 区分，不按文件名猜 |
+| `test_an_orphan_segment_is_reported_not_silently_repaired` | 孤儿 segment → `needs_review`，快照仍可读 |
+| `test_an_asset_segment_mismatch_is_reported` | asset/segment 不匹配 → 标记 |
+| `test_missing_source_signature_is_marked_legacy_not_fabricated` | 无签名 → `legacy`，不伪造哈希 |
+| `test_running_the_migration_twice_creates_nothing_new` | 幂等 |
+| `test_a_project_that_already_has_a_storyboard_is_skipped` | 已迁移项目跳过 |
+| `test_a_failure_mid_project_leaves_no_half_written_board` | 中途失败 → 无半迁移，后续重跑可成功 |
+| `test_the_migration_report_counts_are_consistent` | 报告六项计数覆盖全部项目 |
+
+### 版本读写与并发（`test_tsb366_versions.py`，19 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_first_read_returns_version_1` / `_read_response_carries_every_contract_field` | 首次读取返回 v1；§4.1 全部字段存在 |
+| `test_versions_are_listed_newest_first` | 历史稳定排序 |
+| `test_save_creates_version_2_and_leaves_version_1_byte_identical` | 保存产生 v2，**v1 逐字段不变** |
+| `test_two_clients_on_the_same_base_only_one_wins` | 同基版本并发 → 一个成功、一个 409，当前版本不动 |
+| `test_retrying_the_same_request_does_not_create_a_duplicate_version` | 幂等键重试不产生 v+2 |
+| `test_an_invalid_snapshot_writes_nothing` | 非法快照不部分写入 |
+| `test_restoring_v1_creates_v3_instead_of_moving_the_pointer_back` | 恢复是**前向**的：生成 v3，v1/v2 可读 |
+| `test_restore_records_the_target_and_validation_state` | 记录恢复目标与校验状态 |
+| `test_a_version_from_another_project_is_refused` / `_unknown_version_id_is_a_uniform_not_found` | 跨项目不可探测；不存在统一 404 |
+| `test_the_http_contract_for_read_save_conflict` | 缺 base → **428**；过期 base → **409** |
+| `test_restore_over_http` | HTTP 恢复链路 |
+| `test_all_exports_come_from_the_same_version_and_report_it` | JSON/CSV/OTIO 同 version_id，响应头记录 board/version |
+| `test_a_historical_version_can_be_exported_without_touching_current` | 导出历史不改当前指针 |
+| `test_the_old_read_endpoint_still_answers_with_the_legacy_shape` | 旧 GET 响应结构保持 |
+| `test_the_roughcut_uses_the_current_storyboard_version` | 粗剪读版本，不读旧表 |
+| `test_no_legacy_write_path_bypasses_the_version_gate` | 适配器必须带基版本且不得直写旧表 |
+
+### 运维层（`test_tsb366_schema_ops.py`，3 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_the_alembic_revision_declares_the_same_triggers_as_the_app` | Alembic 与 `init_db` 的触发器集合**不得漂移** |
+| `test_the_revision_downgrade_never_touches_the_legacy_plan_table` | downgrade 源码不得出现 `edit_plan_shots` |
+| `test_upgrade_downgrade_round_trip_preserves_legacy_rows` | 真实隔离库 round-trip：降级删表但旧计划 1 行保留，升级后触发器恢复 |
+
+### 被迁移的既有用例（断言强度不降）
+
+旧写路径 `build_edit_plan` 变为带基版本的薄适配器，以下文件的用例随之迁移，
+**每条原有校验仍然被断言**，只是从"返回 errors 数组"改为"抛 SnapshotError"或"标记 invalid 版本"：
+
+| 文件 | 变化 |
+|---|---|
+| `test_timeline_export.py` | 新增 `_save`/`_save_error` 辅助；`order_adjusted` 不再存在（数组位置即顺序）；越界区间改为标记 `invalid` 并**额外断言旧版本未变**（比原来更严） |
+| `test_concurrent_annotations.py` | 3 项改为经版本服务；写锁探针装到 `validate_references` |
+| `test_cancel_cleanup.py` / `test_publish_cancel.py` | `_add_shot` 改写版本 |
+| `test_review_validation.py` | `plan_shot_ids` 来自版本快照；`_assert_plan_points_at` 校验历史引用不被重绑 |
+| `test_media_format_matrix.py` / `test_long_paths.py` / `test_ffmpeg_integration.py` | edit-plan 调用补 `base_version_id` |
+
+### 反向验证
+
+| 破坏项 | 结果 |
+|---|---|
+| 去掉基版本冲突检查 | 2 红（并发 + HTTP 契约） |
+| 去掉迁移幂等 | 2 红 |
+| 去掉不可变触发器 | 快照可被改写（`IMMUTABILITY NOT ENFORCED`）；恢复后 `IntegrityError` |
+
+### 前端（`Export.test.tsx`，新增 3 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `shows the current storyboard version and sends base_version_id on save` | 显示 `vN`；保存提交 `base_version_id` |
+| `a 409 conflict keeps the draft and shows the conflict banner` | 冲突时**草稿保留**并提示 |
+| `the history panel lists versions and offers restore for non-current ones` | 历史面板列出并标记当前版本 |

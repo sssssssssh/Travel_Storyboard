@@ -66,9 +66,22 @@ def list_review_requests(project_id: str, db: Session = Depends(get_db)):
     assets = {a.id: a for a in db.scalars(select(Asset).where(Asset.project_id == project_id))}
     notes = dict(db.execute(select(UserAnnotation.segment_id, UserAnnotation.note)
                            .where(UserAnnotation.segment_id.in_(segments))).all())
+    # TSB-366: which new versions a source change would invalidate. Read from the
+    # storyboard version (the single authority), not the legacy table, so the
+    # warning matches what the user actually sees in the editor.
     plans: dict[str, list[str]] = {}
-    for shot in db.scalars(select(EditPlanShot).where(EditPlanShot.project_id == project_id)):
-        plans.setdefault(shot.segment_id, []).append(shot.id)
+    try:
+        from ..services.storyboard_service import StoryboardNotFound, load_storyboard_version
+
+        current = load_storyboard_version(project_id=project_id, session=db)
+    except StoryboardNotFound:
+        current = None
+    if current is not None:
+        for shot in current.shots:
+            shot_id = str(shot.get("shot_id") or "")
+            segment_id = str(shot.get("segment_id") or "")
+            if shot_id and segment_id:
+                plans.setdefault(segment_id, []).append(shot_id)
     source_errors = {}
     for asset in assets.values():
         try:

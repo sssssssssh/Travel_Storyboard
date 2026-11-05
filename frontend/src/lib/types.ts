@@ -267,12 +267,80 @@ export interface EditPlanOut {
   generated_at: string
   total_duration_sec: number
   shots: EditPlanShotOut[]
+  /** TSB-366: which storyboard version this document came from. */
+  board_id?: string
+  version_id?: string
+  version_no?: number
 }
 
 export interface BuildPlanResult {
   created: number
   errors: { index: number; message: string }[]
   total_duration_sec?: number
+  /** TSB-366: the version this save produced. */
+  board_id?: string
+  version_id?: string
+  version_no?: number
+  parent_version_id?: string | null
+  validation_summary?: ValidationSummary
+}
+
+// --- TSB-366 storyboard versions -----------------------------------------
+
+/** One issue the server found in a version's references. Never auto-fixed. */
+export interface ValidationIssue {
+  shot_id: string
+  code: string
+  message: string
+}
+
+export interface ValidationSummary {
+  state: 'ok' | 'needs_review' | 'invalid'
+  issues: ValidationIssue[]
+}
+
+/** A shot as stored in a version snapshot. */
+export interface SnapshotShot {
+  shot_id: string
+  section_id: string | null
+  asset_id: string
+  segment_id: string
+  source_in_sec: number
+  source_out_sec: number
+  target_duration_sec: number
+  timeline_start_sec: number
+  story_role: string
+  transition_hint: string
+  music_cue: string
+  audio_hint: string
+  color_hint: string
+  evidence: string
+  confidence: number
+  review_status: string
+  reason: string | null
+  locked: boolean | null
+  source_signature: string | null
+}
+
+/** The full read contract of §4.1. */
+export interface StoryboardVersionOut {
+  board_id: string
+  project_id: string
+  current_version_id: string | null
+  version_id: string
+  version_no: number
+  parent_version_id: string | null
+  schema_version: string
+  created_at: string | null
+  actor: string
+  reason: string
+  job_id: string | null
+  restore_of_version_id: string | null
+  brief: Record<string, unknown>
+  sections: Record<string, unknown>[]
+  shots: SnapshotShot[]
+  constraints: Record<string, unknown>
+  validation_summary: ValidationSummary
 }
 
 // --- M5 vision (TSB-304/305/306) -----------------------------------------

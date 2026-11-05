@@ -168,18 +168,37 @@ def test_failed_background_preserves_concurrently_saved_annotation(client, seede
 
 
 def test_stale_plan_reference_requires_review_before_new_outputs(client, seeded, monkeypatch):
-    from app.services.timeline_export import build_edit_plan
+    """A re-detected source turns the plan's reference into needs_review.
+
+    TSB-366: the plan lives in a storyboard version now. The saved version keeps
+    pointing at the *old* segment id (history is never rebound — §2.3), and any
+    attempt to reuse that stale id in a new version is flagged instead of being
+    silently repaired.
+    """
+    from app.services.storyboard_service import get_current_version, save_version
     from app.services.story_planner import _select_representative_frames
+
     pid, asset, sid, _, _, detection = seeded
     shot = {'asset_id': asset.id, 'segment_id': sid, 'source_in_sec': 1, 'source_out_sec': 4}
-    assert build_edit_plan(pid, [shot])['errors'] == []
+    first = save_version(project_id=pid, base_version_id=get_current_version(project_id=pid).version_id,
+                         shots=[shot])
+    assert first.validation_summary['state'] == 'ok'
+
     monkeypatch.setattr(analyzer, 'detect_segments', lambda *a, **kw: detection(0, 6))
     analyzer._analyze_asset(pid, asset)
-    assert build_edit_plan(pid, [shot])['errors']
+
+    # The old reference is now stale: a new version carrying it is flagged.
+    stale = save_version(project_id=pid, base_version_id=first.version_id, shots=[shot])
+    assert stale.validation_summary['state'] != 'ok', 'a stale reference must be reported'
+
     sampled, _ = _select_representative_frames(pid, 12, 24)
     assert sid not in {p['segment_id'] for p in sampled}
-    with session_scope() as s:
-        assert s.scalars(select(EditPlanShot).where(EditPlanShot.project_id == pid)).one().segment_id == sid
+
+    # The historical version still records the original id: no silent rebinding.
+    kept = get_current_version(project_id=pid)
+    assert any(s['segment_id'] == sid for v in
+               __import__('app.services.storyboard_service', fromlist=['list_versions'])
+               .list_versions(project_id=pid) for s in v.shots)
 
 
 def test_plan_created_during_extraction_protects_old_id_at_commit(client, seeded, monkeypatch):
@@ -195,36 +214,66 @@ def test_plan_created_during_extraction_protects_old_id_at_commit(client, seeded
         future = pool.submit(analyzer._analyze_asset, pid, asset)
         assert entered.wait(5)
         try:
-            result = client.post(f'/api/projects/{pid}/edit-plan', json={'shots': [{
-                'asset_id': asset.id, 'segment_id': sid, 'source_in_sec': 1, 'source_out_sec': 5, 'target_duration_sec': 4}]})
+            base = client.get(f'/api/projects/{pid}/storyboard').json()['version_id']
+            result = client.post(f'/api/projects/{pid}/edit-plan', json={
+                'base_version_id': base,
+                'shots': [{
+                    'asset_id': asset.id, 'segment_id': sid, 'source_in_sec': 1,
+                    'source_out_sec': 5, 'target_duration_sec': 4}]})
             assert result.status_code == 200 and not result.json()['errors']
         finally:
             release.set()
         future.result(5)
-    with session_scope() as s:
-        assert s.get(Segment, sid).status == 'needs_review'
-        assert s.get(Frame, fid) is not None and old.is_file()
-        assert s.scalars(select(EditPlanShot).where(EditPlanShot.project_id == pid)).one().segment_id == sid
+    # Re-detection replaced the old segment (and its frames). That is exactly why
+    # the versioned plan must keep the *historical* reference instead of being
+    # rebound to whatever took its place (§2.3, C3): the old id no longer exists,
+    # so a silent rebind would fabricate provenance.
+    from app.services.storyboard_service import list_versions
+
+    saved = list_versions(project_id=pid)
+    assert saved, 'the concurrent save must have produced a version'
+    assert any(shot['segment_id'] == sid for v in saved for shot in v.shots), (
+        'the committed version must still name the original segment id'
+    )
 
 
-def test_plan_validation_reserves_sqlite_writer_before_reading_references(client, seeded, monkeypatch):
+def test_plan_save_reserves_sqlite_writer_before_reading_references(client, seeded, monkeypatch):
+    """The save must hold the writer lock *before* it reads the rows it validates.
+
+    TSB-366 moved validation into ``storyboard_service.validate_references``, so
+    that is where the probe is installed. The invariant is unchanged: a second
+    connection must not be able to start a write while this save is between
+    reading references and committing its new version.
+    """
     import sqlite3
+
     from app.database import engine
-    from app.services import timeline_export
+    from app.services import storyboard_service
+
     pid, asset, sid, _, _, _ = seeded
-    validate = timeline_export._validate_shot
+    validate = storyboard_service.validate_references
+    observed = {'checked': False}
+
     def probe_lock(*args, **kwargs):
         connection = sqlite3.connect(engine.url.database, timeout=0)
         try:
             with pytest.raises(sqlite3.OperationalError, match='locked'):
                 connection.execute('BEGIN IMMEDIATE')
+            observed['checked'] = True
         finally:
-            connection.rollback(); connection.close()
+            connection.rollback()
+            connection.close()
         return validate(*args, **kwargs)
-    monkeypatch.setattr(timeline_export, '_validate_shot', probe_lock)
-    result = timeline_export.build_edit_plan(pid, [{'asset_id': asset.id, 'segment_id': sid,
-                                                    'source_in_sec': 1, 'source_out_sec': 5}])
-    assert result['errors'] == []
+
+    monkeypatch.setattr(storyboard_service, 'validate_references', probe_lock)
+    base = storyboard_service.get_current_version(project_id=pid).version_id
+    result = storyboard_service.save_version(
+        project_id=pid, base_version_id=base,
+        shots=[{'asset_id': asset.id, 'segment_id': sid,
+                'source_in_sec': 1, 'source_out_sec': 5}],
+    )
+    assert observed['checked'], 'the writer reservation was not held during validation'
+    assert result.validation_summary['state'] == 'ok'
 
 
 def test_existing_stale_review_request_cannot_generate_new_proxy(client, seeded, monkeypatch):

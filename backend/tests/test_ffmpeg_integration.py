@@ -334,7 +334,12 @@ def test_complete_custom_workspace_pipeline_and_source_hashes(client, synthetic_
     shots = [{'asset_id': p['asset_id'], 'segment_id': p['segment_id'],
               'source_in_sec': p['start_sec'], 'source_out_sec': p['end_sec'],
               'target_duration_sec': min(1., p['end_sec'] - p['start_sec'])} for p in picked]
-    assert build_edit_plan(pid, shots)['errors'] == []
+    # TSB-366: a plan save declares the version it is based on.
+    from app.services.storyboard_service import get_current_version
+
+    assert build_edit_plan(
+        pid, shots, base_version_id=get_current_version(project_id=pid).version_id
+    )['errors'] == []
     before = export_json(pid)['shots']
     assert client.get(f'/api/projects/{pid}/edit-plan').json()['shots'] == before
     roughcut = execute('roughcut')

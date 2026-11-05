@@ -490,4 +490,124 @@ class SegmentVideoObservation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )# ---------------------------------------------------------------------------
+# TSB-366 — storyboard versions
+# ---------------------------------------------------------------------------
+#
+# Why these three tables, and why the JSON snapshot lives on the version:
+#
+# * ``Storyboard`` is the *header*: it owns the current-version pointer and is
+#   the thing a project has at most one of. Keeping the pointer here (rather than
+#   "newest by version_no") is what lets a restore point forward at a *new*
+#   version instead of rewriting history.
+# * ``StoryboardVersion`` is an immutable row per save. ``shots``/``sections``
+#   are stored as one validated JSON document because the task book explicitly
+#   defers normalising them into relation tables; what matters first is that the
+#   snapshot has an identity, a schema version and a parent.
+# * ``StoryboardSourceRef`` is a *derived index*, not a second editable copy of
+#   the shots: it exists so "which versions reference this segment?" is a query
+#   rather than a JSON scan. It is written in the same transaction as its version.
+#
+# The cross-row rules (one board per project, parent in the same board, pointer
+# in the same board, board/version immutability) are enforced by SQLite triggers
+# created in ``database.init_db`` because they are relational invariants that a
+# per-column CHECK cannot express.
+
+
+class Storyboard(Base):
+    """A project's storyboard header (TSB-366).
+
+    First phase allows **at most one** board per project — enforced by a unique
+    index rather than by convention, because a second board silently appearing is
+    exactly the kind of divergence the versioning work exists to prevent.
+    """
+
+    __tablename__ = "storyboards"
+    __table_args__ = (
+        UniqueConstraint("project_id", name="uq_storyboard_one_per_project"),
     )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(200), default="")
+    #: The live pointer. Nullable only in the brief window between creating the
+    #: board and creating its first version (both in one transaction).
+    current_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class StoryboardVersion(Base):
+    """One immutable snapshot of a storyboard (TSB-366).
+
+    ``version_no`` is unique per board and increases monotonically. Restoring an
+    old version therefore appends version N+1 rather than rewinding the pointer —
+    that is the whole point of "不覆盖历史".
+    """
+
+    __tablename__ = "storyboard_versions"
+    __table_args__ = (
+        UniqueConstraint("board_id", "version_no", name="uq_storyboard_version_no"),
+        # A retried request must not create a duplicate version (§4.2).
+        UniqueConstraint(
+            "board_id", "idempotency_key",
+            name="uq_storyboard_version_idempotency",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    board_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("storyboards.id", ondelete="CASCADE"), index=True
+    )
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    parent_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+    schema_version: Mapped[str] = mapped_column(String(16), default="1.0")
+
+    #: The validated snapshot document (see ``storyboard_schema``).
+    brief: Mapped[dict] = mapped_column(JSON, default=dict)
+    sections: Mapped[list] = mapped_column(JSON, default=list)
+    shots: Mapped[list] = mapped_column(JSON, default=list)
+    constraints: Mapped[dict] = mapped_column(JSON, default=dict)
+    validation_summary: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    #: migration / user / system / model
+    actor: Mapped[str] = mapped_column(String(16), default="user")
+    #: legacy_import / manual_edit / restore / initial / director_plan
+    reason: Mapped[str] = mapped_column(String(32), default="manual_edit")
+    job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    #: Set when ``reason == "restore"``: which version was restored from.
+    restore_of_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    #: Supplied by the client so a retried POST is a no-op rather than a v+2.
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
+class StoryboardSourceRef(Base):
+    """Derived index: which Asset/Segment a version's shot pointed at (TSB-366).
+
+    Deliberately *not* the editable shot data — the snapshot is. This row exists
+    so an invalidated source can be found by query. It is written in the same
+    transaction as its version, and deleting a board never deletes the
+    Asset/Segment rows it references (the FK is one-way, no cascade upward).
+    """
+
+    __tablename__ = "storyboard_source_refs"
+    __table_args__ = (
+        UniqueConstraint("version_id", "shot_id", name="uq_storyboard_ref_shot"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    version_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("storyboard_versions.id", ondelete="CASCADE"), index=True
+    )
+    shot_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    asset_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+    segment_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+    #: Copied from the repository's existing source-identity mechanism when one
+    #: exists; ``legacy`` when the old plan never had one (never fabricated).
+    source_signature: Mapped[str] = mapped_column(String(128), default="")

@@ -83,14 +83,25 @@ def _add_segment(project_id: str, asset_id: str) -> str:
 
 
 def _add_shot(project_id: str, asset_id: str, segment_id: str, order: int = 0) -> str:
-    with session_scope() as s:
-        shot = EditPlanShot(id=str(uuid.uuid4()), project_id=project_id,
-                            order=order, asset_id=asset_id, segment_id=segment_id,
-                            source_in_sec=0.0, source_out_sec=2.0,
-                            target_duration_sec=2.0)
-        s.add(shot)
-        s.flush()
-        return shot.id
+    """Append a shot to the project's storyboard (TSB-366).
+
+    The roughcut reads the *version snapshot* now, not the legacy table, so the
+    helper writes through the version service. It keeps returning the shot's id
+    so existing call sites are unchanged; ``order`` is implied by position, which
+    is the documented ordering rule.
+    """
+    from app.services.storyboard_service import get_current_version, save_version
+
+    current = get_current_version(project_id=project_id)
+    shots = [dict(s) for s in current.shots]
+    shots.append({
+        "asset_id": asset_id, "segment_id": segment_id,
+        "source_in_sec": 0.0, "source_out_sec": 2.0, "target_duration_sec": 2.0,
+    })
+    view = save_version(
+        project_id=project_id, base_version_id=current.version_id, shots=shots,
+    )
+    return view.shots[len(shots) - 1]["shot_id"]
 
 
 def _own_stage(pid, stage):

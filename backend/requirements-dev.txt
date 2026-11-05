@@ -5,6 +5,11 @@ pytest>=8.0
 pytest-cov>=5.0
 httpx>=0.27
 
+# TSB-366: operational schema migration (upgrade/downgrade of the storyboard
+# tables). The app itself never imports alembic -- runtime schema bootstrap stays
+# app.database.init_db(). tests/test_tsb366_schema_ops.py skips if it is absent.
+alembic>=1.13
+
 # Optional: used only to validate the OTIO export by reading it back with the
 # reference implementation (tests/test_timeline_export.py skips itself if this
 # is absent). The app itself never imports opentimelineio.

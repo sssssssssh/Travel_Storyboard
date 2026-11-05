@@ -139,6 +139,22 @@ def test_package_missing_frame_statistics_do_not_enumerate_excluded_asset(librar
     assert other_id not in (root / 'assets.json').read_text(encoding='utf-8')
 
 
+def _assert_plan_points_at(pid: str, shot_id: str, segment_id: str) -> None:
+    """TSB-366: assert a storyboard version still references ``segment_id``.
+
+    The plan is no longer the legacy table, so this reads the version snapshot —
+    which is also the "history is not rebound" guarantee (§2.3).
+    """
+    from app.services.storyboard_service import list_versions
+
+    for version in list_versions(project_id=pid):
+        for shot in version.shots:
+            if shot.get("shot_id") == shot_id:
+                assert shot["segment_id"] == segment_id
+                return
+    raise AssertionError(f"shot {shot_id} not found in any storyboard version")
+
+
 def test_human_replacement_preserves_history_annotations_plan(client, library):
     pid, aid, sid, *_ = library
     import_review_requests(pid, {'requests': [item(library)]})
@@ -149,9 +165,18 @@ def test_human_replacement_preserves_history_annotations_plan(client, library):
         newseg = Segment(project_id=pid, asset_id=aid, start_sec=0, end_sec=6,
                          detected_start_sec=0, detected_end_sec=6)
         s.add(newseg); s.flush(); new_sid = newseg.id
-        shot = EditPlanShot(project_id=pid, asset_id=aid, segment_id=sid, order=0,
-                            source_in_sec=3, source_out_sec=3.6, target_duration_sec=.6)
-        s.add(shot); s.flush(); shot_id = shot.id
+        shot_id = None  # TSB-366: the plan lives in a storyboard version now
+    # TSB-366: the plan is a storyboard version; `plan_shot_ids` now reports the
+    # stable snapshot shot id rather than a legacy row id.
+    from app.services.storyboard_service import get_current_version, save_version
+
+    base = get_current_version(project_id=pid).version_id
+    saved = save_version(project_id=pid, base_version_id=base, shots=[{
+        'asset_id': aid, 'segment_id': sid,
+        'source_in_sec': 3, 'source_out_sec': 3.6, 'target_duration_sec': .6,
+    }])
+    shot_id = saved.shots[0]['shot_id']
+
     before = client.get(f'/api/projects/{pid}/review-requests').json()[0]
     assert before['validation_error']['error_code'] == 'SEGMENT_NEEDS_REVIEW'
     assert before['plan_shot_ids'] == [shot_id]
@@ -166,10 +191,10 @@ def test_human_replacement_preserves_history_annotations_plan(client, library):
         old = s.get(ReviewRequest, rid)
         assert old.status == 'superseded' and old.superseded_by_request_id == new['id']
         assert old.proxy_ref == 'historic-preview.mp4' and old.segment_id == sid
-        assert s.get(EditPlanShot, shot_id).segment_id == sid
         seg = s.get(Segment, sid)
         assert seg.status == 'needs_review' and seg.user_rating == 'favorite' and seg.story_role == '高潮'
         assert s.scalar(select(UserAnnotation.note).where(UserAnnotation.segment_id == sid)) == 'retain my note'
+    _assert_plan_points_at(pid, shot_id, sid)
     # Confirmation of a request does not silently rewrite the user's edit plan.
     retry = client.post(f'/api/projects/{pid}/review-requests/{rid}/disposition', json={'action': 'retry'})
     assert retry.status_code == 409
@@ -275,16 +300,28 @@ def test_stale_request_plan_is_preserved_and_roughcut_rejects_it(library, monkey
     old = root / 'roughcut.mp4'; old.write_bytes(b'historic-roughcut')
     with session_scope() as s:
         s.get(Segment, sid).status = 'needs_review'
-        shot = EditPlanShot(project_id=pid, asset_id=aid, segment_id=sid, order=0,
-                            source_in_sec=3, source_out_sec=3.6, target_duration_sec=.6)
         job = Job(project_id=pid, job_type='roughcut')
-        s.add_all([shot, job]); s.flush(); shot_id, jid = shot.id, job.id
+        s.add(job)
+        s.flush()
+        jid = job.id
+
+    # TSB-366: the plan is a storyboard version, created through the service.
+    from app.services.storyboard_service import get_current_version, save_version
+
+    saved = save_version(
+        project_id=pid,
+        base_version_id=get_current_version(project_id=pid).version_id,
+        shots=[{'asset_id': aid, 'segment_id': sid,
+                'source_in_sec': 3, 'source_out_sec': 3.6, 'target_duration_sec': .6}],
+    )
+    shot_id = saved.shots[0]['shot_id']
+
     encoded = []
     monkeypatch.setattr(roughcut, '_extract_normalized', lambda *a, **kw: encoded.append(True))
     JobRunner()._run(jid, roughcut.roughcut_task)
     assert encoded == [] and old.read_bytes() == b'historic-roughcut'
+    _assert_plan_points_at(pid, shot_id, sid)
     with session_scope() as s:
-        assert s.get(EditPlanShot, shot_id).segment_id == sid
         assert s.get(Job, jid).status in ('partial_failed', 'failed')
         assert s.get(Job, jid).failures['count'] == 1
 

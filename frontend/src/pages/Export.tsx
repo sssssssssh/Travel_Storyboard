@@ -3,7 +3,7 @@ import type { SetStateAction } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, downloadUrl, endpoints, fetchAllSegments, mediaUrl, roughcutUrl } from '../lib/api'
-import type { BuildPlanResult, EditPlanOut, JobOut, SegmentListItem } from '../lib/types'
+import type { BuildPlanResult, EditPlanOut, JobOut, SegmentListItem, StoryboardVersionOut } from '../lib/types'
 import { formatTimeCode } from '../lib/format'
 import { useJob } from '../lib/useJob'
 import { Badge, Button, EmptyState, Spinner, inputClass } from '../components/ui'
@@ -33,10 +33,19 @@ export default function Export() {
 
 function ExportEditor({ id }: { id: string }) {
   const qc = useQueryClient()
-  const [editor, setEditor] = useState<{draft: DraftShot[]; dirty: boolean; server: EditPlanOut | null}>({
-    draft: [], dirty: false, server: null,
-  })
-  const { draft, dirty } = editor
+  const [editor, setEditor] = useState<{
+    draft: DraftShot[]
+    dirty: boolean
+    server: EditPlanOut | null
+    //: TSB-366: the version this draft was loaded from. Sent back untouched on
+    //: save so the server can reject a write based on stale data.
+    baseVersionId: string | null
+  }>({ draft: [], dirty: false, server: null, baseVersionId: null })
+  const { draft, dirty, baseVersionId } = editor
+  //: TSB-366: the storyboard head (current version, history trigger).
+  const [showHistory, setShowHistory] = useState(false)
+  const [conflict, setConflict] = useState<string | null>(null)
+  const [restoredNotice, setRestoredNotice] = useState<string | null>(null)
   function setDraft(value: SetStateAction<DraftShot[]>) {
     setEditor((current) => ({ ...current, dirty: true,
       draft: typeof value === 'function' ? value(current.draft) : value }))
@@ -55,6 +64,17 @@ function ExportEditor({ id }: { id: string }) {
     queryFn: () => api<EditPlanOut>(endpoints.editPlan(id)),
   })
 
+  // TSB-366: the storyboard head tells the page which version is current.
+  const storyboard = useQuery({
+    queryKey: ['storyboard', id],
+    queryFn: () => api<StoryboardVersionOut>(endpoints.storyboard(id)),
+  })
+  const versions = useQuery({
+    queryKey: ['storyboard-versions', id],
+    queryFn: () => api<StoryboardVersionOut[]>(endpoints.storyboardVersions(id)),
+    enabled: showHistory,
+  })
+
   function loadServer(data: EditPlanOut) {
     // Keep every persisted edit field; array position remains authoritative.
     return [...data.shots].sort((a, b) => a.order - b.order).map((shot) => ({
@@ -67,20 +87,75 @@ function ExportEditor({ id }: { id: string }) {
     }))
   }
   if (plan.data && plan.data !== editor.server && !dirty) {
-    setEditor({ draft: loadServer(plan.data), dirty: false, server: plan.data })
+    setEditor({
+      draft: loadServer(plan.data),
+      dirty: false,
+      server: plan.data,
+      baseVersionId: plan.data.version_id ?? null,
+    })
   }
 
   const save = useMutation({
     mutationFn: (shots: DraftShot[]) =>
       api<BuildPlanResult>(endpoints.editPlan(id), {
         method: 'POST',
-        body: JSON.stringify({ shots: shots.map((s, i) => ({ order: i, ...s })) }),
+        body: JSON.stringify({
+          // Array position is the order; base_version_id makes the write safe.
+          shots: shots.map((s, i) => ({ order: i, ...s })),
+          base_version_id: baseVersionId,
+        }),
       }),
     onSuccess: async (r, submitted) => {
       setResult(r)
-      if (r.errors.length) return
+      setConflict(null)
+      if ((r.errors ?? []).length) return
       await qc.invalidateQueries({ queryKey: ['edit-plan', id] })
-      setEditor((current) => current.draft === submitted ? { ...current, dirty: false } : current)
+      await qc.invalidateQueries({ queryKey: ['storyboard', id] })
+      await qc.invalidateQueries({ queryKey: ['storyboard-versions', id] })
+      // The draft is only marked saved if it is what was actually submitted.
+      setEditor((current) =>
+        current.draft === submitted
+          ? { ...current, dirty: false, baseVersionId: r.version_id ?? current.baseVersionId }
+          : current,
+      )
+    },
+    onError: (error) => {
+      // §5.2: on a conflict the draft is KEPT and the user is told what to do.
+      // Nothing here clears `draft`; only an explicit reload does.
+      const status = (error as { status?: number }).status
+      if (status === 409 || status === 428) {
+        setConflict(
+          status === 409
+            ? '该方案已被其他地方修改（版本冲突）。你的草稿已保留，请先「收录服务端版本」再合并。'
+            : '保存请求缺少版本号，请先刷新页面。',
+        )
+      }
+    },
+  })
+
+  const restore = useMutation({
+    mutationFn: (targetVersionId: string) =>
+      api<StoryboardVersionOut>(endpoints.storyboardRestore(id), {
+        method: 'POST',
+        body: JSON.stringify({
+          target_version_id: targetVersionId,
+          base_version_id: storyboard.data?.current_version_id ?? null,
+        }),
+      }),
+    onSuccess: async (v) => {
+      setRestoredNotice(`已恢复版本 v${v.version_no}（恢复自所选历史版本）`)
+      setShowHistory(false)
+      setEditor((current) => ({ ...current, dirty: false }))
+      await qc.invalidateQueries({ queryKey: ['edit-plan', id] })
+      await qc.invalidateQueries({ queryKey: ['storyboard', id] })
+    },
+    onError: (error) => {
+      const status = (error as { status?: number }).status
+      setRestoredNotice(
+        status === 409
+          ? '恢复失败：方案已被修改，请刷新后再试。'
+          : `恢复失败：${error.message}`,
+      )
     },
   })
 
@@ -127,13 +202,29 @@ function ExportEditor({ id }: { id: string }) {
           <Link to={`/project/${id}`} className="text-sm text-slate-400 hover:text-slate-200">← 返回项目</Link>
           <h1 className="text-lg font-semibold text-white">故事板 / 导出</h1>
           <span className="text-sm text-slate-500">计划 {draft.length} 个镜头 · 约 {total.toFixed(1)}s</span>
+          {/* TSB-366: which version the editor is showing. */}
+          {storyboard.data && (
+            <span className="rounded-md border border-ink-700 px-2 py-0.5 text-xs text-slate-300" data-testid="current-version">
+              当前 v{storyboard.data.version_no}
+            </span>
+          )}
+          <Button variant="ghost" onClick={() => setShowHistory((v) => !v)} data-testid="toggle-history">
+            版本历史
+          </Button>
         </div>
         <div className="flex items-center gap-2">
           <a className="rounded-md border border-ink-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-ink-800" href={downloadUrl(endpoints.exportCsv(id))}>CSV</a>
           <a className="rounded-md border border-ink-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-ink-800" href={downloadUrl(endpoints.exportJson(id))}>JSON</a>
           <a className="rounded-md border border-ink-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-ink-800" href={downloadUrl(endpoints.exportOtio(id))}>OTIO</a>
           <Button variant="ghost" disabled={!plan.data || save.isPending} onClick={() => {
-            if (plan.data) setEditor({ draft: loadServer(plan.data), dirty: false, server: plan.data })
+            if (plan.data) {
+              setEditor({
+                draft: loadServer(plan.data),
+                dirty: false,
+                server: plan.data,
+                baseVersionId: plan.data.version_id ?? null,
+              })
+            }
           }}>重新加载服务端版本</Button>
           <Button disabled={plan.isLoading || save.isPending} onClick={() => save.mutate(draft)}>
             保存剪辑计划
@@ -177,14 +268,82 @@ function ExportEditor({ id }: { id: string }) {
         </div>
       )}
 
-      {save.error && <div className="px-6 py-2 text-sm text-red-400">保存失败，草稿已保留：{save.error.message}</div>}
-      {dirty && <div className="px-6 py-2 text-xs text-amber-300">草稿有未保存修改</div>}
+      {save.error && (
+        <div className="px-6 py-2 text-sm text-red-400" data-testid="save-error">
+          保存失败，草稿已保留：{save.error.message}
+        </div>
+      )}
+      {conflict && (
+        <div className="flex items-center gap-3 border-b border-amber-700 bg-amber-950/40 px-6 py-2 text-sm text-amber-200" data-testid="version-conflict">
+          <span>{conflict}</span>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              // The only action that discards the local draft, and it is explicit.
+              if (plan.data) {
+                setEditor({ draft: loadServer(plan.data), dirty: false, server: plan.data, baseVersionId: plan.data.version_id ?? null })
+                setConflict(null)
+              }
+            }}
+          >
+            收录服务端版本（放弃草稿）
+          </Button>
+        </div>
+      )}
+      {restoredNotice && (
+        <div className="border-b border-ink-800 px-6 py-2 text-sm text-emerald-300" data-testid="restore-notice">
+          {restoredNotice}
+        </div>
+      )}
+      {dirty && (
+        <div className="px-6 py-2 text-xs text-amber-300" data-testid="draft-dirty">
+          草稿有未保存修改（尚未写入任何版本）
+        </div>
+      )}
       {result && (
         <div className="border-b border-ink-800 px-6 py-2 text-sm">
-          {result.errors.length === 0 ? (
+          {(result.errors ?? []).length === 0 ? (
             <span className="text-emerald-300">已保存 {result.created} 个镜头，总时长 {result.total_duration_sec}s</span>
           ) : (
-            <span className="text-red-400">校验失败（未保存）：{result.errors.map((e) => e.message).join('；')}</span>
+            <span className="text-red-400">校验失败（未保存）：{(result.errors ?? []).map((e) => e.message).join('；')}</span>
+          )}
+        </div>
+      )}
+
+      {showHistory && (
+        <div className="max-h-64 overflow-auto border-b border-ink-800 px-6 py-3" data-testid="version-history">
+          <h2 className="mb-2 text-sm font-semibold text-slate-300">版本历史</h2>
+          {versions.isLoading ? (
+            <Spinner />
+          ) : (
+            <ul className="space-y-1 text-xs">
+              {(versions.data ?? []).map((v) => {
+                const isCurrent = v.version_id === storyboard.data?.current_version_id
+                return (
+                  <li key={v.version_id} className="flex items-center gap-3 rounded border border-ink-700 px-2 py-1">
+                    <span className="font-mono text-slate-200">v{v.version_no}</span>
+                    <span className="text-slate-400">{v.reason}</span>
+                    <span className="text-slate-500">{v.actor}</span>
+                    <span className="text-slate-500">{v.created_at?.replace('T', ' ').slice(0, 19)}</span>
+                    <span className="text-slate-400">{v.shots.length} 镜头</span>
+                    {v.validation_summary?.state !== 'ok' && (
+                      <Badge tone="yellow">{v.validation_summary?.state}</Badge>
+                    )}
+                    {isCurrent ? (
+                      <Badge tone="green">当前</Badge>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        disabled={restore.isPending}
+                        onClick={() => restore.mutate(v.version_id)}
+                      >
+                        恢复此版本
+                      </Button>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
           )}
         </div>
       )}

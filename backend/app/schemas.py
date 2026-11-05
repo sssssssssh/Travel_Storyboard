@@ -337,6 +337,15 @@ class EditPlanShotIn(BaseModel):
 
 class EditPlanBuild(BaseModel):
     shots: list[EditPlanShotIn] = Field(default_factory=list)
+    #: TSB-366: the storyboard version this edit was based on.
+    #:
+    #: Optional at the schema level so a pre-versioning client still parses, but
+    #: the endpoint refuses the write with ``428 Base Version Required`` when it
+    #: is absent — that keeps the compatibility error explicit and machine
+    #: readable instead of a generic 422 validation message.
+    base_version_id: str | None = None
+    #: TSB-366: replaying the same key returns the same version rather than v+2.
+    idempotency_key: str | None = None
 
 
 class EditPlanShotOut(ORMModel):

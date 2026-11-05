@@ -563,7 +563,13 @@ def test_deep_workspace_roughcut_end_to_end(client, tmp_path: Path):
              "source_in_sec": seg.start_sec, "source_out_sec": min(seg.end_sec, seg.start_sec + 1.0)}
             for seg in segs[:2]
         ]
-    assert build_edit_plan(project_id, shots)["errors"] == []
+    # TSB-366: saving a plan requires the base version the caller read.
+    from app.services.storyboard_service import get_current_version
+
+    base = get_current_version(project_id=project_id).version_id
+    result = build_edit_plan(project_id, shots, base_version_id=base)
+    assert result["errors"] == []
+    assert result["validation_summary"]["state"] == "ok"
 
     with session_scope() as s:
         job = Job(project_id=project_id, job_type="roughcut")

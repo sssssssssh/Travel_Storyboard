@@ -1,0 +1,10 @@
+# TSB-366 — local-only run artifacts, never committed.
+#
+# The root .gitignore lists exact paths only, so a new directory needs its own
+# guard (the same gap TSB-362 hit). Test logs and junit XML are locally
+# reproducible; committing them would bloat the repo and could carry machine
+# paths from a failed run.
+*.local.json
+*.local.txt
+*.local.xml
+*.local.*

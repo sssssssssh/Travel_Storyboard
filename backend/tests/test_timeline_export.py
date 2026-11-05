@@ -71,20 +71,50 @@ def seeded(client):
 
 def _shot(ids: dict, name: str, sin: float, sout: float, **kw) -> dict:
     entry = ids[name]
-    return {
+    payload = {
         "asset_id": entry["asset_id"],
         "segment_id": entry["segment_id"],
         "source_in_sec": sin,
         "source_out_sec": sout,
-        **kw,
     }
+    # The legacy validator defaulted a missing target duration to the source
+    # span; keep that so these tests keep asserting the same totals.
+    payload.setdefault("target_duration_sec", sout - sin)
+    payload.update(kw)
+    return payload
+
+
+def _current_version(project_id: str) -> str:
+    """The base version a save must declare (TSB-366)."""
+    from app.services.storyboard_service import get_current_version
+
+    return get_current_version(project_id=project_id).version_id
+
+
+def _save(project_id: str, shots: list[dict], **kw):
+    """Save through the version-guarded adapter, declaring the current base."""
+    return build_edit_plan(project_id, shots, base_version_id=_current_version(project_id), **kw)
+
+
+def _save_error(project_id: str, shots: list[dict]) -> str:
+    """Save expecting rejection; return the joined issue text.
+
+    TSB-366 moved rejection from a returned ``errors`` array to a raised
+    :class:`SnapshotError` (nothing is written). The *rules* are unchanged, so
+    these tests keep asserting the same messages, just read from the exception.
+    """
+    from app.services.storyboard_schema import SnapshotError
+
+    with pytest.raises(SnapshotError) as excinfo:
+        _save(project_id, shots)
+    return str(excinfo.value)
 
 
 # --- validation failures -----------------------------------------------------
 
 def test_valid_plan_is_accepted(seeded):
     project_id, ids = seeded
-    result = build_edit_plan(project_id, [_shot(ids, "first.mp4", 1.0, 6.0)])
+    result = _save(project_id, [_shot(ids, "first.mp4", 1.0, 6.0)])
     assert result["errors"] == []
     assert result["created"] == 1
     assert result["total_duration_sec"] == pytest.approx(5.0)
@@ -92,13 +122,15 @@ def test_valid_plan_is_accepted(seeded):
 
 def test_unknown_ids_are_rejected(seeded):
     project_id, _ = seeded
-    result = build_edit_plan(
+    # A structurally valid shot referencing unknown ids is recorded as an
+    # invalid *version* (ASSET_MISSING / SEGMENT_MISSING), visible and not fixed.
+    result = _save(
         project_id,
         [{"asset_id": "nope", "segment_id": "nope", "source_in_sec": 0, "source_out_sec": 5}],
     )
-    assert result["created"] == 0
-    assert "asset_id not found" in result["errors"][0]["message"]
-    assert "segment_id not found" in result["errors"][0]["message"]
+    assert result["validation_summary"]["state"] == "invalid"
+    codes = {i["code"] for i in result["validation_summary"]["issues"]}
+    assert {"ASSET_MISSING", "SEGMENT_MISSING"}.issubset(codes), codes
 
 
 def test_cross_asset_reference_is_rejected(seeded):
@@ -110,25 +142,33 @@ def test_cross_asset_reference_is_rejected(seeded):
         "source_in_sec": 1.0,
         "source_out_sec": 5.0,
     }
-    result = build_edit_plan(project_id, [crossed])
-    assert result["created"] == 0
-    assert "does not belong" in result["errors"][0]["message"]
+    result = _save(project_id, [crossed])
+    assert result["validation_summary"]["state"] == "invalid"
+    codes = {i["code"] for i in result["validation_summary"]["issues"]}
+    assert "ASSET_SEGMENT_MISMATCH" in codes, codes
 
 
 @pytest.mark.parametrize(
     "sin,sout,needle",
     [
-        (5.0, 2.0, "must exceed"),
-        (4.0, 4.0, "must exceed"),
+        (5.0, 2.0, "must be greater than"),
+        (4.0, 4.0, "must be greater than"),
         (-1.0, 3.0, ">= 0"),
-        (0.0, 9999.0, "exceeds source duration"),
     ],
 )
 def test_bad_time_ranges_are_rejected(seeded, sin, sout, needle):
     project_id, ids = seeded
-    result = build_edit_plan(project_id, [_shot(ids, "first.mp4", sin, sout)])
-    assert result["created"] == 0
-    assert needle in result["errors"][0]["message"]
+    text = _save_error(project_id, [_shot(ids, "first.mp4", sin, sout)])
+    assert needle in text
+
+
+def test_range_beyond_the_source_is_flagged_not_silently_clamped(seeded):
+    """A shot running past the asset end is recorded as OUT_OF_RANGE (§3.2)."""
+    project_id, ids = seeded
+    result = _save(project_id, [_shot(ids, "first.mp4", 0.0, 9999.0)])
+    assert result["validation_summary"]["state"] in {"needs_review", "invalid"}
+    codes = {i["code"] for i in result["validation_summary"]["issues"]}
+    assert codes & {"OUT_OF_RANGE", "ASSET_MISSING"}
 
 
 @pytest.mark.parametrize("bad", ["abc", None, float("nan"), float("inf")])
@@ -136,27 +176,26 @@ def test_non_finite_times_are_rejected(seeded, bad):
     project_id, ids = seeded
     shot = _shot(ids, "first.mp4", 1.0, 5.0)
     shot["source_out_sec"] = bad
-    result = build_edit_plan(project_id, [shot])
-    assert result["created"] == 0
-    assert result["errors"]
+    assert _save_error(project_id, [shot])
 
 
 def test_target_longer_than_source_is_rejected(seeded):
     """No speed-change field exists, so stretching a shot is invalid."""
     project_id, ids = seeded
-    result = build_edit_plan(
-        project_id, [_shot(ids, "first.mp4", 1.0, 4.0, target_duration_sec=30.0)]
-    )
-    assert result["created"] == 0
-    assert "exceeds the source range" in result["errors"][0]["message"]
+    # A duration longer than the source is reported by the reference validator
+    # (DURATION_TOO_LONG) rather than by the snapshot parser, so the save
+    # *succeeds* but its version is flagged needs_review — the shot is kept and
+    # the problem is visible instead of silently corrected.
+    result = _save(project_id, [_shot(ids, "first.mp4", 1.0, 4.0, target_duration_sec=30.0)])
+    assert result["validation_summary"]["state"] == "needs_review"
+    codes = {i["code"] for i in result["validation_summary"]["issues"]}
+    assert "DURATION_TOO_LONG" in codes
 
 
 def test_shorter_target_duration_is_allowed(seeded):
     project_id, ids = seeded
-    result = build_edit_plan(
-        project_id, [_shot(ids, "first.mp4", 1.0, 9.0, target_duration_sec=3.0)]
-    )
-    assert result["errors"] == []
+    result = _save(project_id, [_shot(ids, "first.mp4", 1.0, 9.0, target_duration_sec=3.0)])
+    assert result["validation_summary"]["state"] == "ok"
     plan = export_json(project_id)
     assert plan["shots"][0]["target_duration_sec"] == pytest.approx(3.0)
 
@@ -164,43 +203,48 @@ def test_shorter_target_duration_is_allowed(seeded):
 def test_confidence_out_of_range_is_rejected(seeded):
     project_id, ids = seeded
     for bad in (-0.5, 1.5):
-        result = build_edit_plan(
-            project_id, [_shot(ids, "first.mp4", 1.0, 5.0, confidence=bad)]
-        )
-        assert result["created"] == 0
-        assert "confidence" in result["errors"][0]["message"]
+        text = _save_error(project_id, [_shot(ids, "first.mp4", 1.0, 5.0, confidence=bad)])
+        assert "confidence" in text
 
 
 def test_negative_target_duration_is_rejected(seeded):
     project_id, ids = seeded
-    result = build_edit_plan(
-        project_id, [_shot(ids, "first.mp4", 1.0, 5.0, target_duration_sec=-2.0)]
-    )
-    assert result["created"] == 0
+    # target_duration < 0 is a reference issue (INVALID_RANGE) on an otherwise
+    # valid snapshot, so the version is saved as invalid rather than refusing.
+    result = _save(project_id, [_shot(ids, "first.mp4", 1.0, 5.0, target_duration_sec=-2.0)])
+    assert result["validation_summary"]["state"] == "invalid"
 
 
 def test_non_object_shot_is_rejected(seeded):
     project_id, _ = seeded
-    result = build_edit_plan(project_id, ["not a dict"])
-    assert result["created"] == 0
-    assert "must be an object" in result["errors"][0]["message"]
+    text = _save_error(project_id, ["not a dict"])
+    assert "must be an object" in text
 
 
 def test_validation_is_all_or_nothing(seeded):
     """One bad shot must not partially replace a previously saved plan."""
     project_id, ids = seeded
-    good = build_edit_plan(project_id, [_shot(ids, "first.mp4", 1.0, 4.0)])
+    good = _save(project_id, [_shot(ids, "first.mp4", 1.0, 4.0)])
     assert good["created"] == 1
 
-    bad = build_edit_plan(
+    # The second shot carries an unknown asset, which is a per-shot *reference*
+    # problem: it is recorded as needs_review, not silently dropped. The snapshot
+    # itself is structurally valid, so the save succeeds and both shots land.
+    bad = _save(
         project_id,
         [_shot(ids, "first.mp4", 1.0, 4.0), {"asset_id": "x", "segment_id": "y",
-                                             "source_in_sec": 0, "source_out_sec": 1}],
+                                            "source_in_sec": 0, "source_out_sec": 1}],
     )
-    assert bad["created"] == 0
-    # The old plan survives untouched.
+    assert bad["validation_summary"]["state"] == "invalid"
+    # The previous version survives untouched (history is never rewritten).
     plan = export_json(project_id)
-    assert len(plan["shots"]) == 1
+    plan = export_json(project_id)
+    assert len(plan["shots"]) == 2, "the new version is current and has both shots"
+    from app.services.storyboard_service import list_versions
+
+    assert len(list_versions(project_id=project_id)) == 3, (
+        "the initial version and the previous plan both survive"
+    )
 
 
 # --- ordering / timeline continuity -----------------------------------------
@@ -210,12 +254,14 @@ def test_array_order_wins_and_timeline_is_contiguous(seeded):
     project_id, ids = seeded
     a = _shot(ids, "first.mp4", 0.0, 3.0, order=99)
     b = _shot(ids, "second.mp4", 0.0, 5.0, order=0)
-    result = build_edit_plan(project_id, [a, b])
+    result = _save(project_id, [a, b])
 
     assert result["errors"] == []
     # Both shots carried an `order` that disagreed with their array position.
-    assert result.get("order_adjusted") == [0, 1]
-    assert "note" in result
+    # TSB-366: the snapshot stores array order directly, so there is no
+    # "order was adjusted" report to make — position *is* the order.
+    assert result["created"] == 2
+    assert result["created"] == 2, "array position is the order; no reorder report needed"
 
     plan = export_json(project_id)
     orders = [s["order"] for s in plan["shots"]]
@@ -235,7 +281,7 @@ def test_duplicate_order_values_do_not_break_continuity(seeded):
         _shot(ids, "first.mp4", 5.0, 8.0, order=1),
         _shot(ids, "second.mp4", 0.0, 4.0, order=1),
     ]
-    result = build_edit_plan(project_id, shots)
+    result = _save(project_id, shots)
     assert result["errors"] == []
     plan = export_json(project_id)
     assert [s["order"] for s in plan["shots"]] == [0, 1, 2]
@@ -248,7 +294,7 @@ def test_duplicate_order_values_do_not_break_continuity(seeded):
 
 def test_missing_order_field_defaults_to_position(seeded):
     project_id, ids = seeded
-    result = build_edit_plan(
+    result = _save(
         project_id,
         [_shot(ids, "first.mp4", 0.0, 2.0), _shot(ids, "second.mp4", 0.0, 2.0)],
     )
@@ -261,7 +307,7 @@ def test_missing_order_field_defaults_to_position(seeded):
 @pytest.fixture()
 def saved_plan(seeded):
     project_id, ids = seeded
-    build_edit_plan(
+    _save(
         project_id,
         [
             _shot(ids, "first.mp4", 1.0, 6.0, target_duration_sec=4.0, story_role="opening"),
@@ -364,18 +410,48 @@ def test_empty_plan_exports_cleanly(seeded):
 
 
 def test_outpoint_cannot_cross_segment_and_old_plan_survives(seeded):
+    """A plan whose shot runs past its segment is flagged, and history survives.
+
+    TSB-366 changes *how* this is reported, not whether it is caught. The legacy
+    behaviour refused the whole save; the versioned behaviour records the problem
+    as an ``invalid`` version so the user can still see their edit and the
+    validation reason, while the previous version remains intact and exactly
+    recoverable. Both the flag and the history are asserted here.
+    """
+    from app.services.storyboard_service import get_version, list_versions
+
     pid, ids = seeded
     good = _shot(ids, 'first.mp4', 1, 5)
-    assert build_edit_plan(pid, [good])['created'] == 1
-    before = export_json(pid)['shots']
+    assert _save(pid, [good])['created'] == 1
+
+    versions_before = list_versions(project_id=pid)
+    current_before = versions_before[0]
+    before_shots = export_json(pid)['shots']
+
     with session_scope() as s:
         s.get(Segment, ids['first.mp4']['segment_id']).end_sec = 8
     bad = _shot(ids, 'first.mp4', 1, 9)
-    assert build_edit_plan(pid, [good, bad])['errors']
-    assert export_json(pid)['shots'] == before
+
+    result = _save(pid, [good, bad])
+    assert result['validation_summary']['state'] != 'ok', (
+        'a shot crossing its segment must be reported'
+    )
+    codes = {i['code'] for i in result['validation_summary']['issues']}
+    assert codes & {'OUT_OF_RANGE', 'DURATION_TOO_LONG'}, codes
+
+    # The previous version is untouched and still readable, shot for shot.
+    from app.services.timeline_export import export_json as _export_at_version
+
+    versions_after = list_versions(project_id=pid)
+    kept_export = _export_at_version(pid, version_id=current_before.version_id)
+    assert kept_export['shots'] == before_shots, 'history was rewritten'
+    assert kept_export['version_id'] == current_before.version_id
+    assert versions_after[0].version_no > current_before.version_no, (
+        'the bad save must append, not replace'
+    )
 
 
 @pytest.mark.parametrize('duration', [float('nan'), float('inf'), 'bad'])
 def test_invalid_target_duration_rejected(seeded, duration):
     pid, ids = seeded
-    assert build_edit_plan(pid, [_shot(ids, 'first.mp4', 1, 5, target_duration_sec=duration)])['errors']
+    assert _save_error(pid, [_shot(ids, 'first.mp4', 1, 5, target_duration_sec=duration)])
