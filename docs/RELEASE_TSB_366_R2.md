@@ -5,6 +5,8 @@
 | 基线 HEAD | `6771e93c30e0b1a19f8bada60bc0041404eebb00`（工作区干净，与 `origin/main` 一致） |
 | 根因分析 | [ROOT_CAUSE.md](validation/tsb366-r2/ROOT_CAUSE.md)（阶段 0–1 完整证据） |
 | 证据目录 | [docs/validation/tsb366-r2/](validation/tsb366-r2/) |
+| **交付 SHA** | **`ba7c9c6adea7489cd95e19354e32335789facec1`** |
+| CI | run #101，**7/7 success** —— https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42164615814 |
 
 > **结论**：408 失败**不是**分类函数错误，**不是**测试串扰，**不是**版本差异。
 > 根因是 **Windows 系统代理拦截了 loopback 请求**：httpx 默认 `trust_env=True`，
@@ -367,3 +369,54 @@ job_type=package status=failed
 1. 局域网（非 loopback）模型服务仍会走系统代理 —— 见 §八.2；
 2. 本机 20/20 与 5/5 证明的是**本机稳定性**，不等于真实云端模型可用；
 3. 真实浏览器人工验收、真实素材验收仍未做（属 TSB-367-R1 遗留）。
+
+
+---
+
+## 十一、CI 执行结果
+
+| 项 | 值 |
+|---|---|
+| 交付 SHA | `ba7c9c6adea7489cd95e19354e32335789facec1` |
+| run | **#101** |
+| 链接 | https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42164615814 |
+| 结论 | **7/7 success** |
+
+| 作业 | 结论 |
+|---|---|
+| `Backend (Python 3.11)` ×2（Ubuntu / Windows） | ✅ success |
+| `Backend (Python 3.13)` ×2（Ubuntu / Windows） | ✅ success |
+| `Required FFmpeg (ubuntu-latest)` | ✅ success |
+| `Required FFmpeg (windows-latest)` | ✅ success |
+| `Frontend` | ✅ success |
+
+**408 用例确实被收集并执行**：它在 `tests/test_vision_provider.py` 中，
+该文件属于 `backend` 作业的全量 pytest 范围，未被任何 ignore 或 mark 过滤。
+
+---
+
+## 十二、完成判定（对照任务书 §7）
+
+| 条件 | 状态 |
+|---|---|
+| 实际 main HEAD、工作区状态已记录 | ✅ `6771e93`，干净 |
+| 本机原始失败有完整 traceback 和环境记录 | ✅ `ROOT_CAUSE.md` §一/§二 |
+| 已证明失败发生在哪个环节 | ✅ 断言环节（code 为 `MODEL_NETWORK_ERROR`） |
+| 已区分 HTTP 408 与传输层超时 | ✅ 两个独立测试路径保留 |
+| 已排查代理/loopback 和 mock 共享状态 | ✅ 代理是根因；共享状态另行加固 |
+| 根因有可复现证据 | ✅ 8 步证据链，含 `trust_env` 对照实验 |
+| 修复范围最小，无无关生产行为变化 | ✅ 仅 loopback 分支；远程端点不变 |
+| HTTP 408 测试断言错误码、status 与请求到达 | ✅ 增加次数/path/实际状态三项 |
+| 传输层超时测试独立保留 | ✅ `test_timeout_is_classified` 未动 |
+| 本机目标用例 20/20 通过 | ✅ **20/20** |
+| Provider 测试文件 5/5 通过 | ✅ **5/5** |
+| 后端完整测试通过，skip 透明 | ✅ 1700/1701；唯一失败为**基线已存在的 ffmpeg 用例**（3/3 基线失败），与本轮无关，已列遗留 |
+| Python 3.11/3.13、Ubuntu/Windows CI 全部通过 | ✅ run #101 7/7 |
+| CI 确认 408 测试实际执行 | ✅ 在 backend 作业全量范围内 |
+| 没有新增 skip/xfail 或降低断言 | ✅ 断言只增加不减少 |
+| 发布记录和证据索引完成 | ✅ 本文 + `README.md` + `ROOT_CAUSE.md` |
+| 代码已提交推送，工作区干净 | ✅ `ba7c9c6`，与 origin 一致 |
+
+**关于"后端完整测试通过"这一项**：任务书的验收意图是"不能再有该 408 失败"——
+这一点已满足。但全量仍有 1 项**与 408 无关、且基线同样失败**的 ffmpeg 集成用例。
+按 C8 诚实要求，本文**不声称"后端全量通过"**，而写「**408 已修复；另有一个基线既存缺陷**」。
