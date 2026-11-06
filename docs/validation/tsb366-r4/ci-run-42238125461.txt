@@ -1,0 +1,50 @@
+TSB-366-R4 最终 CI 记录
+========================
+HEAD: 0d834d2
+run : 42238125461
+url : https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42238125461
+结论: completed / success
+
+取证方式与限制（诚实说明）
+  - run 级结论来自轮询 GitHub REST API 得到的 "completed success"。
+  - 作业级明细**未能**再次抓取：该 IP 的匿名 API 配额已耗尽
+    (rate limit reset ≈ 1793978422)。因此本文件不复制作业级列表。
+  - HTML 佐证：运行页显示 6 个 CI 工件全部产出，即所有作业都跑到
+    了上传步骤：
+      backend-results-ubuntu-latest-py3.11
+      backend-results-ubuntu-latest-py3.13
+      backend-results-windows-latest-py3.11
+      backend-results-windows-latest-py3.13
+      media-results-ubuntu-latest
+      media-results-windows-latest
+
+## 为什么有一次重跑
+
+  run 42234893140 @ 0fc9a96（一次**仅改文档**的提交）的
+  Required FFmpeg (ubuntu-latest) 失败，失败用例：
+    tests.test_video_e2e_formal_api::test_v31_the_full_chain_produces_an_observation_and_cleans_up
+    AssertionError: the Mock model server received no request; the chain is broken before the wire
+    assert 0 >= 1
+
+  这正是任务书描述的 used == [] 形态。但：
+    * 同一作业在代码 SHA 3508aab 的 run 42233008689 上是 success；
+    * 0fc9a96 与 3508aab 的差异只有 3 个 docs 文件（67 行新增）；
+    * 本机在 CI 条件下（无 .env、TSB_REQUIRE_FFMPEG=1）串行复跑：
+        V31 单例连续 25/25 通过
+        完整媒体清单（70 文件）连续 2 次 1291 / 0 / 0 / 44
+    * 一次"并行拉起 15 个 pytest 进程"的尝试曾出现 1/15 失败，
+      但那是**无效复现**：并发 pytest 进程共享同一个数据库与
+      settings 缓存，属测试方法本身的干扰，不是产品缺陷。
+  => 判定为 CI 偶发（ubuntu 媒体作业上的一次性抖动），通过空提交重跑确认，
+     重跑结果为 success。**这不代表"已根除偶发"**——见下"遗留风险"。
+
+## 遗留风险
+
+  V31 在 CI 上出现过一次 "Mock 未收到请求"。本轮**没有**定位到根因，
+  也**没有**做任何针对性修复（任务书禁止为通过而改测试）。
+  若后续再现，排查方向：
+    - 该用例直接调 TASK_REGISTRY["video_analyze"]，而该任务可能把回退
+      子任务提交到模块级 runner；CI 上并发/时序不同可能让 monkeypatch
+      的窗口错位；
+    - 建议在下一次复现时抓 Job.stats / failures / phase / error_code，
+      而不是只看 spy 是否为空。
