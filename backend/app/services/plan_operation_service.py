@@ -27,9 +27,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy import func as sa_func
+from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 
 from ..database import begin_write, session_scope
+from ..models import utcnow
 from ..models import (
     Asset,
     PlanOperation,
@@ -96,6 +99,20 @@ class IdempotencyKeyReused(PlanOperationError):
 
 class OperationAlreadyFinal(PlanOperationError):
     code = "OPERATION_ALREADY_FINAL"
+    http_status = 409
+
+
+class InvalidSnapshot(PlanOperationError):
+    """The resulting plan is structurally invalid; it may not be saved (R1-03)."""
+
+    code = "INVALID_SNAPSHOT"
+    http_status = 422
+
+
+class MissingShotIdentity(PlanOperationError):
+    """A proposal cannot be applied because it records no shot identity (R1-01)."""
+
+    code = "MISSING_SHOT_IDENTITY"
     http_status = 409
 
 
@@ -184,6 +201,83 @@ def _snapshot_of(version: StoryboardVersion) -> StoryboardSnapshot:
     })
 
 
+def _require_identities(operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mark insert/replace operations as needing a recorded identity (R1-01).
+
+    Applying re-runs the executor. Without this flag a proposal that recorded no
+    identity (one written by an older build, or hand-inserted) would silently mint
+    a *new* id at apply time — precisely the mismatch R1-01 removes. Marking them
+    makes the executor refuse instead.
+    """
+    from .plan_operations import RESOLVED_ID_FIELD
+
+    out: list[dict[str, Any]] = []
+    for operation in operations:
+        copy = dict(operation)
+        if operation.get("type") in ("insert_shot", "replace_shot") and \
+                not operation.get(RESOLVED_ID_FIELD):
+            copy["_identity_required"] = True
+        out.append(copy)
+    return out
+
+
+def _plan_identities(operations: list[dict[str, Any]],
+                     snapshot: Any) -> list[dict[str, Any]]:
+    """Mint one identity per insert/replace, **before** execution (R1-01).
+
+    Deciding identity up front - rather than after the run - is what makes the
+    preview diff, the stored proposal and the saved version agree on the same ids.
+    Each operation gets its own id, and none may collide with an id already in the
+    snapshot or with another id minted in this batch.
+    """
+    from .plan_operations import RESOLVED_ID_FIELD, _new_shot_id
+
+    taken = {shot.shot_id for shot in snapshot.shots}
+    out: list[dict[str, Any]] = []
+    for operation in operations:
+        copy = dict(operation)
+        if operation.get("type") in ("insert_shot", "replace_shot"):
+            if not operation.get(RESOLVED_ID_FIELD):
+                minted = _new_shot_id(taken)
+                taken.add(minted)
+                copy[RESOLVED_ID_FIELD] = minted
+        out.append(copy)
+    return out
+
+
+def _set_status_if_proposed(operation_id: str, new_status: str,
+                            error_code: str = "") -> bool:
+    """Persist a non-success status in its **own** transaction (R1-02).
+
+    The failing business transaction is rolled back, so a status written inside it
+    would vanish. This runs afterwards, on a fresh connection, and is
+    **conditional on the row still being `proposed`** — it must never overwrite a
+    terminal state another request already committed.
+
+    Returns whether the row actually moved.
+    """
+    with session_scope() as s:
+        begin_write(s)
+        # ONE statement. A second UPDATE on the same row would hit the
+        # terminal-immutability trigger and fail — the row is already terminal by
+        # then, which is exactly what that trigger is for.
+        result = s.execute(
+            sa_text(
+                "UPDATE plan_operations "
+                "SET status = :status, error_code = :code, updated_at = :now "
+                "WHERE id = :id AND status = 'proposed'"
+            ),
+            {"status": new_status, "code": error_code, "id": operation_id,
+             "now": utcnow()},
+        )
+        if result.rowcount != 1:
+            # Another request already committed a terminal state; never overwrite it.
+            logger.debug("status write skipped for %s: row is no longer proposed",
+                         operation_id)
+            return False
+        return True
+
+
 # ---------------------------------------------------------------------------
 # propose
 # ---------------------------------------------------------------------------
@@ -244,9 +338,13 @@ def propose_operation(*, project_id: str, envelope: dict[str, Any] | OperationEn
         snapshot = _snapshot_of(base_version)
         context = _context_for(s, project_id)
 
+        # R1-01: mint identities *before* executing, so the executor, the preview
+        # diff and the stored proposal all agree on the same ids.
+        planned_operations = _plan_identities(parsed.to_operation_dicts(), snapshot)
+
         try:
             result = execute_operations(
-                snapshot=snapshot, operations=parsed.to_operation_dicts(),
+                snapshot=snapshot, operations=planned_operations,
                 context=context,
             )
         except OperationExecutionError as exc:
@@ -257,6 +355,17 @@ def propose_operation(*, project_id: str, envelope: dict[str, Any] | OperationEn
                 detail={"operation_index": exc.index, **exc.detail},
             ) from None
 
+        # R1-03: an invalid final snapshot must never become a proposal.
+        if result.validation.state == "invalid":
+            raise InvalidSnapshot(
+                "the resulting plan is invalid and cannot be proposed",
+                detail={"issues": [i.model_dump() for i in result.validation.issues]},
+            )
+
+        # The identities are already on the operations; store them verbatim so
+        # apply reuses exactly what the user was shown.
+        operations_with_identity = planned_operations
+
         op = PlanOperation(
             id=str(uuid.uuid4()),
             project_id=project_id,
@@ -264,7 +373,7 @@ def propose_operation(*, project_id: str, envelope: dict[str, Any] | OperationEn
             base_version_id=parsed.base_version_id,
             idempotency_key=parsed.idempotency_key,
             schema_version=parsed.schema_version,
-            operations=parsed.to_operation_dicts(),
+            operations=operations_with_identity,
             diff=result.diff,
             status="proposed",
             reason=parsed.reason,
@@ -282,13 +391,25 @@ def propose_operation(*, project_id: str, envelope: dict[str, Any] | OperationEn
 # apply
 # ---------------------------------------------------------------------------
 
-def apply_operation(*, project_id: str, operation_id: str,
-                    board_id: str | None = None) -> PlanOperation:
-    """Apply a proposal, creating exactly one new immutable version.
+class _Stage(Exception):
+    """Carry a pending non-success status out of a doomed transaction (R1-02).
 
-    Re-applying a terminal operation returns its recorded outcome (§6.4) instead
-    of producing a second version.
+    ``session_scope`` rolls back on any exception, so a status assigned inside the
+    transaction disappears. Raising ``_Stage`` lets ``apply_operation`` catch the
+    rollback, write the status in its **own** conditional transaction, and only then
+    surface the original error to the caller.
     """
+
+    def __init__(self, status: str, error: Exception, *, error_code: str = "") -> None:
+        super().__init__(str(error))
+        self.status = status
+        self.error = error
+        self.error_code = error_code
+
+
+def _apply_once(*, project_id: str, operation_id: str,
+                board_id: str | None) -> PlanOperation:
+    """One attempt at applying; raises ``_Stage`` to report a refused attempt."""
     with session_scope() as s:
         begin_write(s)
         board = _board_for(s, project_id, board_id)
@@ -299,45 +420,63 @@ def apply_operation(*, project_id: str, operation_id: str,
             return op                       # replay: report the same outcome
         if op.status == "rejected":
             raise OperationAlreadyFinal("this operation was rejected")
-        if op.status == "stale":
-            raise StaleProposal("this proposal was built on an outdated version")
+        if op.status in ("stale", "failed"):
+            raise OperationAlreadyFinal(
+                f"this operation is {op.status} and cannot be applied again"
+            )
 
         # Re-validate at apply time (§7): the world may have moved since propose.
+        #
+        # R1-02: a status written inside this transaction would be rolled back
+        # together with the failure, leaving the row at ``proposed`` while the
+        # request was in fact refused. So the failure is recorded *after* the
+        # rollback, through ``_persist_failure`` — outside the ``with`` block.
         if board.current_version_id != op.base_version_id:
-            op.status = "stale"
-            s.flush()
-            raise PlanVersionConflict(
-                "the plan changed after this proposal was created",
-                detail={"current_version_id": board.current_version_id,
-                        "base_version_id": op.base_version_id},
+            raise _Stage(
+                "stale", PlanVersionConflict(
+                    "the plan changed after this proposal was created",
+                    detail={"current_version_id": board.current_version_id,
+                            "base_version_id": op.base_version_id},
+                ),
             )
 
         base_version = s.get(StoryboardVersion, op.base_version_id)
         if base_version is None:
-            op.status = "stale"
-            s.flush()
-            raise StaleProposal("the base version no longer exists")
+            raise _Stage("stale", StaleProposal("the base version no longer exists"))
 
         snapshot = _snapshot_of(base_version)
         context = _context_for(s, project_id)
 
         try:
             result = execute_operations(
-                snapshot=snapshot, operations=op.operations or [], context=context,
+                snapshot=snapshot,
+                operations=_require_identities(op.operations or []),
+                context=context,
             )
         except OperationExecutionError as exc:
-            op.status = "failed"
-            op.error_code = exc.code
-            op.error_detail = {"operation_index": exc.index, **exc.detail}
-            s.flush()
-            raise OperationFailed(str(exc), code=exc.code,
-                                  detail=op.error_detail) from None
+            raise _Stage(
+                "failed",
+                OperationFailed(str(exc), code=exc.code,
+                                detail={"operation_index": exc.index, **exc.detail}),
+                error_code=exc.code,
+            ) from None
+
+        # R1-03: an invalid final snapshot must never be published.
+        if result.validation.state == "invalid":
+            raise _Stage(
+                "failed",
+                InvalidSnapshot(
+                    "the resulting plan is invalid and cannot be saved",
+                    detail={"issues": [i.model_dump() for i in result.validation.issues]},
+                ),
+                error_code="INVALID_SNAPSHOT",
+            )
 
         # --- same transaction: version, refs, operation, pointer ------------
         from .storyboard_service import _write_version_and_refs
 
         next_no = int(s.scalar(
-            select(__import__("sqlalchemy").func.max(StoryboardVersion.version_no))
+            select(sa_func.max(StoryboardVersion.version_no))
             .where(StoryboardVersion.board_id == board.id)
         ) or 0) + 1
 
@@ -360,6 +499,23 @@ def apply_operation(*, project_id: str, operation_id: str,
         s.flush()
         s.refresh(op)
         return op
+
+
+def apply_operation(*, project_id: str, operation_id: str,
+                    board_id: str | None = None) -> PlanOperation:
+    """Apply a proposal, creating exactly one new immutable version.
+
+    A refused attempt is recorded as ``stale`` or ``failed`` in its own committed
+    transaction (R1-02) and then surfaced as the original error, so the database
+    always agrees with what the caller was told.
+    """
+    try:
+        return _apply_once(project_id=project_id, operation_id=operation_id,
+                           board_id=board_id)
+    except _Stage as staged:
+        _set_status_if_proposed(operation_id, staged.status,
+                                error_code=staged.error_code)
+        raise staged.error from None
 
 
 # ---------------------------------------------------------------------------

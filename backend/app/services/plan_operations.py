@@ -157,6 +157,50 @@ def _find_section(sections: list[SectionSnapshot], section_id: str,
     )
 
 
+#: Name of the server-side field that carries a newly minted identity. It is
+#: written into `PlanOperation.operations` at proposal time and read back at
+#: apply time, never accepted from a client (see `plan_operations_schema`).
+RESOLVED_ID_FIELD = "resolved_shot_id"
+
+
+def _resolved_identity(op: dict, snapshot: StoryboardSnapshot, index: int) -> str:
+    """The identity for an insert/replace — decided once, at proposal time (R1-01).
+
+    The first execution (`propose`) mints an id and the caller persists it.
+    Every later execution (`apply`) **must** find that id and reuse it; a
+    proposal without one is a proposal this build cannot honour, so it fails
+    loudly instead of minting a different identity than the user was shown.
+    """
+    recorded = op.get(RESOLVED_ID_FIELD)
+    if recorded:
+        if not isinstance(recorded, str):
+            raise OperationExecutionError(
+                "INVALID_IDENTITY",
+                "resolved shot identity must be a string",
+                index=index,
+            )
+        if any(s.shot_id == recorded for s in snapshot.shots):
+            # The recorded id already exists in this snapshot: reusing it would
+            # silently overwrite another shot.
+            raise OperationExecutionError(
+                "DUPLICATE_SHOT_ID",
+                f"recorded identity {recorded} already exists in this plan",
+                index=index, detail={"shot_id": recorded},
+            )
+        return recorded
+
+    if op.get("_identity_required"):
+        raise OperationExecutionError(
+            "MISSING_SHOT_IDENTITY",
+            "this proposal has no recorded shot identity; it was created by an "
+            "older build and cannot be applied safely — please propose again",
+            index=index,
+        )
+
+    # First execution for this batch (proposal): mint and let the caller persist.
+    return _new_shot_id({s.shot_id for s in snapshot.shots})
+
+
 def _new_shot_id(existing: set[str]) -> str:
     """Mint an identity that cannot collide with anything already in the plan."""
     while True:
@@ -253,18 +297,45 @@ def _index_of(shots: list[ShotSnapshot], shot_id: str) -> int:
 # individual operations
 # ---------------------------------------------------------------------------
 
-def _apply_move_shot(shots: list[ShotSnapshot], op: dict, index: int) -> None:
+def _apply_move_shot(shots: list[ShotSnapshot], op: dict, index: int,
+                     sections: list[SectionSnapshot]) -> None:
+    """Move a shot, optionally into another section (R1-06).
+
+    Contract for the anchor:
+
+    * ``after_shot_id == shot_id`` / ``before_shot_id == shot_id`` is a
+      **positional no-op** — the request is already satisfied. It is not an error
+      (refusing would be hostile) and it must never raise: the earlier code
+      removed the shot first and then looked it up as the anchor, which crashed
+      with ``SHOT_NOT_FOUND`` from ``_index_of``.
+    * A self-anchor may still carry a ``section_id``: the position does not
+      change, but the section assignment is real intent and is applied.
+
+    ``section_id`` is written onto the shot when supplied, and validated against
+    the snapshot's sections **before** any mutation, so the result can never hold
+    a dangling section reference and a failed move leaves nothing half-applied.
+    """
     shot = _find_shot(shots, op["shot_id"], index)
     _check_lock(shot, "move_shot", index)
 
     anchor_id = op.get("after_shot_id") or op.get("before_shot_id")
     anchor = _find_shot(shots, anchor_id, index)
 
+    target_section = op.get("section_id")
+    if target_section:
+        _find_section(sections, target_section, index)
+
+    if anchor.shot_id == shot.shot_id:
+        # Positional no-op; only the section assignment can change.
+        if target_section:
+            shot.section_id = target_section
+        return
+
     shots.remove(shot)
     anchor_position = _index_of(shots, anchor.shot_id)
     target = anchor_position + 1 if op.get("after_shot_id") else anchor_position
-    # Moving a shot "after itself" is a no-op rather than an error: the client's
-    # intent is already satisfied and refusing would be hostile.
+    if target_section:
+        shot.section_id = target_section
     shots.insert(target, shot)
 
 
@@ -292,8 +363,7 @@ def _apply_insert_shot(snapshot: StoryboardSnapshot, op: dict, context: ProjectC
     if op.get("section_id"):
         _find_section(snapshot.sections, op["section_id"], index)
 
-    existing = {s.shot_id for s in snapshot.shots}
-    shot_id = _new_shot_id(existing)
+    shot_id = _resolved_identity(op, snapshot, index)
     span = float(op["source_out_sec"]) - float(op["source_in_sec"])
     target = float(op.get("target_duration_sec") or 0.0) or span
 
@@ -339,8 +409,7 @@ def _apply_replace_shot(snapshot: StoryboardSnapshot, op: dict,
     )
 
     position = _index_of(snapshot.shots, target_shot.shot_id)
-    existing = {s.shot_id for s in snapshot.shots}
-    shot_id = _new_shot_id(existing)
+    shot_id = _resolved_identity(op, snapshot, index)
     span = float(op["source_out_sec"]) - float(op["source_in_sec"])
     target = float(op.get("target_duration_sec") or 0.0) or span
 
@@ -390,21 +459,47 @@ def _apply_trim_shot(shots: list[ShotSnapshot], op: dict, context: ProjectContex
 
 
 def _apply_lock_shot(shots: list[ShotSnapshot], op: dict, index: int) -> None:
+    """Lock or unlock lock dimensions (R1-07).
+
+    Stored form is **canonical**: either ``None`` (unlocked), the single element
+    ``["all"]``, or a sorted, unique list of concrete dimensions.
+
+    Unlocking one dimension while ``all`` is set used to be silently ignored —
+    ``current -= {"range"}`` left ``{"all"}`` untouched, so the other dimensions
+    could never be released. The fix expands ``all`` into the concrete dimensions
+    first, removes the requested one, and re-canonicalises: if everything is still
+    locked it collapses back to ``["all"]``.
+    """
     shot = _find_shot(shots, op["shot_id"], index)
-    dims = sorted({str(d).lower() for d in op.get("dimensions") or ["all"]})
+    dims = {str(d).lower() for d in (op.get("dimensions") or [LOCK_ALL])}
+    concrete = {d for d in LOCK_DIMENSIONS if d != LOCK_ALL}
+
+    # Normalise the current state to a concrete set first.
+    current = set(shot.lock_set())  # already expands `all`
+
     if op.get("locked"):
-        current = set(shot.locked or ())
-        current |= set(dims)
-        # Storing `all` alone is the canonical form; keeping ["all","range"] would
-        # make two identical lock states compare unequal.
-        shot.locked = [LOCK_ALL] if LOCK_ALL in current else sorted(current)
-    else:
-        current = set(shot.locked or ())
-        if LOCK_ALL in set(dims):
-            shot.locked = None
+        if LOCK_ALL in dims:
+            current |= concrete
         else:
-            current -= set(dims)
-            shot.locked = sorted(current) or None
+            current |= (dims & concrete)
+    else:
+        if LOCK_ALL in dims:
+            current = set()
+        else:
+            current -= (dims & concrete)
+
+    shot.locked = _canonical_lock(current)
+
+
+def _canonical_lock(dims: set[str]) -> list[str] | None:
+    """Canonical stored form: ``None`` / ``["all"]`` / sorted concrete list."""
+    concrete = {d for d in LOCK_DIMENSIONS if d != LOCK_ALL}
+    effective = dims & concrete
+    if not effective:
+        return None
+    if effective == concrete:
+        return [LOCK_ALL]
+    return sorted(effective)
 
 
 def _apply_update_constraints(snapshot: StoryboardSnapshot, op: dict, index: int) -> list[ValidationIssue]:
@@ -512,18 +607,15 @@ def _build_diff(before: StoryboardSnapshot, after: StoryboardSnapshot,
             locked.append({"shot_id": sid, "before": list(old.locked or []),
                            "after": list(shot.locked or [])})
 
-    # A replace is expressed as one removal + one addition at the same position.
+    # A replace pairs the old shot with the identity recorded for THIS operation.
+    # Guessing the partner from `asset_id` is wrong the moment a batch replaces two
+    # shots with media from the same asset (R1-01): both would resolve to the same
+    # id. The recorded identity is the only reliable link.
     for op in ops:
         if op.get("type") == "replace_shot":
-            old_id = op.get("target_shot_id")
-            position = next(
-                (i for i, s in enumerate(after.shots)
-                 if s.shot_id in added and s.asset_id == op.get("asset_id")),
-                None,
-            )
             replaced.append({
-                "old_shot_id": old_id,
-                "new_shot_id": after.shots[position].shot_id if position is not None else None,
+                "old_shot_id": op.get("target_shot_id"),
+                "new_shot_id": op.get(RESOLVED_ID_FIELD),
                 "new_asset_id": op.get("asset_id"),
                 "new_segment_id": op.get("segment_id"),
             })
@@ -606,7 +698,7 @@ def execute_operations(
         op_type = op.get("type")
         try:
             if op_type == "move_shot":
-                _apply_move_shot(working.shots, op, index)
+                _apply_move_shot(working.shots, op, index, working.sections)
                 affected_shots.append(op["shot_id"])
             elif op_type == "move_section":
                 _apply_move_section(working.sections, op, index)
@@ -674,6 +766,7 @@ def _validate_final(snapshot: StoryboardSnapshot, context: ProjectContext,
     section_ids = {s.section_id for s in snapshot.sections}
 
     for shot in snapshot.shots:
+        # 1. identity is unique
         if shot.shot_id in seen:
             issues.append(ValidationIssue(
                 shot_id=shot.shot_id, code="DUPLICATE_SHOT_ID",
@@ -681,10 +774,19 @@ def _validate_final(snapshot: StoryboardSnapshot, context: ProjectContext,
             ))
         seen.add(shot.shot_id)
 
+        # 2. the section exists (an absent section is allowed: unfiled shot)
         if shot.section_id and shot.section_id not in section_ids:
             issues.append(ValidationIssue(
                 shot_id=shot.shot_id, code="INVALID_SECTION",
                 message=f"section {shot.section_id} does not exist",
+            ))
+
+        # 3-4. the asset and the segment both belong to THIS project
+        asset = context.assets.get(shot.asset_id)
+        if asset is None:
+            issues.append(ValidationIssue(
+                shot_id=shot.shot_id, code="ASSET_MISSING",
+                message=f"asset {shot.asset_id} is not in this project",
             ))
 
         segment = context.segments.get(shot.segment_id)
@@ -694,22 +796,80 @@ def _validate_final(snapshot: StoryboardSnapshot, context: ProjectContext,
                 message=f"segment {shot.segment_id} is not in this project",
             ))
             continue
+
+        # 5. the segment belongs to the shot's asset
+        if asset is not None and segment.get("asset_id") != shot.asset_id:
+            issues.append(ValidationIssue(
+                shot_id=shot.shot_id, code="ASSET_SEGMENT_MISMATCH",
+                message=(
+                    f"segment {shot.segment_id} belongs to asset "
+                    f"{segment.get('asset_id')}, not {shot.asset_id}"
+                ),
+            ))
+
+        # 10. a changed source that needs review is reported, not hidden
         if segment.get("status") == "needs_review":
             issues.append(ValidationIssue(
                 shot_id=shot.shot_id, code="SEGMENT_NEEDS_REVIEW",
                 message="the shot's source changed and needs review",
             ))
+
+        # 7-8. the range is valid and inside the segment
         start = float(segment.get("start_sec") or 0.0)
         end = float(segment.get("end_sec") or 0.0)
-        if shot.source_in_sec < start - 1e-3 or shot.source_out_sec > end + 1e-3:
+        if shot.source_in_sec < 0 or shot.source_out_sec <= shot.source_in_sec:
+            issues.append(ValidationIssue(
+                shot_id=shot.shot_id, code="OUT_OF_RANGE",
+                message="source_in_sec / source_out_sec are not a valid range",
+            ))
+        elif shot.source_in_sec < start - 1e-3 or shot.source_out_sec > end + 1e-3:
             issues.append(ValidationIssue(
                 shot_id=shot.shot_id, code="OUT_OF_RANGE",
                 message="the shot range is outside its segment",
             ))
 
-    hard = {"DUPLICATE_SHOT_ID", "SEGMENT_MISSING", "INVALID_SECTION"}
+        # 9. the planned duration cannot exceed the available range
+        if asset is not None:
+            available = float(segment.get("end_sec") or 0.0) - \
+                float(segment.get("start_sec") or 0.0)
+            if shot.target_duration_sec > available + 1e-3:
+                issues.append(ValidationIssue(
+                    shot_id=shot.shot_id, code="DURATION_EXCEEDS_SOURCE",
+                    message="the planned duration exceeds the available source span",
+                ))
+
+    # R1-08: section order is metadata; a timeline that interleaves sections is
+    # legal but worth flagging so the UI does not mistake section order for the
+    # edit order.
+    if _sections_discontiguous(snapshot):
+        issues.append(ValidationIssue(
+            shot_id="", code="SECTIONS_DISCONTIGUOUS",
+            message=(
+                "镜头在时间线上跨章节交错；章节顺序仅为元数据，实际剪辑顺序以时间线为准"
+            ),
+        ))
+
+    hard = {
+        "DUPLICATE_SHOT_ID", "SEGMENT_MISSING", "INVALID_SECTION",
+        "ASSET_MISSING", "ASSET_SEGMENT_MISMATCH",
+    }
     if any(i.code in hard for i in issues):
         return issues, "invalid"
     if issues:
         return issues, "needs_review"
     return issues, "ok"
+
+
+def _sections_discontiguous(snapshot: StoryboardSnapshot) -> bool:
+    """True when the same section appears in more than one run of shots.
+
+    Section order does **not** drive the timeline (documented contract): the shots
+    array is the edit order. This check only reports the situation so nobody
+    mistakes one for the other.
+    """
+    runs: list[str] = []
+    for shot in snapshot.shots:
+        section = shot.section_id or ""
+        if not runs or runs[-1] != section:
+            runs.append(section)
+    return len(runs) != len(set(runs))

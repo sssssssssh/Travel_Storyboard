@@ -1566,3 +1566,88 @@ propose→apply 闭环；读状态与 diff；reject 不建版本；未知类型 
 | 去掉 apply 时 base_version CAS | 并发用例变红 |
 | 去掉 `_check_lock` | 锁定矩阵多格变红 |
 | 绕过幂等键检查 | 幂等两项变红 |
+
+
+## TSB-367-R1 结构化操作协议质量收口
+
+发布记录：[docs/RELEASE_TSB_367_R1.md](RELEASE_TSB_367_R1.md)
+差距分析：[docs/validation/tsb367-r1/GAP_ANALYSIS.md](validation/tsb367-r1/GAP_ANALYSIS.md)
+
+**原缺陷**：TSB-367 的 9 处实现缺陷——身份重生成、状态被回滚吞掉、
+最终校验不生效、历史迁移分叉、move/lock/section 边界错误、无真并发测试、
+前端只有两个写死第一个镜头的按钮。
+
+### R1-01 身份一致性（`test_tsb367r1_identity.py`，9 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_r1_01_insert_preview_id_equals_final_version_id` | insert 预览 ID = 最终版本 ID |
+| `test_r1_01_insert_identity_is_persisted_on_the_proposal` | 身份随提案持久化 |
+| `test_r1_01_multiple_inserts_each_get_a_distinct_stable_id` | 多 insert 各自稳定 |
+| `test_r1_01_replace_preview_id_equals_final_version_id` | replace 预览 ID = 最终 ID |
+| `test_r1_01_replace_mapping_is_recorded_per_operation` | replace 映射按操作记录 |
+| `test_r1_01_multiple_replaces_map_correctly` | 多 replace 映射不串号 |
+| `test_r1_01_confirming_twice_does_not_mint_a_second_identity` | 重复确认不铸造新身份 |
+| `test_r1_01_a_client_cannot_forge_the_internal_identity` | 客户端伪造内部身份被拒 |
+| `test_r1_01_applying_a_proposal_without_identity_fails_instead_of_guessing` | 缺身份拒绝猜测 |
+
+### R1-02 状态持久化（`test_tsb367r1_lifecycle.py`，12 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_r1_02_a_stale_proposal_is_committed_as_stale` | 过期提案真实落库为 stale |
+| `test_r1_02_a_stale_operation_cannot_be_applied_later` | stale 终态不可重试 |
+| `test_r1_02_a_deterministic_failure_is_committed_as_failed` | 执行失败真实落库为 failed |
+| `test_r1_02_a_failed_apply_creates_no_version` | 失败不留半成品版本 |
+| `test_r1_02_applied_and_result_version_commit_together` | applied 与结果版本同事务 |
+| `test_r1_02_terminal_states_cannot_move`（4 参数） | 四种终态均不可改写 |
+| `test_r1_02_an_illegal_status_is_rejected_on_insert` | INSERT 非法状态被拒 |
+| `test_r1_02_applied_without_result_version_is_rejected_on_insert` | INSERT applied 缺结果被拒 |
+| `test_r1_02_a_status_write_never_overwrites_a_committed_terminal_state` | 状态写入必须条件化 |
+
+### R1-03 最终校验（`test_tsb367r1_validation.py`，12 项）
+
+`test_r1_03_a_healthy_plan_validates_ok` · `..._an_asset_that_does_not_exist_is_invalid` ·
+`..._a_segment_that_does_not_exist_is_invalid` · `..._an_asset_segment_mismatch_is_invalid` ·
+`..._a_cross_project_reference_is_invalid` · `..._a_range_outside_the_segment_is_flagged` ·
+`..._a_duplicate_shot_id_is_invalid` · `..._an_invalid_plan_cannot_become_a_proposal` ·
+`..._an_invalid_final_snapshot_never_becomes_the_current_version` ·
+`..._needs_review_is_saved_and_recorded_on_the_version` ·
+`..._a_historical_version_with_broken_references_stays_readable` ·
+`..._nothing_is_auto_repaired_or_dropped`
+
+### R1-04 迁移路径（`test_tsb367r1_migration_paths.py`，8 项）
+
+`..._a_fresh_alembic_upgrade_creates_every_table` ·
+`..._a_historical_database_reaches_the_same_schema`（**本轮关键回归**） ·
+`..._upgrading_a_historical_database_preserves_its_data` · `..._upgrading_twice_is_a_noop` ·
+`..._init_db_and_alembic_produce_the_same_structure`（列/类型/外键/触发器） ·
+`..._the_shared_indexes_exist_on_both_paths` · `..._downgrade_to_base_leaves_no_storyboard_tables` ·
+`..._downgrade_never_drops_the_legacy_plan_table`
+
+### R1-06/07/08 语义（`test_tsb367r1_semantics.py`，17 项）
+
+跨章节移动写入 section、无 section 保持原章节、不存在章节拒绝、无悬挂引用、
+position 锁拒绝、`after_self`/`before_self` 无操作、自身锚点不抛异常、
+自身锚点仍可换章节；`all` 部分解锁留 reference+position、trim 允许而 move/replace 拒绝、
+逐维度解锁到底、存储规范化；章节移动不改镜头顺序、时间线按镜头数组、合同在代码中、交错章节被标记。
+
+### R1-09 真并发（`test_tsb367r1_concurrency.py`，6 项）
+
+`..._two_simultaneous_applies_produce_exactly_one_version` ·
+`..._the_loser_is_persisted_as_stale`（精确断言 `{"applied","stale"}`） ·
+`..._no_duplicate_version_numbers` · `..._no_half_written_version_survives` ·
+`..._the_race_is_stable_across_repeats`（**5 轮**） · `..._three_simultaneous_applies_still_yield_one_version`
+
+### R1-05 前端（`OperationPanel.r1.test.tsx`，11 项）
+
+六类操作各自可提议并展示服务端 diff（6 参数化）、目标显式可见、确认恰好一次、
+拒绝无版本、409 保留待提交操作、失败不显示成功、无待提交时禁用。
+
+### 反向验证
+
+| 破坏项 | 结果 |
+|---|---|
+| 去掉 stale/failed 状态持久化 | 5 项变红 |
+| 去掉身份复用 | 6 项变红 |
+| 关闭 invalid 阻断 gate | 2 项变红 |

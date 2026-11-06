@@ -1,0 +1,5 @@
+﻿# TSB-367-R1 — local-only run artifacts, never committed.
+*.local.json
+*.local.txt
+*.local.xml
+*.local.*

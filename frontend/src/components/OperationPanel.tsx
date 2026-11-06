@@ -5,19 +5,22 @@ import type { PlanOperationDiff, PlanOperationOut, PlanOperationRequest } from '
 import { Button, Badge, Spinner } from '../components/ui'
 
 /**
- * Minimal structured-operation workspace (TSB-367 §8).
+ * Minimal structured-operation workspace (TSB-367 §8, TSB-367-R1 R1-05).
  *
- * Deliberately not a new UI framework: it lives inside the existing Export page
- * and proves the *whole* protocol loop end to end — propose (server-side diff),
- * confirm, reject, and conflict handling. Three rules it encodes:
+ * Deliberately not a timeline editor: it lives inside the existing Export page and
+ * proves the *whole* protocol loop end to end — propose (server-side diff),
+ * confirm, reject, conflict handling. Four rules it encodes:
  *
- * 1. **The server's diff is the only diff.** Nothing here computes or guesses
- *    what would change; the preview comes from the POST response.
+ * 1. **The server's diff is the only diff.** Nothing here computes or guesses what
+ *    would change; the preview is the POST response, verbatim.
  * 2. **Nothing is applied without an explicit confirm**, and cancelling sends no
  *    request at all.
  * 3. **A 409 keeps the user's work.** The panel does not reload, refetch or
- *    overwrite anything on a conflict; it shows the server's message and offers
- *    an explicit "reload to latest" action.
+ *    overwrite anything on a conflict; it shows the server's message and keeps the
+ *    pending operations intact.
+ * 4. **The target is never implicit.** R1-05 removed the old "always the first
+ *    shot" behaviour: the caller passes the operations it built for a shot the user
+ *    actually selected, and the panel shows which shot that is.
  */
 
 export interface OperationPanelProps {
@@ -25,8 +28,10 @@ export interface OperationPanelProps {
   boardId: string
   /** The version the panel should propose against. */
   baseVersionId: string
-  /** Curated operations built by the parent (e.g. from the shot list). */
+  /** Operations built by the parent for the user's current selection. */
   pendingOperations: Record<string, unknown>[]
+  /** Human-readable description of what the pending operations target. */
+  targetLabel?: string
   onApplied?: (op: PlanOperationOut) => void
 }
 
@@ -65,6 +70,7 @@ export function OperationPanel({
   boardId,
   baseVersionId,
   pendingOperations,
+  targetLabel,
   onApplied,
 }: OperationPanelProps) {
   const qc = useQueryClient()
@@ -112,6 +118,7 @@ export function OperationPanel({
     onSuccess: async (op) => {
       setProposal(op)
       setError(null)
+      // R1-05: a successful apply refreshes both the storyboard and its history.
       await qc.invalidateQueries({ queryKey: ['edit-plan', projectId] })
       await qc.invalidateQueries({ queryKey: ['storyboard', projectId] })
       await qc.invalidateQueries({ queryKey: ['storyboard-versions', projectId] })
@@ -143,6 +150,11 @@ export function OperationPanel({
         <span className="text-xs text-slate-500">
           基于版本 {baseVersionId.slice(0, 8)} · {pendingOperations.length} 项待提交
         </span>
+        {targetLabel && (
+          <span className="text-xs text-slate-400" data-testid="operation-target">
+            目标：{targetLabel}
+          </span>
+        )}
       </div>
 
       {conflict && (

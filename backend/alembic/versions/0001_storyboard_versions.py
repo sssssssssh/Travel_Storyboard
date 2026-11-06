@@ -159,23 +159,6 @@ def upgrade() -> None:
             "ix_storyboard_versions_board_id", "storyboard_versions", ["board_id"]
         )
 
-    # TSB-367 stage 0: init_db has created this table since TSB-366-R1; the
-    # operational revision now describes it too, so the two paths agree.
-    if "legacy_plan_migrations" not in existing:
-        op.create_table(
-            "legacy_plan_migrations",
-            sa.Column("id", sa.String(36), primary_key=True),
-            sa.Column("project_id", sa.String(36), nullable=False),
-            sa.Column("state", sa.String(16), nullable=False, server_default="pending"),
-            sa.Column("error", sa.Text(), nullable=False, server_default=""),
-            sa.Column("legacy_shot_count", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
-            sa.UniqueConstraint("project_id", name="uq_legacy_migration_project"),
-        )
-        op.create_index("ix_legacy_plan_migrations_project_id",
-                        "legacy_plan_migrations", ["project_id"])
-
     if "storyboard_source_refs" not in existing:
         op.create_table(
             "storyboard_source_refs",
@@ -220,8 +203,6 @@ def downgrade() -> None:
     for name, _ddl in TRIGGERS:
         bind.execute(sa.text(f"DROP TRIGGER IF EXISTS {name}"))
 
-    if "legacy_plan_migrations" in existing:
-        op.drop_table("legacy_plan_migrations")
     if "storyboard_source_refs" in existing:
         op.drop_table("storyboard_source_refs")
     if "storyboard_versions" in existing:

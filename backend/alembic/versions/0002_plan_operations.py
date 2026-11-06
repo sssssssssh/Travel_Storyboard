@@ -61,9 +61,26 @@ PLAN_OPERATION_TRIGGERS: tuple[tuple[str, str], ...] = (
         """
         CREATE TRIGGER IF NOT EXISTS trg_plan_operation_terminal_immutable
         BEFORE UPDATE ON plan_operations
-        WHEN OLD.status IN ('applied','rejected')
+        WHEN OLD.status IN ('applied','rejected','stale','failed')
         BEGIN
             SELECT RAISE(ABORT, 'a terminal plan operation cannot change');
+        END
+        """,
+    ),
+    (
+        "trg_plan_operation_applied_has_result_insert",
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_plan_operation_applied_has_result_insert
+        BEFORE INSERT ON plan_operations
+        WHEN NEW.status = 'applied'
+        BEGIN
+            SELECT RAISE(ABORT, 'applied requires a result_version_id in this board')
+            WHERE NEW.result_version_id IS NULL
+               OR NOT EXISTS (
+                    SELECT 1 FROM storyboard_versions v
+                    WHERE v.id = NEW.result_version_id
+                      AND v.board_id = NEW.board_id
+                  );
         END
         """,
     ),

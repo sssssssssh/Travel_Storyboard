@@ -59,8 +59,23 @@ function ExportEditor({ id }: { id: string }) {
   //: P1-03: set after a successful restore so the sync effect reloads the editor
   //: even though `dirty` was true (the user had unsaved work before restoring).
   const [forceReload, setForceReload] = useState(false)
-  //: TSB-367: which structured operation the user wants to try, if any.
+  //: TSB-367-R1: the shot the user explicitly selected; operations target THIS.
+  const [selectedShotId, setSelectedShotId] = useState<string | null>(null)
+  //: Which structured operation the user wants to try, if any.
   const [pendingOps, setPendingOps] = useState<Record<string, unknown>[]>([])
+  //: The selected shot and its index, derived from the stable id (never the array
+  //: position, which is what "always the first shot" got wrong).
+  const selectedIndex = selectedShotId
+    ? draft.findIndex((s) => s.shot_id === selectedShotId)
+    : null
+  //: Operations need a stable identity; a draft row without a shot_id (a brand
+  //: new, unsaved shot) is not a valid target.
+  const selectedShot: (DraftShot & { shot_id: string }) | null = (() => {
+    const row = selectedIndex !== null && selectedIndex >= 0 ? draft[selectedIndex] : null
+    return row && typeof row.shot_id === 'string' && row.shot_id
+      ? { ...row, shot_id: row.shot_id }
+      : null
+  })()
   function setDraft(value: SetStateAction<DraftShot[]>) {
     setEditor((current) => ({ ...current, dirty: true,
       draft: typeof value === 'function' ? value(current.draft) : value }))
@@ -400,19 +415,92 @@ function ExportEditor({ id }: { id: string }) {
         </div>
       )}
 
-      {/* TSB-367: minimal structured-operation workspace. */}
+      {/* TSB-367-R1 R1-05: minimal structured-operation workspace.
+          The target is whatever shot the user selected - never an implicit
+          "first shot" - and every action builds an explicit operation for it. */}
       {storyboard.data && (
         <div className="border-b border-ink-800">
-          <div className="flex items-center gap-2 px-6 py-2 text-xs">
-            <span className="text-slate-400">对第一个镜头：</span>
+          <div className="flex flex-wrap items-center gap-2 px-6 py-2 text-xs">
+            <span className="text-slate-400" data-testid="selected-shot">
+              {selectedShot
+                ? `已选镜头 ${selectedShot.shot_id.slice(0, 8)}`
+                : '先在下方剪辑列表点选一个镜头'}
+            </span>
+
             <Button
               variant="ghost"
-              disabled={draft.length === 0}
+              disabled={!selectedShot || selectedIndex === null}
+              onClick={() => {
+                if (!selectedShot || selectedIndex === null) return
+                const target = selectedIndex > 0 ? draft[selectedIndex - 1] : draft[selectedIndex + 1]
+                if (!target) return
+                setPendingOps([{
+                  type: 'move_shot',
+                  shot_id: selectedShot.shot_id,
+                  [selectedIndex > 0 ? 'after_shot_id' : 'before_shot_id']: target.shot_id,
+                }])
+              }}
+            >
+              上移
+            </Button>
+
+            <Button
+              variant="ghost"
+              disabled={!selectedShot || selectedIndex === null}
+              onClick={() => {
+                if (!selectedShot || selectedIndex === null) return
+                const target = selectedIndex < draft.length - 1
+                  ? draft[selectedIndex + 1]
+                  : draft[selectedIndex - 1]
+                if (!target) return
+                setPendingOps([{
+                  type: 'move_shot',
+                  shot_id: selectedShot.shot_id,
+                  [selectedIndex < draft.length - 1 ? 'after_shot_id' : 'before_shot_id']: target.shot_id,
+                }])
+              }}
+            >
+              下移
+            </Button>
+
+            <Button
+              variant="ghost"
+              disabled={!selectedShot}
               onClick={() =>
-                draft.length &&
+                selectedShot &&
+                setPendingOps([{
+                  type: 'trim_shot',
+                  shot_id: selectedShot.shot_id,
+                  source_in_sec: selectedShot.source_in_sec,
+                  source_out_sec: Math.max(
+                    selectedShot.source_in_sec + 0.5,
+                    selectedShot.source_out_sec - 0.5,
+                  ),
+                }])
+              }
+            >
+              裁剪（缩短 0.5s）
+            </Button>
+
+            <Button
+              variant="ghost"
+              disabled={!selectedShot}
+              onClick={() =>
+                selectedShot &&
+                setPendingOps([{ type: 'remove_shot', shot_id: selectedShot.shot_id }])
+              }
+            >
+              移除
+            </Button>
+
+            <Button
+              variant="ghost"
+              disabled={!selectedShot}
+              onClick={() =>
+                selectedShot &&
                 setPendingOps([{
                   type: 'lock_shot',
-                  shot_id: draft[0].shot_id,
+                  shot_id: selectedShot.shot_id,
                   locked: true,
                   dimensions: ['range'],
                 }])
@@ -420,27 +508,68 @@ function ExportEditor({ id }: { id: string }) {
             >
               锁定裁剪区间
             </Button>
+
             <Button
               variant="ghost"
-              disabled={draft.length === 0}
+              disabled={!selectedShot}
               onClick={() =>
-                draft.length &&
+                selectedShot &&
                 setPendingOps([{
                   type: 'lock_shot',
-                  shot_id: draft[0].shot_id,
+                  shot_id: selectedShot.shot_id,
+                  locked: true,
+                  dimensions: ['all'],
+                }])
+              }
+            >
+              全部锁定
+            </Button>
+
+            <Button
+              variant="ghost"
+              disabled={!selectedShot}
+              onClick={() =>
+                selectedShot &&
+                setPendingOps([{
+                  type: 'lock_shot',
+                  shot_id: selectedShot.shot_id,
                   locked: false,
                   dimensions: ['range'],
                 }])
               }
             >
-              解除锁定
+              解除裁剪锁定
+            </Button>
+
+            <Button
+              variant="ghost"
+              disabled={!selectedShot}
+              onClick={() =>
+                selectedShot &&
+                setPendingOps([{
+                  type: 'lock_shot',
+                  shot_id: selectedShot.shot_id,
+                  locked: false,
+                  dimensions: ['all'],
+                }])
+              }
+            >
+              全部解锁
+            </Button>
+
+            <Button variant="ghost" onClick={() => setPendingOps([])}>
+              清空
             </Button>
           </div>
+
           <OperationPanel
             projectId={id}
             boardId={storyboard.data.board_id}
             baseVersionId={storyboard.data.current_version_id ?? storyboard.data.version_id}
             pendingOperations={pendingOps}
+            targetLabel={
+              selectedShot ? `镜头 ${selectedShot.shot_id.slice(0, 8)}` : undefined
+            }
           />
         </div>
       )}
@@ -479,7 +608,17 @@ function ExportEditor({ id }: { id: string }) {
           ) : (
             <ul className="space-y-2">
               {draft.map((s, i) => (
-                <li key={i} className="rounded-md border border-ink-700 bg-ink-900 p-2">
+                <li
+                  key={s.shot_id ?? i}
+                  data-testid={`draft-shot-${i}`}
+                  onClick={() => setSelectedShotId(s.shot_id ?? null)}
+                  className={
+                    'cursor-pointer rounded-md border p-2 ' +
+                    (s.shot_id && s.shot_id === selectedShotId
+                      ? 'border-emerald-600 bg-ink-800'
+                      : 'border-ink-700 bg-ink-900')
+                  }
+                >
                   <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
                     <span className="font-medium text-slate-300">#{i + 1}</span>
                     <span>{s.source_in_sec.toFixed(1)}s – {s.source_out_sec.toFixed(1)}s</span>
