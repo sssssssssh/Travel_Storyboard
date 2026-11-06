@@ -1651,3 +1651,67 @@ position 锁拒绝、`after_self`/`before_self` 无操作、自身锚点不抛�
 | 去掉 stale/failed 状态持久化 | 5 项变红 |
 | 去掉身份复用 | 6 项变红 |
 | 关闭 invalid 阻断 gate | 2 项变红 |
+
+
+## TSB-366-R2 Vision Provider 408 稳定性
+
+发布记录：[docs/RELEASE_TSB_366_R2.md](RELEASE_TSB_366_R2.md)
+根因分析：[docs/validation/tsb366-r2/ROOT_CAUSE.md](validation/tsb366-r2/ROOT_CAUSE.md)
+
+**原缺陷**：本机 `test_status_classification[408-MODEL_TIMEOUT]` 连续多个轮次失败，
+CI 却通过，形成"本机红、CI 绿"的长期噪音。
+
+**根因**：Windows 系统代理（注册表 `ProxyEnable=1`, `ProxyServer=127.0.0.1:<proxy-port>`）
+被 httpx 的 `get_environment_proxies()` 读取，而 Python **不解析 WinINET 的
+`ProxyOverride` 绕过列表**（`127.*`、`localhost`），于是 loopback 请求被送往代理；
+代理转发后破坏了 408 响应，客户端抛 `RemoteProtocolError`，Provider 归类为
+`MODEL_NETWORK_ERROR`。分类函数本身**一直正确**。
+
+**隐蔽点**：两种情况下 mock server **都收到了请求**，所以"请求已到达"的断言一直是过的。
+
+### 修复
+
+生产代码新增单一传输出口 `_post()`：**仅 loopback** 使用 `trust_env=False`，
+远程端点行为不变（生产代理支持未被关闭）。
+
+### 回归测试（新增 76 项）
+
+| 文件 | 项数 | 守护行为 |
+|---|---:|---|
+| `test_vision_provider.py`（改造） | 43 | 408 增加请求次数/path/实际返回状态断言；mock 状态改为实例级；teardown join 线程 |
+| `test_tsb366r2_matrix.py` | 29 | 纯函数分类表、传输层超时、连接失败、loopback 判定、端到端 408、mock 隔离、无残留线程 |
+| `test_tsb366r2_loopback_proxy.py` | 4 | 代理会破坏 loopback 408 的**机制**、直连对照、辅助客户端必须 `trust_env=False`、Provider 策略存在 |
+
+### 关键用例
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_classify_status_table`（10 参数） | 纯函数映射表 |
+| `test_http_408_is_not_a_network_error` | 408 不得被判为网络错误 |
+| `test_every_transport_timeout_maps_to_model_timeout`（4 参数） | 四种超时类 |
+| `test_connection_failures_are_network_errors`（3 参数） | 三类连接失败 |
+| `test_loopback_detection`（6 参数） | 127.0.0.1 / localhost / [::1] / 公网 / 内网 / 非法 |
+| `test_the_post_choke_point_disables_env_for_loopback` | loopback 必须禁用 env 代理 |
+| `test_a_real_408_through_the_adapter_is_model_timeout` | 端到端 408 |
+| `test_mock_servers_do_not_share_state` | mock 隔离 |
+| `test_the_provider_fixture_leaves_no_thread_behind` | 无残留线程 |
+| `test_a_proxy_gets_between_the_client_and_loopback` | 复现机制（有代理时 408 被破坏） |
+| `test_loopback_without_env_reaches_the_server_and_returns_408` | 直连对照 |
+| `test_the_mock_server_client_is_direct` | 辅助客户端 `trust_env is False` |
+| `test_the_provider_uses_a_client_that_ignores_the_environment` | `_is_loopback_url` 存在且正确 |
+
+### 稳定性
+
+| 要求 | 结果 |
+|---|---|
+| 目标 408 用例连续 20 次 | 20/20 |
+| Provider 文件连续 5 次 | 5/5 |
+
+### 反向验证
+
+去掉 loopback 绕过 → 两项变红，错误正是原始 `RemoteProtocolError`；恢复后全绿。
+
+### 已知边界
+
+连接被拒在本机表现为 `ConnectTimeout` 而非 `ConnectError`（测试断言契约而非异常类）；
+局域网地址仍走系统代理（当前未处理）。

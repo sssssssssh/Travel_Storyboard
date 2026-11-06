@@ -6,6 +6,8 @@ import ssl
 import httpx
 import pytest
 
+from app.services.vision.providers.openai_compatible import post_model_request
+from app.services.vision.providers import openai_compatible as _vision_mod
 from app.config import get_settings
 from app.services.vision.errors import ModelError
 from app.services.vision.providers.openai_compatible import OpenAICompatibleVisionProvider, validate_endpoint
@@ -36,7 +38,7 @@ def test_tls_verification_failure_is_permanent_classified_and_private(jpg, monke
             raise ssl.SSLCertVerificationError('certificate expired')
         except ssl.SSLCertVerificationError as cause:
             raise httpx.ConnectError('certificate failed at https://private-gateway.invalid/v1') from cause
-    monkeypatch.setattr(httpx, 'post', broken)
+    monkeypatch.setattr(_vision_mod, "post_model_request", broken)
     with pytest.raises(ModelError) as ei:
         OpenAICompatibleVisionProvider().complete(_request(jpg))
     assert ei.value.code == 'MODEL_TLS_FAILED'
@@ -53,7 +55,7 @@ def test_untrusted_errors_cannot_echo_endpoint_image_path_or_key(failure, jpg, m
         if failure == 'timeout': raise httpx.ReadTimeout(secret)
         if failure == 'network': raise httpx.ConnectError(secret)
         return httpx.Response(401, json={'error': secret})
-    monkeypatch.setattr(httpx, 'post', broken)
+    monkeypatch.setattr(_vision_mod, "post_model_request", broken)
     with pytest.raises(ModelError) as ei:
         OpenAICompatibleVisionProvider().complete(_request(jpg))
     public = json.dumps(ei.value.to_dict())
@@ -65,7 +67,7 @@ def test_mode_off_refuses_provider_even_with_an_old_authorized_context(jpg, monk
     _configure(monkeypatch, 'https://private-gateway.invalid/v1', insecure=False)
     monkeypatch.setattr(get_settings(), 'model_mode', 'off')
     calls = []
-    monkeypatch.setattr(httpx, 'post', lambda *a, **kw: calls.append(a))
+    monkeypatch.setattr(_vision_mod, "post_model_request", lambda *a, **kw: calls.append(a))
     with pytest.raises(ModelError) as ei:
         OpenAICompatibleVisionProvider().complete(_request(jpg))
     assert ei.value.code == 'MODEL_UPLOAD_DENIED'

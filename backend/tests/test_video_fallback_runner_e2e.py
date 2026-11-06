@@ -18,6 +18,8 @@ import httpx
 import pytest
 from PIL import Image
 from sqlalchemy import select
+from app.services.vision.providers.openai_compatible import post_model_request
+from app.services.vision.providers import openai_compatible as _vision_mod
 from app.database import session_scope
 from app.models import Asset, Job, Segment, SegmentMotionReview, SegmentVideoObservation, SegmentMotionVerdict, UserAnnotation
 from app.services.runner import JobRunner, TERMINAL_STATUSES, project_lock
@@ -123,7 +125,7 @@ def fallback_env(client, monkeypatch, tmp_path):
         if behaviour['mode'] == 'invalid':
             content = 'not a JSON object'
         return httpx.Response(200, json={'choices': [{'message': {'content': content}}], 'usage': {'total_tokens': 9}}, request=httpx.Request('POST', url))
-    monkeypatch.setattr(httpx, 'post', post)
+    monkeypatch.setattr(_vision_mod, "post_model_request", post)
 
     def read(jid):
         with session_scope() as s:

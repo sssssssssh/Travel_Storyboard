@@ -19,6 +19,7 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+import httpx
 import pytest
 from PIL import Image
 
@@ -37,10 +38,36 @@ PNG_MAGIC = b"\x89PNG"
 # --------------------------------------------------------------------------
 
 
+def loopback_http_client(timeout: float = 30.0) -> httpx.Client:
+    """An httpx client for talking to the local mock server (TSB-366-R2).
+
+    ``trust_env=False`` is deliberate and load-bearing: with the default,
+    httpx calls ``urllib.request.getproxies()``, which on Windows reads the
+    registry proxy settings and does **not** honour the WinINET bypass list
+    (``127.*``, ``localhost``). A developer machine with any system proxy would
+    then route loopback traffic through it, and a relayed ``408`` comes back as a
+    transport error instead of a response.
+
+    CI has no system proxy, which is why this only ever failed locally.
+    """
+    return httpx.Client(trust_env=False, timeout=timeout)
+
+
 class _Handler(BaseHTTPRequestHandler):
-    #: Set per-test through the server instance.
+    """Per-server state lives on the *instance*, never on the class.
+
+    TSB-366-R2 §2.3: a class-level ``responder``/``seen`` is shared by every mock
+    server in the process, so a test that forgets to reset them can leak a
+    responder into the next one. The server instance owns them now, and the
+    fixture always installs a fresh handler class, so isolation is structural
+    rather than a convention.
+    """
+
+    #: Filled in by the fixture via ``type(...)`` attributes below; kept as
+    #: instance attributes so each server is independent.
     responder = None
-    seen: list[dict] = []
+    seen: list | None = None
+    last_status: int | None = None
 
     def log_message(self, *args):  # silence the test log
         return
@@ -48,14 +75,16 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length)
-        type(self).seen.append(
+        # ``self.server`` is this fixture's own HTTPServer instance.
+        self.server.calls.append(
             {
                 "path": self.path,
                 "auth": self.headers.get("Authorization"),
                 "body": raw,
             }
         )
-        status, payload, headers = type(self).responder(raw, self.headers)
+        status, payload, headers = self.server.responder(raw, self.headers)
+        self.server.last_status = status
         body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -74,8 +103,13 @@ def mock_server():
         url = ""
         calls: list[dict] = []
 
+        @property
+        def last_status(self) -> int | None:
+            """The status the mock actually returned for the last request."""
+            return srv.last_status
+
         def set(self, fn):
-            _Handler.responder = fn
+            srv.responder = fn
 
         def ok(self, text: str = "{}"):
             self.set(
@@ -97,23 +131,29 @@ def mock_server():
             payload = body if body is not None else {"error": {"message": f"status {status}"}}
             self.set(lambda raw, h: (status, payload, headers))
 
-    # `_Handler` is shared across tests, so BOTH the responder and the call log
-    # must be reset here. Leaving `responder` as None made an unrelated test
-    # return a 500 from the handler's own exception, which briefly looked like a
-    # product bug.
-    _Handler.seen = []
-    _Handler.responder = lambda raw, h: (500, {"error": {"message": "no responder set"}}, None)
-    srv = HTTPServer(("127.0.0.1", 0), _Handler)
+    # Fresh handler class + fresh server per test: no shared state can survive
+    # into the next case (TSB-366-R2 §2.3).
+    class Handler(_Handler):
+        pass
+
+    srv = HTTPServer(("127.0.0.1", 0), Handler)
+    srv.calls = []
+    srv.last_status = None
+    srv.responder = lambda raw, h: (500, {"error": {"message": "no responder set"}}, None)
+
     ctrl = Control()
     ctrl.url = f"http://127.0.0.1:{srv.server_port}/v1"
-    ctrl.calls = _Handler.seen
+    ctrl.calls = srv.calls
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
     try:
         yield ctrl
     finally:
+        # Teardown must close the socket and join the thread even on failure.
         srv.shutdown()
         srv.server_close()
+        thread.join(timeout=5)
+        assert not thread.is_alive(), "mock server thread survived teardown"
 
 
 @pytest.fixture()
@@ -254,12 +294,27 @@ def test_require_context_rejects_missing_and_accepts_present():
     ],
 )
 def test_status_classification(mock_server, jpg, monkeypatch, status, expected):
+    """Every non-200 status maps onto its code — reached through a real HTTP call.
+
+    TSB-366-R2 added the request-side assertions: it is not enough that the code
+    is right, the request must have actually reached the mock server, exactly
+    once, on the right path, and the mock must have really returned ``status``.
+    """
     _configure(monkeypatch, mock_server.url, retries=0)
     mock_server.fail(status)
     with pytest.raises(err.ModelError) as ei:
         _provider(mock_server.url).complete(_request(jpg))
     assert ei.value.code == expected
     assert ei.value.status == status
+
+    # The failure must come from a real response, not from a broken transport.
+    assert len(mock_server.calls) == 1, (
+        f"expected exactly one request, saw {len(mock_server.calls)}"
+    )
+    assert mock_server.calls[0]["path"] == "/v1/chat/completions"
+    assert mock_server.last_status == status, (
+        "the mock did not actually return the status under test"
+    )
 
 
 def test_auth_failure_is_not_retried(mock_server, jpg, monkeypatch):
@@ -408,7 +463,10 @@ def test_network_error_is_classified(mock_server, jpg, monkeypatch):
     def boom(*args, **kwargs):
         raise httpx.ConnectError("connection refused (simulated)")
 
-    monkeypatch.setattr(httpx, "post", boom)
+    monkeypatch.setattr(
+        "app.services.vision.providers.openai_compatible.post_model_request",
+        lambda *a, **k: boom(),
+    )
     with pytest.raises(err.ModelError) as ei:
         _provider(mock_server.url).complete(_request(jpg))
     assert ei.value.code == err.MODEL_NETWORK_ERROR
@@ -422,7 +480,10 @@ def test_timeout_is_classified(mock_server, jpg, monkeypatch):
     def slow(*args, **kwargs):
         raise httpx.ReadTimeout("too slow (simulated)")
 
-    monkeypatch.setattr(httpx, "post", slow)
+    monkeypatch.setattr(
+        "app.services.vision.providers.openai_compatible.post_model_request",
+        lambda *a, **k: slow(),
+    )
     with pytest.raises(err.ModelError) as ei:
         _provider(mock_server.url).complete(_request(jpg))
     assert ei.value.code == err.MODEL_TIMEOUT

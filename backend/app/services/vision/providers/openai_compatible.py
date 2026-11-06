@@ -170,6 +170,52 @@ def _inline_data_uri(image) -> tuple[str, int]:
     return f"data:{mime};base64,{base64.b64encode(image.data or b'').decode('ascii')}", len(image.data or b"")
 
 
+def post_model_request(url: str, *, content: bytes, headers: dict, timeout: float):
+    """The single place the adapter performs an HTTP POST (TSB-366-R2).
+
+    One seam for both transports on purpose:
+
+    * behaviour that must hold for *every* call (proxy policy, error mapping) is
+      asserted once here;
+    * tests can substitute a fake model server at this seam without caring which
+      transport branch would have run. Before this existed, tests stubbed
+      ``httpx.post`` and the loopback branch silently bypassed them.
+
+    Proxy policy: a loopback endpoint is reached directly. Python's
+    ``getproxies()`` reads the Windows registry but does not honour the WinINET
+    ``ProxyOverride`` bypass list, so a system proxy would otherwise intercept a
+    local model server and mangle its responses (a relayed ``408`` arrives as
+    ``RemoteProtocolError``). Remote endpoints keep the default behaviour, so
+    proxy support for cloud providers is unchanged.
+    """
+    if _is_loopback_endpoint(url):
+        with httpx.Client(trust_env=False, timeout=timeout) as client:
+            return client.post(url, content=content, headers=headers)
+    return httpx.post(url, content=content, headers=headers, timeout=timeout)
+
+
+def _is_loopback_endpoint(url: str) -> bool:
+    """True when ``url`` points at this machine.
+
+    Uses only the standard library: this decision must not depend on httpx
+    objects, because tests patch ``httpx`` and a patched ``httpx.URL`` once made
+    this answer "not loopback" in full runs only.
+    """
+    try:
+        host = urlparse(url).hostname
+    except Exception:
+        return False
+    if not host:
+        return False
+    host = host.lower().strip("[]")
+    if host in {"localhost", "localhost.localdomain"}:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 class OpenAICompatibleVisionProvider:
     name = "openai_compatible"
 
@@ -272,10 +318,16 @@ class OpenAICompatibleVisionProvider:
                 exc.attempts, exc.images_sent = attempt - 1, len(request.images) * (attempt - 1)
                 raise
             try:
-                resp = httpx.post(
-                    url,
-                    content=body_bytes,
-                    headers=headers,
+                # TSB-366-R2: a loopback endpoint must never be routed through the
+                # developer's system proxy. Python's `getproxies()` reads the
+                # Windows registry but does NOT honour the WinINET `ProxyOverride`
+                # bypass list (`127.*`, `localhost`), so an unrelated proxy can
+                # intercept a local model server — and mangle its responses (status
+                # 408 became `RemoteProtocolError`, hence MODEL_NETWORK_ERROR).
+                # Remote endpoints keep the default behaviour, so proxy support for
+                # real cloud providers is unchanged.
+                resp = post_model_request(
+                    url, content=body_bytes, headers=headers,
                     timeout=caps.timeout_sec,
                 )
             except httpx.TimeoutException as exc:
@@ -335,6 +387,41 @@ class OpenAICompatibleVisionProvider:
         raise last or ModelError(MODEL_NETWORK_ERROR, "vision call failed", request_id=request_id)
 
     # -- internals ---------------------------------------------------------
+    @staticmethod
+    def _post(url: str, *, content: bytes, headers: dict, timeout: float):
+        """Delegate to the module-level transport seam (see ``post_model_request``)."""
+        return post_model_request(url, content=content, headers=headers, timeout=timeout)
+
+    @staticmethod
+    def _is_loopback_url(url: str) -> bool:
+        """True when ``url`` points at this machine (TSB-366-R2).
+
+        Loopback traffic must bypass any environment/system proxy: a local model
+        server is reachable directly, and routing it through an unrelated proxy
+        corrupts the response (see the call site). IPv4, IPv6 and ``localhost``
+        are all covered, because a proxy bypass that misses one form is the same
+        bug with a different spelling.
+        """
+        try:
+            # stdlib parsing on purpose: this decision must not depend on the
+            # httpx object graph. Tests patch ``httpx.URL``/``httpx.post``, and an
+            # earlier version of this helper used ``httpx.URL`` — so under a full
+            # run it silently answered "not loopback" and the proxy came back.
+            host = urlparse(url).hostname
+        except Exception:
+            # An unparsable URL is not loopback; let the normal path report it.
+            return False
+        if not host:
+            return False
+        host = host.lower().strip("[]")
+        if host in {"localhost", "localhost.localdomain"}:
+            return True
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        return address.is_loopback
+
     @staticmethod
     def _require_mode_on():
         if get_settings().model_mode != 'on':
