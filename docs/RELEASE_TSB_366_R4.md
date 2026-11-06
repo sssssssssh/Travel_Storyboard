@@ -1,7 +1,8 @@
 # TSB-366-R4 发布记录：视频分析链路 Windows 长路径兼容专项
 
 **开工基线：** `main@5890c10e7c33b70dfd66e776673528389b72ea65`（与 `origin/main` 逐字符一致，工作区干净）
-**本批 commit：** 见本文件末尾（独立 TSB-366-R4 commit）
+**本批 commit：** `3508aab`（独立 TSB-366-R4 commit）
+**CI：** [run 42233008689](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42233008689) @ `3508aab` — **7/7 success**（含 windows-latest ×2）
 **机器（本机测量）：** macOS 15.7.7 arm64 / Python 3.12.14 / pytest 9.1.1 /
 FFmpeg+ffprobe 9.0.2 / Pillow 12.3.0 / OpenCV 5.0.0
 
@@ -26,7 +27,8 @@ FFmpeg+ffprobe 9.0.2 / Pillow 12.3.0 / OpenCV 5.0.0
 | 后端全量（三个根长度） | **1731 / 0 failed / 0 error / 48 skipped** |
 | CI 媒体作业（70 文件，无 `.env`） | **1291 / 0 / 0 / 44** |
 | 前端四项 | typecheck ✅ / lint ✅ / **123 passed** / build ✅ |
-| Windows 真机 260 字符端到端 | **未在本机验证**（依赖 CI） |
+| CI @ `3508aab` | **7/7 success**（Backend 3.11/3.13 × ubuntu/windows、Required FFmpeg × ubuntu/windows、Frontend） |
+| Windows 真机 260 字符端到端 | **本机不可复现**；CI 的 windows-latest ×2 作业 **7/7 通过** |
 
 ---
 
@@ -311,7 +313,10 @@ When you reply with review requests, return a JSON object:
 
 1. **Windows 260 字符端到端未在本机验证。** 本机是 macOS，无法复现 MAX_PATH。
    D1/D2/D3 的证据是**契约层**（访问是否经过兼容 helper）+ 反向验证，
-   不是 Windows 实测。真实 Windows 行为须以 CI 的 windows-latest 作业为准。
+   不是 Windows 实测。
+   **CI 的 windows-latest 两个作业在 `3508aab` 上通过（7/7）**，这是唯一真正
+   覆盖 Windows MAX_PATH 的证据；但它属于**自动化 + 合成素材**路径，
+   按 C8 仍不构成真机真实素材验收。
 2. **早期"注入式模拟 Win32 短路径 API"方案已废弃。** POSIX 上不存在 `\\?\` 别名，
    模拟要么自相矛盾，要么需要改写生产代码的 `os.name` 门禁 ——
    那是"为让测试变绿而改代码"，明确禁止。故改用契约层断言。

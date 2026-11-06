@@ -18,6 +18,9 @@ Pillow 12.3.0 / OpenCV 5.0.0
 | `raw/RED-before-fix.xml` | 对应 junitxml 原件 |
 | `raw/REVERSE-VERIFY.txt` | 反向验证：去掉每处修复 -> 对应用例转红 |
 | `ROOT_CAUSE.md` | 根因分析：准确失败节点、每阶段定位表、修复前后对比 |
+| `full-root-35.xml` / `-58` / `-76` | 三个 TEMP 根长度下的后端全量 junitxml 原件 |
+| `media-job-70-files-ci-conditions.xml` | CI 媒体作业（70 文件、无 `.env`、`TSB_REQUIRE_FFMPEG=1`） |
+| `ci-run-42233008689.json` | CI 7/7 作业明细（含 windows-latest ×2） |
 | `../RELEASE_TSB_366_R4.md` | 发布记录与完整交付矩阵 |
 
 ---
@@ -104,3 +107,6 @@ tests/test_tsb366r4_video_long_paths.py::test_the_video_chain_no_longer_uses_pla
 2. 本机为 macOS，**无法**复现 Windows MAX_PATH 端到端失败。
 3. `test_scan_320_char_cjk_root` 等用例带 `@requires_windows`，
    在 macOS 上是**登记在册的平台事实 skip**，不是本轮新增。
+4. **CI @ `3508aab` 为 7/7 success**，其 windows-latest 两个作业是唯一真正
+   覆盖 Windows MAX_PATH 的证据。按 AGENTS.md C8，这与"本机所有路径环境
+   均通过"是两件事，本报告不混为一谈。

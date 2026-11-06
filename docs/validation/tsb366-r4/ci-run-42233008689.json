@@ -1,0 +1,53 @@
+{
+  "run_id": 42233008689,
+  "head_sha": "3508aab4ab8731ae6d3d2f461ad541c26d872326",
+  "conclusion": "success",
+  "html_url": "https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42233008689",
+  "jobs_total": 7,
+  "jobs_success": 7,
+  "note": "TSB-366-R4. Both windows-latest jobs passed, which is the only place the real MAX_PATH behaviour is exercised.",
+  "jobs": [
+    {
+      "name": "Backend (Python 3.11)",
+      "conclusion": "success",
+      "started_at": "2026-11-06T14:20:19Z",
+      "completed_at": "2026-11-06T14:32:09Z"
+    },
+    {
+      "name": "Backend (Python 3.11)",
+      "conclusion": "success",
+      "started_at": "2026-11-06T14:20:18Z",
+      "completed_at": "2026-11-06T14:29:16Z"
+    },
+    {
+      "name": "Required FFmpeg (ubuntu-latest)",
+      "conclusion": "success",
+      "started_at": "2026-11-06T14:20:18Z",
+      "completed_at": "2026-11-06T14:27:22Z"
+    },
+    {
+      "name": "Backend (Python 3.13)",
+      "conclusion": "success",
+      "started_at": "2026-11-06T14:20:19Z",
+      "completed_at": "2026-11-06T14:32:28Z"
+    },
+    {
+      "name": "Frontend",
+      "conclusion": "success",
+      "started_at": "2026-11-06T14:20:18Z",
+      "completed_at": "2026-11-06T14:21:13Z"
+    },
+    {
+      "name": "Required FFmpeg (windows-latest)",
+      "conclusion": "success",
+      "started_at": "2026-11-06T14:20:18Z",
+      "completed_at": "2026-11-06T14:30:09Z"
+    },
+    {
+      "name": "Backend (Python 3.13)",
+      "conclusion": "success",
+      "started_at": "2026-11-06T14:20:19Z",
+      "completed_at": "2026-11-06T14:28:40Z"
+    }
+  ]
+}
