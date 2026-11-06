@@ -1,0 +1,43 @@
+TSB-366-R4 修复前的确定性 RED 证据
+====================================
+
+测试文件: backend/tests/test_tsb366r4_video_long_paths.py
+方法: 注入式模拟 Windows Win32 短路径 API 在超长路径上的真实行为
+      （普通 Path.stat/is_file/read_bytes 失败，long_path() 形式可用）
+      —— 不依赖 macOS/Ubuntu 不存在的 MAX_PATH，也不依赖 TEMP 偶然长度。
+
+结果: tests=7  failures=5
+
+--- D1 已证实（关键）--------------------------------------------------
+test_probe_clip_survives_a_path_beyond_max_path
+  VideoClipError: derived clip was not created
+
+  该文件**真实存在**（写入时用 long_path，os.path.isfile(long_path) 为真），
+  ffprobe 也能读（probe() 已用 long_path）。
+  只因 probe_clip() 第 589 行用普通 path.is_file()，就判定"未创建"。
+  → 这是 R07/V31 在 Windows 76 字符根下**没走到 complete_video**
+    的最上游真实断点，且有完整异常类型与消息，不是"used == []"的猜测。
+
+--- D3 已证实 ---------------------------------------------------------
+test_path_occupies_disk_reports_a_genuinely_absent_stage
+  AssertionError: assert True is False
+
+  路径真实不存在，path_occupies_disk() 仍返回 True：
+  因普通 os.lstat 抛 OSError(206) 被 except OSError 吞成"存在"。
+  → 把"路径过长"伪装成"不可读但存在"，掩盖真实错误（违反 C6）。
+
+--- D2 已证实（辅助函数尚不存在）--------------------------------------
+test_the_budget_reads_the_derived_clip_size_through_the_compat_layer
+  AttributeError: module 'app.services.vision.video_job' has no attribute '_clip_size_bytes'
+test_the_provider_receives_the_whole_clip_from_a_long_path
+  AttributeError: ... no attribute '_clip_read_bytes'
+
+  修复前 prepare 处直接写 clip.path.stat().st_size / clip.path.read_bytes()，
+  没有任何长路径兼容层可调用。这两个调用都位于 complete_video() **之前**，
+  任一失败都会表现为 used == []。本轮把它们抽成带兼容层的辅助函数，
+  使该行为可被单独断言与反向验证。
+
+--- 反向用例（修复后必须仍然为真）------------------------------------
+test_probe_clip_still_rejects_a_clip_that_really_is_missing   PASS(修复前后皆应拒绝)
+test_path_occupies_disk_sees_a_directory_beyond_max_path       修复前 PASS（靠吞异常蒙对）
+  → 修复后要求它"靠 long_path 正确识别"而不是"靠 OSError 吞掉"。

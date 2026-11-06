@@ -21,7 +21,7 @@ from PIL import Image
 from sqlalchemy import select
 
 from app.database import session_scope
-from app.ffmpeg import long_path, safe_is_file, safe_mkdir
+from app.ffmpeg import long_path, safe_is_file, safe_mkdir, safe_open
 from app.models import Asset, Frame, Segment, new_id
 from app.paths import frames_dir, resolve_in_project
 from app.services import review_package as rp
@@ -135,13 +135,21 @@ def _ensure_frame(project_id: str, asset_id: str, *, count: int = 1) -> str:
 
 
 @pytest.mark.usefixtures("_app_ready")
-def test_package_in_a_deep_workspace_contains_its_frames(client, tmp_path):
-    """The regression end to end: frames survive a >MAX_PATH package directory."""
+def test_package_in_a_deep_workspace_contains_its_frames(client, tmp_path, deep_output_dir):
+    """The regression end to end: frames survive a >MAX_PATH package directory.
+
+    TSB-366-R4 (R4-F02): this used to ignore the ``deep_output_dir`` fixture and
+    build at ``tmp_path / ("out" + "z" * 24)`` -- an ``output_dir`` of ~43 chars,
+    which puts the packaged frame at ~128 chars. That never crossed MAX_PATH, so
+    the test could not have caught the defect it is named after. It now uses the
+    fixture and *asserts* the real target lengths, so it cannot silently regress
+    to a shallow path again.
+    """
     _ffmpeg()
     res = client.post("/api/projects", json={
         "name": "r3-deep-e2e",
         "source_roots": [],
-        "output_dir": str(tmp_path / ("out" + "z" * 24)),
+        "output_dir": str(deep_output_dir),
     })
     assert res.status_code in (200, 201), res.text
     pid = res.json()["id"]
@@ -163,16 +171,29 @@ def test_package_in_a_deep_workspace_contains_its_frames(client, tmp_path):
     pkg_dir = zip_path.with_suffix("")
     assert pkg_dir.is_dir(), f"package directory missing next to {zip_path.name}"
 
-    # Frames are listed in segments.json (manifest.json is only the index).
+    # --- the point of this test: the targets really are past MAX_PATH ---------
     segments_path = pkg_dir / "segments.json"
     assert safe_is_file(segments_path), (
         f"segments.json missing; package contains: "
         f"{sorted(p.name for p in pkg_dir.iterdir())[:10]}"
     )
-    segments_doc = json.loads(segments_path.read_text(encoding="utf-8"))
+    assert len(str(segments_path)) >= MAX_PATH, (
+        f"segments.json 路径只有 {len(str(segments_path))} 字符，未跨过 MAX_PATH"
+    )
+    assert len(str(zip_path)) >= MAX_PATH, (
+        f"ZIP 路径只有 {len(str(zip_path))} 字符，未跨过 MAX_PATH"
+    )
+
+    segments_doc = json.loads(safe_open(segments_path, "rb").read().decode("utf-8"))
     entries = segments_doc["segments"] if isinstance(segments_doc, dict) else segments_doc
     frames = [f for seg in entries for f in seg["frames"]]
     assert frames, "segments.json lists no frames"
+
+    for entry in frames:
+        frame_file = pkg_dir / entry["file"]
+        assert len(str(frame_file)) >= MAX_PATH, (
+            f"代表帧目标路径只有 {len(str(frame_file))} 字符，未跨过 MAX_PATH：{frame_file}"
+        )
 
     for entry in frames:
         frame_file = pkg_dir / entry["file"]
@@ -182,10 +203,12 @@ def test_package_in_a_deep_workspace_contains_its_frames(client, tmp_path):
             img.load()
             assert img.format == "JPEG"
 
-    with zipfile.ZipFile(zip_path) as zf:
+    # The zip itself must open through the extended-length form.
+    with zipfile.ZipFile(long_path(zip_path)) as zf:
         names = set(zf.namelist())
     # Entries are prefixed with the version directory, so match the segment.
     assert any("/frames/" in name for name in names), sorted(names)[:10]
+    assert any(name.endswith("segments.json") for name in names), sorted(names)[:10]
 
 
 @pytest.mark.usefixtures("_app_ready")
@@ -266,3 +289,71 @@ def test_all_frames_failing_produces_an_actionable_error(client, tmp_path, monke
     assert "重编码失败" in message
     assert "unknown file extension" in message
     assert "预算" not in message, "must not blame the budget for an encode failure"
+
+
+# ---------------------------------------------------------------------------
+# TSB-366-R4 / R4-F01 — README.txt 的实际生成文本
+# ---------------------------------------------------------------------------
+
+
+def _package_readme(client, tmp_path: Path) -> str:
+    """Build a package and return the README *file* contents."""
+    _ffmpeg()
+    res = client.post("/api/projects", json={
+        "name": "r4-readme", "source_roots": [], "output_dir": str(tmp_path / "out"),
+    })
+    assert res.status_code in (200, 201), res.text
+    pid = res.json()["id"]
+    aid = _analyzed_asset(pid, tmp_path)
+    _ensure_frame(pid, aid)
+
+    result = rp._build_package(pid, {"max_package_mb": 200, "frame_quality": 82})
+    zip_path = resolve_in_project(pid, result["zip"])
+    pkg_dir = zip_path.with_suffix("")
+    readme = pkg_dir / "README.txt"
+    assert safe_is_file(readme), "README.txt was not written"
+    # Read the real file, through the compat layer, not an in-memory string.
+    with open(long_path(readme), "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
+@pytest.mark.usefixtures("_app_ready")
+def test_the_readme_contains_a_real_rule_not_a_literal(client, tmp_path):
+    """R4-F01: 分隔线必须是 50 个等号，不是字面量 '=" * 5'。
+
+    修复前生成的是 7 个字符 ``=" * 5``（普通字符串，没被求值）。
+    只断言"函数没抛异常"永远发现不了它 —— 必须读实际文件。
+    """
+    text = _package_readme(client, tmp_path)
+    assert "=" * 50 in text, "README 必须有 50 个等号的分隔线"
+    assert '=" * 5' not in text, (
+        "README 不得出现字面量 '=\" * 5'（修复前的缺陷形态）"
+    )
+
+
+@pytest.mark.usefixtures("_app_ready")
+def test_the_readme_json_sample_has_clean_double_quotes(client, tmp_path):
+    """R4-F01: JSON 示例必须显示正常的双引号，不能有多余反斜杠。"""
+    text = _package_readme(client, tmp_path)
+    assert '"schema_version": "2.0"' in text, "JSON 示例必须是正常双引号"
+    assert '"asset_id": "..."' in text
+    assert '\\"' not in text, (
+        "README 不得出现转义残留的 \\\" （修复前多重转义导致的缺陷形态）"
+    )
+
+
+@pytest.mark.usefixtures("_app_ready")
+def test_the_readme_json_sample_is_valid_json(client, tmp_path):
+    """R4-F01: 示例抠出来必须是可解析的 JSON，而不只是"看着像"。"""
+    text = _package_readme(client, tmp_path)
+    start = text.index("return a JSON object:")
+    brace = text.index("{", start)
+    # The block ends at the matching close brace on its own line.
+    end = text.index("\n  }", brace) + len("\n  }")
+    sample = text[brace:end]
+    doc = json.loads(sample)
+    assert doc["schema_version"] == "2.0"
+    assert isinstance(doc["requests"], list)
+    req = doc["requests"][0]
+    for key in ("asset_id", "segment_id", "start_sec", "end_sec", "priority", "reason"):
+        assert key in req, f"README 示例缺少字段 {key}"

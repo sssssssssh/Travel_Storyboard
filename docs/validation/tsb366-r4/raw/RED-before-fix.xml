@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="5" skipped="0" tests="7" time="0.523" timestamp="2026-11-06T21:35:56.136465+08:00" hostname="MacBookAir"><testcase classname="tests.test_tsb366r4_video_long_paths" name="test_probe_clip_survives_a_path_beyond_max_path" time="0.397"><failure message="app.services.vision.video_clip.VideoClipError: derived clip was not created">tmp_path = PosixPath('/private/var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-13/test_probe_clip_survives_a_pat0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x11a9530e0&gt;
+
+    def test_probe_clip_survives_a_path_beyond_max_path(tmp_path, monkeypatch):
+        """D1: 派生文件真实存在且 ffprobe 可读时，probe_clip 不得报"未创建"。
+    
+        修复前：``path.is_file()`` 走普通 Win32 API，超长路径返回 False，
+        于是抛 ``CLIP_UNREADABLE: derived clip was not created`` ——
+        这正是 R07/V31 在 76 字符 TEMP 根下没走到 ``complete_video`` 的上游原因。
+        """
+        from app.services.vision import video_clip as vc
+    
+        target = _long_file(tmp_path)
+        payload = long_path(target)
+        with open(payload, "rb") as fh:
+            real_bytes = fh.read()
+    
+        # ffprobe reads through long_path (app/ffmpeg.py::probe), so it succeeds on a
+        # real video. Stub the *result* here; the point under test is the file API.
+        class _Info:
+            has_audio = False
+            duration_sec = 2.0
+    
+            class video:
+                width, height, rotation, vfr = 320, 180, 0, False
+    
+        monkeypatch.setattr(vc, "probe_media", lambda p: _Info())
+    
+        sim = WindowsShortPathSim().patch(monkeypatch)
+&gt;       art = vc.probe_clip(
+            path=target, segment_id="s1", asset_id="a1",
+            source_clip_start_sec=0.0, source_clip_end_sec=2.0,
+        )
+
+tests/test_tsb366r4_video_long_paths.py:153: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/private/var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-13/test_probe_clip_survives_a_pat0/dddddddddddddddddddddddddddddddddddddddd/dddddddddddddddd/clip.mp4yyyyyyyyyyyyyyyyyyyy')
+segment_id = 's1', asset_id = 'a1', source_clip_start_sec = 0.0
+source_clip_end_sec = 2.0, color_unverified = False, notes = None
+
+    def probe_clip(
+    
+        *,
+        path: Path,
+        segment_id: str,
+        asset_id: str,
+        source_clip_start_sec: float,
+        source_clip_end_sec: float,
+        color_unverified: bool = False,
+        notes: list[str] | None = None,
+    
+    ) -&gt; ClipArtifact:
+    
+        """Re-read the artifact and describe what actually landed on disk.
+    
+    
+    
+        The encoder's intent is not evidence: FFmpeg can exit 0 without a usable file
+        (AGENTS.md 5.2), and the only trustworthy duration is the one ffprobe reads
+        back. ``duration`` is the *measured* value, not the requested one.
+        """
+        path = Path(path)
+        if not path.is_file():
+&gt;           raise VideoClipError(CLIP_UNREADABLE, "derived clip was not created")
+E           app.services.vision.video_clip.VideoClipError: derived clip was not created
+
+app/services/vision/video_clip.py:590: VideoClipError</failure></testcase><testcase classname="tests.test_tsb366r4_video_long_paths" name="test_probe_clip_still_rejects_a_clip_that_really_is_missing" time="0.001" /><testcase classname="tests.test_tsb366r4_video_long_paths" name="test_path_occupies_disk_sees_a_directory_beyond_max_path" time="0.001" /><testcase classname="tests.test_tsb366r4_video_long_paths" name="test_path_occupies_disk_reports_a_genuinely_absent_stage" time="0.001"><failure message="AssertionError: assert True is False&#10; +  where True = &lt;function path_occupies_disk at 0x108a1eb60&gt;(PosixPath('/private/var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-13/test_path_occupies_disk_report0/dddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddd/goneyyyyyyyyyyyyyyyyyyyy'))">tmp_path = PosixPath('/private/var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-13/test_path_occupies_disk_report0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x11b3661b0&gt;
+
+    def test_path_occupies_disk_reports_a_genuinely_absent_stage(tmp_path, monkeypatch):
+        """D3 反向: 真不存在的路径必须返回 False（否则 cleanup 会对空路径动手）。"""
+        from app.services.vision.video_job import path_occupies_disk
+    
+        absent = _long_file(tmp_path, name="gone")
+        os.unlink(long_path(absent))
+    
+        WindowsShortPathSim().patch(monkeypatch)
+&gt;       assert path_occupies_disk(absent) is False
+E       AssertionError: assert True is False
+E        +  where True = &lt;function path_occupies_disk at 0x108a1eb60&gt;(PosixPath('/private/var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-13/test_path_occupies_disk_report0/dddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddd/goneyyyyyyyyyyyyyyyyyyyy'))
+
+tests/test_tsb366r4_video_long_paths.py:225: AssertionError</failure></testcase><testcase classname="tests.test_tsb366r4_video_long_paths" name="test_the_budget_reads_the_derived_clip_size_through_the_compat_layer" time="0.001"><failure message="AttributeError: module 'app.services.vision.video_job' has no attribute '_clip_size_bytes'">tmp_path = PosixPath('/private/var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-13/test_the_budget_reads_the_deri0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x11b367050&gt;
+
+    def test_the_budget_reads_the_derived_clip_size_through_the_compat_layer(tmp_path, monkeypatch):
+        """D2: 预算计量必须用长路径兼容方式读取派生文件大小。
+    
+        修复前 ``clip.path.stat().st_size`` 在超长路径上抛 FileNotFoundError，
+        该异常不是 ModelError，会在 ``complete_video`` 之前中断任务 ——
+        与 "used == []" 的现象完全吻合。
+        """
+        from app.services.vision import video_job as vj
+    
+        target = _long_file(tmp_path, name="derived")
+        real_size = os.stat(long_path(target)).st_size
+    
+        sim = WindowsShortPathSim().patch(monkeypatch)
+&gt;       size = vj._clip_size_bytes(target)
+               ^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'app.services.vision.video_job' has no attribute '_clip_size_bytes'
+
+tests/test_tsb366r4_video_long_paths.py:241: AttributeError</failure></testcase><testcase classname="tests.test_tsb366r4_video_long_paths" name="test_the_provider_receives_the_whole_clip_from_a_long_path" time="0.001"><failure message="AttributeError: module 'app.services.vision.video_job' has no attribute '_clip_read_bytes'">tmp_path = PosixPath('/private/var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-13/test_the_provider_receives_the0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x11b366f30&gt;
+
+    def test_the_provider_receives_the_whole_clip_from_a_long_path(tmp_path, monkeypatch):
+        """D2: 构造 VideoPart 时必须通过兼容层读出完整 MP4 字节。"""
+        from app.services.vision import video_job as vj
+    
+        target = _long_file(tmp_path, name="payload")
+        with open(long_path(target), "rb") as fh:
+            expected = fh.read()
+    
+        WindowsShortPathSim().patch(monkeypatch)
+&gt;       got = vj._clip_read_bytes(target)
+              ^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'app.services.vision.video_job' has no attribute '_clip_read_bytes'
+
+tests/test_tsb366r4_video_long_paths.py:255: AttributeError</failure></testcase><testcase classname="tests.test_tsb366r4_video_long_paths" name="test_the_clip_byte_helpers_raise_on_a_genuinely_missing_file" time="0.001"><failure message="AttributeError: module 'app.services.vision.video_job' has no attribute '_clip_size_bytes'">tmp_path = PosixPath('/private/var/folders/__/pt4wvrkd1pdf_ry77d757l440000gn/T/pytest-of-shush/pytest-13/test_the_clip_byte_helpers_rai0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x11b367950&gt;
+
+    def test_the_clip_byte_helpers_raise_on_a_genuinely_missing_file(tmp_path, monkeypatch):
+        """D2 反向: 真缺失必须抛出，不得伪造空字节或 0 大小（禁止假成功）。"""
+        from app.services.vision import video_job as vj
+    
+        absent = _long_file(tmp_path, name="nope")
+        os.unlink(long_path(absent))
+        WindowsShortPathSim().patch(monkeypatch)
+    
+        with pytest.raises(FileNotFoundError):
+&gt;           vj._clip_size_bytes(absent)
+            ^^^^^^^^^^^^^^^^^^^
+E           AttributeError: module 'app.services.vision.video_job' has no attribute '_clip_size_bytes'
+
+tests/test_tsb366r4_video_long_paths.py:269: AttributeError</failure></testcase></testsuite></testsuites>

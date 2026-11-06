@@ -163,6 +163,11 @@ jobs:
         # TSB-359: folded command lines below must contain arguments only.
         # An indented shell comment would be folded into the command and hide
         # every suite after it. B10 verifies the effective shell arguments.
+        # NOTE: never put a "#" comment inside the folded "run: >" block below --
+        # YAML joins those lines into ONE shell command, so an inline comment
+        # eats every argument after it (real incident: TSB-359).
+        # TSB-366-R4 appended test_tsb366r4_video_long_paths.py (the video
+        # prepare chain must resolve derived-clip access past MAX_PATH).
         run: >
           python -m pytest -v -rA --junitxml=media-results.xml
           tests/test_ffmpeg_integration.py
@@ -223,6 +228,7 @@ jobs:
           tests/test_video_e2e_formal_api.py
           tests/test_video_budget_http_contract.py
           tests/test_fallback_job_tracking.py
+          tests/test_tsb366r4_video_long_paths.py
           tests/test_video_fallback_runner_e2e.py
           tests/test_fallback_result_contract.py
           tests/test_video_clip.py

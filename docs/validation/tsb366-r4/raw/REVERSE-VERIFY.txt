@@ -1,0 +1,24 @@
+TSB-366-R4 反向验证（去掉修复 -> 对应用例必须转红）
+==================================================
+方法: 临时把每处修复改回修复前的写法，跑同一套用例，确认转红后再恢复。
+      —— 排除"空断言式的绿"（AGENTS.md 3.2）。
+
+修复后基线: 12 passed
+
+[D1] probe_clip: safe_is_file/safe_stat -> path.is_file()/path.stat()
+  FAILED test_probe_clip_resolves_the_clip_through_the_compat_layer
+  FAILED test_the_video_chain_no_longer_uses_plain_path_io          => 2 RED ✅
+
+[D2] _analyze_one: _clip_size_bytes/_clip_read_bytes -> clip.path.stat()/read_bytes()
+  FAILED test_the_budget_and_the_payload_use_the_compat_helpers
+  FAILED test_the_video_chain_no_longer_uses_plain_path_io          => 2 RED ✅
+
+[D3] path_occupies_disk: os.lstat(long_path(target)) -> os.lstat(target)  (2 处)
+  FAILED test_path_occupies_disk_resolves_overlong_paths_before_deciding
+                                                                    => 1 RED ✅
+
+恢复后: 12 passed  ✅
+
+注: D3 的断言曾因把 docstring 里的 "long_path" 也算进计数而**漏判**，
+   已改为只统计可执行代码（剥掉 docstring 后计数），重跑后能正确转红。
+   这是一次自查发现的测试缺陷，记录在此以免复现。

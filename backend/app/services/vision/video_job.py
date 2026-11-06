@@ -40,6 +40,9 @@ from sqlalchemy import select
 
 from ...config import get_settings
 from ...database import begin_write, session_scope
+# TSB-366-R4: the video prepare chain must resolve every derived-clip access past
+# MAX_PATH. Reuse the shared helpers instead of re-deriving long-path logic here.
+from ...ffmpeg import long_path, safe_open, safe_stat
 from ...models import Asset, Job, Segment, SegmentMotionReview
 from ..runner import (
     JobCancelled,
@@ -761,6 +764,30 @@ def video_analyze_task(job_id: str) -> None:
         )
 
 
+def _clip_size_bytes(path: str | Path) -> int:
+    """Size of the derived clip, resolved past MAX_PATH.
+
+    TSB-366-R4: ``clip.path.stat().st_size`` obeys MAX_PATH. On a deep temp root
+    the derived MP4 exists and ffprobe reads it, but this raised
+    ``FileNotFoundError`` -- and because that is not a ``ModelError`` it aborted
+    the segment *before* ``complete_video()``, which is exactly how a run ends up
+    with the provider never called. Only a genuinely missing file raises here, so
+    a real failure is still reported rather than papered over with 0 bytes.
+    """
+    return safe_stat(path).st_size
+
+
+def _clip_read_bytes(path: str | Path) -> bytes:
+    """The whole derived clip as bytes, resolved past MAX_PATH.
+
+    Same boundary as :func:`_clip_size_bytes`, for the ``VideoPart`` payload.
+    Reading through ``safe_open`` guarantees the provider receives the complete
+    MP4 rather than a truncated one, and a missing file still raises.
+    """
+    with safe_open(path, "rb") as fh:
+        return fh.read()
+
+
 def path_occupies_disk(stage: str | Path) -> bool:
     """Does anything at all sit at this path, including a dangling link?
 
@@ -769,13 +796,36 @@ def path_occupies_disk(stage: str | Path) -> bool:
     them here silently reclassified a leftover link as "never created" and skipped
     it. ``lexists`` semantics (lstat, no follow) is what "is there something to
     clean up?" actually means.
+
+    TSB-366-R4: the plain ``os.lstat`` obeys MAX_PATH, so a genuinely present
+    deep staging directory raised OSError and was reported True only via the
+    "unreadable is not absent" branch -- right answer, wrong reason, and it hid
+    the real error (C6). Resolve through ``long_path`` first; keep the
+    conservative "unreadable counts as present" rule only for genuinely
+    unreadable paths.
     """
+    target = Path(stage)
     try:
-        os.lstat(stage)
+        os.lstat(target)
     except (FileNotFoundError, NotADirectoryError):
-        return False
+        # Retry through the extended-length form before concluding "absent":
+        # only *missing* is reported missing, never a too-long path.
+        try:
+            os.lstat(long_path(target))
+        except (FileNotFoundError, NotADirectoryError):
+            return False
+        except OSError:
+            return True
+        return True
     except OSError:
-        # Unreadable is not absent: let the cleaner report the real problem.
+        # Unreadable (or, on Windows, too long for the short API) is not absent:
+        # let the cleaner report the real problem rather than skip the cleanup.
+        try:
+            os.lstat(long_path(target))
+        except (FileNotFoundError, NotADirectoryError):
+            return False
+        except OSError:
+            return True
         return True
     return True
 
@@ -1097,7 +1147,7 @@ def _analyze_one(
     # requested (keyframe alignment). Re-check the *derived* seconds against the
     # plan's cap; validating only the request would let the real spend drift.
     try:
-        plan.budget.note_derived([(clip.duration_sec, clip.path.stat().st_size)])
+        plan.budget.note_derived([(clip.duration_sec, _clip_size_bytes(clip.path))])
     except ModelError as exc:
         stats["failed"] += 1
         stats["budget_exceeded"] = True
@@ -1154,7 +1204,7 @@ def _analyze_one(
         prompt=prompt,
         video=VideoPart(
             clip_id=clip.clip_id,
-            data=clip.path.read_bytes(),
+            data=_clip_read_bytes(clip.path),
             mime_type="video/mp4",
             source_offset_sec=clip.source_clip_start_sec,
             duration_sec=clip.duration_sec,

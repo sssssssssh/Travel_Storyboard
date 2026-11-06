@@ -571,7 +571,11 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
         "\n".join(
             [
                 "Travel Storyboard — Round 1 analysis package",
-                "=\" * 5",
+                # TSB-366-R4 (R4-F01): this used to be the literal string
+                # '=" * 5', so the README printed those seven characters instead
+                # of a rule. It only shows up when reading the generated file,
+                # which is why no test caught it.
+                "=" * 50,
                 "",
                 "This package contains candidate shots (segments) as contact sheets and",
                 "structured JSON. Use it to plan one or more story lines.",
@@ -586,11 +590,11 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
                 "",
                 "When you reply with review requests, return a JSON object:",
                 "  {",
-                "    \\\"schema_version\\\": \\\"2.0\\\",",
-                "    \\\"requests\\\": [",
-                "      {\\\"asset_id\\\": \\\"...\\\", \\\"segment_id\\\": \\\"...\\\",",
-                "       \\\"start_sec\\\": 123.5, \\\"end_sec\\\": 135.0,",
-                "       \\\"priority\\\": \\\"high\\\", \\\"reason\\\": \\\"...\\\"}",
+                '    "schema_version": "2.0",',
+                '    "requests": [',
+                '      {"asset_id": "...", "segment_id": "...",',
+                '       "start_sec": 123.5, "end_sec": 135.0,',
+                '       "priority": "high", "reason": "..."}',
                 "    ]",
                 "  }",
                 "The app will import this file and auto-generate low-res previews for",

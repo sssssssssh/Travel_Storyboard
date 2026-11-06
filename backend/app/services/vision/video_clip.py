@@ -81,6 +81,7 @@ from ...ffmpeg import (
     ensure_path_usable,
     locate_ffmpeg,
     probe_media,
+    safe_is_file,
     safe_open,
     safe_stat,
     safe_unlink,
@@ -586,7 +587,11 @@ def probe_clip(
     back. ``duration`` is the *measured* value, not the requested one.
     """
     path = Path(path)
-    if not path.is_file():
+    # TSB-366-R4: plain ``is_file()`` obeys MAX_PATH when LongPathsEnabled is off,
+    # so a genuinely present derived clip answered False and this reported
+    # "was not created" -- the real break point that kept deep-TEMP runs from ever
+    # reaching ``complete_video()``. ``safe_is_file`` retries via ``long_path``.
+    if not safe_is_file(path):
         raise VideoClipError(CLIP_UNREADABLE, "derived clip was not created")
 
 
@@ -607,7 +612,9 @@ def probe_clip(
 
 
 
-    size = path.stat().st_size
+    # Same boundary for metadata: a deep path must yield the real size, and a
+    # genuinely missing file must still raise rather than report 0 bytes.
+    size = safe_stat(path).st_size
     digest = _sha256(path)
     measured = info.duration_sec or (source_clip_end_sec - source_clip_start_sec)
     return ClipArtifact(

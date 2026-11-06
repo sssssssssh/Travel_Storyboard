@@ -1781,3 +1781,85 @@ Windows 真实执行全部长路径用例；Linux 上 4 项 Windows 专属用例
 ### 数据安全
 
 原片只读、项目目录隔离、EXIF/GPS 清理均保持；修复不改变包结构与条目命名。
+
+---
+
+## TSB-366-R4 视频链路长路径兼容（TSB-366-R4 / R4-F01 / R4-F02）
+
+发布记录：[docs/RELEASE_TSB_366_R4.md](RELEASE_TSB_366_R4.md)
+证据目录：[docs/validation/tsb366-r4/](validation/tsb366-r4/)
+
+> **证据口径**：本机是 macOS，**无 MAX_PATH**，所以 35/58/76 矩阵在修复前后
+> 都是绿的，不能作为修复证据。缺陷由**契约层**用例（访问是否经过兼容 helper）
+> + 反向验证证明；Windows 260 字符端到端行为由 CI 的 windows-latest 承担。
+
+### D1 — `probe_clip()` 存在性与大小
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_tsb366r4_video_long_paths.py::test_probe_clip_resolves_the_clip_through_the_compat_layer` | 必须用 `safe_is_file`/`safe_stat`，不得回到普通 `is_file()`/`stat()` |
+| `::test_probe_clip_reports_real_size_and_digest` | 大小与 SHA-256 等于真实字节 |
+| `::test_probe_clip_still_rejects_a_clip_that_really_is_missing` | **反向**：真缺失仍报 `CLIP_UNREADABLE`，兼容层不吞错 |
+
+### D2 — `_analyze_one()` 预算与 VideoPart
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `::test_the_budget_and_the_payload_use_the_compat_helpers` | 必须经 `_clip_size_bytes`/`_clip_read_bytes`；不得残留 `clip.path.stat()`/`read_bytes()` |
+| `::test_clip_size_helper_reads_the_real_size` | 辅助函数返回真实大小 |
+| `::test_clip_read_helper_returns_the_whole_file` | 返回**完整**字节（不截断） |
+| `::test_the_clip_helpers_raise_on_a_genuinely_missing_file` | **反向**：真缺失抛错，不伪造 0 字节/空 bytes |
+
+### D3 — `path_occupies_disk()`
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `::test_path_occupies_disk_resolves_overlong_paths_before_deciding` | 两条异常分支都要经 `long_path` 复核（只统计可执行代码） |
+| `::test_path_occupies_disk_is_true_for_a_real_directory` | 真实目录 → True |
+| `::test_path_occupies_disk_is_false_for_an_absent_path` | 真缺失 → False |
+| `::test_path_occupies_disk_still_sees_a_dangling_link` | **TSB-346 回归**：悬空链接仍算占用 |
+
+### 总闸
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `::test_the_video_chain_no_longer_uses_plain_path_io` | 视频链路不得残留普通 Path I/O（`path.is_file()`/`path.stat()`/`clip.path.stat()`/`clip.path.read_bytes()`）；日后有人改回普通 API 会立刻失败 |
+
+反向验证（见 `docs/validation/tsb366-r4/raw/REVERSE-VERIFY.txt`）：
+去掉 D1 ⇒ 2 RED；去掉 D2 ⇒ 2 RED；去掉 D3 ⇒ 1 RED；恢复后 12 passed。
+
+### R4-F01 — README.txt 实际生成文本
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_tsb366r3_package_deep.py::test_the_readme_contains_a_real_rule_not_a_literal` | 必须有 50 个等号；不得出现字面量 `=" * 5` |
+| `::test_the_readme_json_sample_has_clean_double_quotes` | JSON 示例为正常双引号；不得有 `\"` 残留 |
+| `::test_the_readme_json_sample_is_valid_json` | 示例抠出后 `json.loads()` 可解析且字段齐全 |
+
+三条都**读取实际生成的文件**，不只断言"函数没抛异常"。
+反向验证：恢复两处缺陷 ⇒ 3 RED。
+
+### R4-F02 — Package 深路径集成测试
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_tsb366r3_package_deep.py::test_package_in_a_deep_workspace_contains_its_frames` | 必须使用 `deep_output_dir`；代表帧 / `segments.json` / ZIP 三处**各自断言 ≥260 字符**；用 `safe_open`/`long_path` 读取；ZIP 用 `long_path` 打开；`segments.json` 真实列出代表帧；帧可用 Pillow 重新解码 |
+
+实测目标长度：`deep_output_dir` 273 → 代表帧 **~368**。
+反向验证：改回浅路径 ⇒ 失败于 `segments.json 路径只有 251 字符，未跨过 MAX_PATH`。
+
+### 测试环境稳定性（任务书 §5）
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_deep_scan_api.py::_make_deep_dir` + `test_scan_320_char_cjk_root` | 层数按 root **实际长度**推导，目标按**最终**路径计算；TEMP 根 35/58/76/120 实测最终长度 336/328/346/328，均 ≥320；目标长度未降低 |
+
+### R4 手动确认项（建议纳入 T01–T25）
+
+| 编号 | 场景 | 期望 |
+| --- | --- | --- |
+| T-R4-01 | 在 `LongPathsEnabled=0` 的 Windows 上，把 TEMP 设成 ≥76 字符后跑视频分析 | 任务进入 `complete_video`；Observation 落库；cleanup 成功 |
+| T-R4-02 | 同上环境，把项目 `output_dir` 放到深路径后再生成分析包 | 代表帧出现在 `segments.json` 与 ZIP；帧可打开 |
+| T-R4-03 | 打开生成的分析包 README.txt | 分隔线是 50 个等号；JSON 示例无双引号转义残留 |
+| T-R4-04 | 导出分析包后删除派生视频再重跑 | 报 `CLIP_UNREADABLE`，不得假报成功 |
+| T-R4-05 | 深路径下取消视频任务 | staging 被清理，无残留字节，无跨项目删除 |

@@ -42,10 +42,22 @@ ACTIVE = ("pending", "running")
 # --------------------------------------------------------------------------
 
 def _make_deep_dir(root: Path, target_len: int, chunk: str = "d" * 36) -> Path:
+    """Create nested directories until the path is at least ``target_len`` chars.
+
+    TSB-366-R4 (§5): the level count is derived from the *actual* length of
+    ``root``, so the result no longer depends on how long the machine's TEMP root
+    happens to be. If the next full chunk would overshoot, the final component is
+    padded to land exactly on the target instead of skipping past it.
+    """
     current = root
     while len(str(current)) < target_len:
-        current = current / chunk
-        os.makedirs(long_path(current), exist_ok=True)
+        nxt = current / chunk
+        if len(str(nxt)) > target_len + len(chunk):
+            # One level would nearly double the overshoot; size the last chunk.
+            pad = max(1, target_len - len(str(current)) - 1)
+            nxt = current / ("d" * min(pad, 200))
+        os.makedirs(long_path(nxt), exist_ok=True)
+        current = nxt
     return current
 
 
@@ -182,10 +194,18 @@ def test_scan_320_char_cjk_root(client, tmp_path: Path):
     root = tmp_path / "旅行 素材"
     root.mkdir()
     # Chinese chunk keeps the path realistic while still long.
-    deep = _make_deep_dir(root, 300, chunk="旅行素材目录" + "x" * 24)
-    nested = deep / "二级 目录" / "it's here"
+    # TSB-366-R4 (§5): build to the *final* length directly, so the target does
+    # not depend on the machine's TEMP root length. The suffix below adds 25
+    # chars; pad the loop target accordingly and assert the real total.
+    suffix = Path("二级 目录") / "it's here"
+    target = 320
+    deep = _make_deep_dir(root, target - len(str(suffix)) + 1,
+                          chunk="旅行素材目录" + "x" * 24)
+    nested = deep / suffix
     os.makedirs(long_path(nested), exist_ok=True)
-    assert len(str(nested)) >= 320, len(str(nested))
+    assert len(str(nested)) >= target, (
+        f"路径只有 {len(str(nested))} 字符，未达到测试目标 {target}"
+    )
 
     _make_video(nested / "第一段.mp4", color="red")
     _make_video(nested / "第二段.mp4", color="blue")

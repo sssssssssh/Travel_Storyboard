@@ -1,0 +1,81 @@
+TSB-366-R4 阶段 0 基线核对 + 缺陷定位（修复前）
+==============================================
+
+时间: 2026-11-06
+仓库: ssssssssssh/Travel_Storyboard  main
+HEAD: 5890c10e7c33b70dfd66e776673528389b72ea65
+origin/main: 5890c10e7c33b70dfd66e776673528389b72ea65  (IN SYNC)
+分支: main
+工作区: clean (git status --porcelain 为空)
+
+环境
+  OS           : macOS 15.7.7 arm64  (24G720)
+  Python       : 3.12.14
+  pytest       : 9.1.1
+  Pillow       : 12.3.0
+  OpenCV       : 5.0.0
+  FFmpeg       : 9.0.2 (Homebrew)
+  FFprobe      : 9.0.2
+  TMPDIR       : 机器默认 48 字符 (已脱敏)
+  LongPathsEnabled: N/A —— 本机为 macOS，无 Windows MAX_PATH 限制
+
+  ⚠ 重要环境事实：本机是 macOS，**无法**复现 Windows 的 MAX_PATH 失败。
+    因此本轮的 35/58/76 矩阵在 macOS 上预期全绿（见下），
+    真实缺陷通过**代码审查 + 确定性单元测试**定位与证明，
+    而非依赖某个 TEMP 长度偶然变红。
+
+一、35/58/76/90 TEMP 根矩阵（macOS，修复前）
+--------------------------------------------
+用 --basetemp 构造精确长度根（实测 basetemp 生效，tmp_path 长度 117/123 字符）：
+
+  tests/test_video_provider_wiring.py   8 passed  @ 35 / 58 / 76
+  tests/test_video_e2e_formal_api.py    9 passed  @ 35 / 58 / 76 / 90
+
+  → macOS 全绿，与任务书"Windows 76 字符失败"不矛盾：
+    macOS 无 MAX_PATH，路径再长也正常。此矩阵不能证明缺陷不存在。
+
+二、代码审查确认的真实缺陷（修复前，均为普通 Path API）
+------------------------------------------------------
+定位方法：逐处检查任务书 §2.2 指出的热点，找出**未走 long_path 回退**的普通路径访问。
+
+[D1] backend/app/services/vision/video_clip.py::probe_clip()
+     行 589:  if not path.is_file():                      <- 普通 API
+     行 610:  size = path.stat().st_size                   <- 普通 API
+     （同函数行 639 的 _sha256 已用 safe_open，是正确处理范例）
+     后果: Windows 上 >260 字符的派生 MP4 会被判定为
+           "derived clip was not created" (CLIP_UNREADABLE)，
+           而文件其实真实存在、ffprobe 也能读（probe() 已用 long_path）。
+     这就是 R07/V31 在 76 字符根下**没进入 complete_video** 的最上游原因之一。
+
+[D2] backend/app/services/vision/video_job.py::_analyze_one()
+     行 1100: plan.budget.note_derived([(clip.duration_sec, clip.path.stat().st_size)])
+     行 1157: data=clip.path.read_bytes()
+     后果: ① 预算计量读取失败 -> 抛非 ModelError 异常，job 记失败；
+           ② 构造 VideoPart 时读取失败 -> 同样在 provider 之前中断。
+     两者都发生在 complete_video() **之前**，与 "used == []" 完全吻合。
+
+[D3] backend/app/services/vision/video_job.py::path_occupies_disk()
+     行 774: os.lstat(stage)
+     后果: Windows 上超长路径 lstat 抛 OSError，被 except OSError 分支
+           归为 "在"（返回 True）—— 恰好方向正确但**理由错误**：
+           它把"路径过长"伪装成"不可读但存在"，掩盖真实错误（违反 C6）。
+     应为: 先用 long_path 重试再判存在性。
+
+[D4] R4-F01 backend/app/services/review_package.py 行 574
+     "=\" * 5"   <- 普通字符串，输出字面量 =\" * 5 而不是 50 个等号
+     行 589-593: \\\"schema_version\\\" 多重转义，README 里显示多余反斜杠
+
+[D5] R4-F02 backend/tests/test_tsb366r3_package_deep.py
+     - 定义了 deep_output_dir fixture 但测试**没有使用**
+     - 实际用 tmp_path / ("out" + "z" * 24)
+     - 未断言任何目标路径长度 >= 260
+     → 该用例名为深路径，实际未必跨过 MAX_PATH。
+
+三、"used == []" 的正确解读（任务书 §2.3）
+------------------------------------------
+used == [] 仅证明 provider.complete_video() 未被调用，**不能**单独证明
+是哪一步失败。按 D1/D2 的代码位置，真实中断点在：
+  derive_clip → run(expect_output) [此处已长路径安全] → probe_clip [D1 ∩]
+  → note_derived(stat) [D2∩] → VideoPart(read_bytes) [D2∩] → complete_video
+即 D1 与 D2 都位于 complete_video 之前，任一触发都表现为 used == []。
+本轮通过**注入式确定性测试**分别证明 D1/D2，而不是靠猜。
