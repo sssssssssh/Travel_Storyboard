@@ -1715,3 +1715,69 @@ CI 却通过，形成"本机红、CI 绿"的长期噪音。
 
 连接被拒在本机表现为 `ConnectTimeout` 而非 `ConnectError`（测试断言契约而非异常类）；
 局域网地址仍走系统代理（当前未处理）。
+
+
+## TSB-366-R3 分析包代表帧缺失（长路径）
+
+发布记录：[docs/RELEASE_TSB_366_R3.md](RELEASE_TSB_366_R3.md)
+根因与证据：[docs/validation/tsb366-r3/ROOT_CAUSE.md](validation/tsb366-r3/ROOT_CAUSE.md)
+
+**原缺陷**：`test_complete_custom_workspace_pipeline_and_source_hashes` 在本机间歇失败、
+CI 一直通过。失败信息 `代表帧缺失或预算不足` 把两种原因合并，且没提真正的重编码失败。
+
+**根因**：`_safe_save()` 的长路径回退分支 `image.save(BytesIO, **kwargs)` 缺少 `format`。
+目标路径超过 `MAX_PATH`(260) 时第一次 `image.save(path)` 失败，回退必然抛
+`ValueError: unknown file extension`，被调用方当作"重编码失败"吞掉 → **所有代表帧静默丢弃**。
+
+**逐层排除证据**：失败时刻合格镜头 5、有帧行镜头 5、帧行 5、范围内 5、越界 0、
+路径解析失败 0、文件缺失 0 —— 四层全部健康，问题在保存层。
+
+**触发阈值**：tmp_path 111 字符 → 帧路径 267 → 失败；tmp_path 87 → 帧路径 243 → 通过。
+
+### 三处同类缺陷
+
+| # | 位置 | 机制 |
+|---|---|---|
+| 1 | `_safe_save()` 回退分支 | `BytesIO` 无扩展名且无 `format` |
+| 2 | contact sheet 保存 | 与 #1 同源，随 #1 修复 |
+| 3 | **zip 写入** `zf.write(p, …)` | `zipfile` 内部 `os.stat()` 看不见 >MAX_PATH 路径 |
+
+#2、#3 在修复 #1 后才暴露——此前被完全掩盖。
+
+### 回归测试（新增 15 项）
+
+| 文件 | 项数 | 守护行为 |
+|---|---:|---|
+| `test_tsb366r3_long_path.py` | 12 | 长路径保存并可重新打开；短/长路径结果一致；深目录创建写入读取；EXIF/GPS 清理；**强制回退分支（Linux 也覆盖）**；错误消息分因；诊断不泄漏私人路径 |
+| `test_tsb366r3_package_deep.py` | 3 | 深路径 package 的帧**确实进入 `segments.json` 与 zip**；四类计数分开；全失败消息可操作 |
+
+关键用例：
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_safe_save_succeeds_past_max_path` | >260 路径保存成功且可重新打开 |
+| `test_safe_save_long_path_result_matches_a_short_path` | 同输入同 quality ⇒ 像素一致 |
+| `test_sanitized_copy_succeeds_past_max_path` | 包内重编码器端到端 |
+| `test_safe_save_strips_exif_and_gps` | 隐私清理（无 EXIF、无 GPS、无厂商串） |
+| `test_deep_directories_can_be_created_written_and_read` | 深目录创建/写入/读取 |
+| `test_the_long_path_fallback_is_reachable_even_without_max_path` | **Linux 上强制覆盖回退分支** |
+| `test_the_fallback_names_the_format_explicitly` | 直接证明回退分支传了 `format` |
+| `test_package_in_a_deep_workspace_contains_its_frames` | 深路径下帧真的进包 |
+| `test_partial_reencode_failure_keeps_good_frames_and_separates_counters` | 计数分开，重编码失败不计入预算 |
+| `test_all_frames_failing_produces_an_actionable_error` | 全失败消息点名真实原因 |
+| `test_no_frames_message_names_reencode_failures_not_budget` | 消息分因（纯函数） |
+| `test_reencode_error_description_leaks_no_private_path` | 诊断只记长度不记路径 |
+
+### 平台处理
+
+Windows 真实执行全部长路径用例；Linux 上 4 项 Windows 专属用例带**明确 skip 原因**
+（已在 `conftest._EXPECTED_SKIP_REASONS` 白名单），回退分支由强制模拟用例覆盖，
+**不静默跳过**。
+
+### 反向验证
+
+移除 `format` → 5 项变红（含 Linux 执行的强制回退两条）；恢复后全绿，无残留标记。
+
+### 数据安全
+
+原片只读、项目目录隔离、EXIF/GPS 清理均保持；修复不改变包结构与条目命名。

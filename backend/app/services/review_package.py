@@ -41,6 +41,7 @@ from ..config import ANALYSIS_VERSION, APP_VERSION
 from ..database import begin_write, session_scope
 from ..ffmpeg import (
     locate_ffmpeg,
+    long_path,
     safe_image_open,
     safe_is_file,
     safe_mkdir,
@@ -72,8 +73,121 @@ def _tool_label() -> str:
     return Path(path).name if path else "unavailable"
 
 
+#: Pillow needs a concrete format when it cannot infer one from a file name.
+#: The long-path fallback writes to a ``BytesIO``, which has no name at all.
+_LONG_PATH_SAVE_FORMAT = "JPEG"
+
+
+def _describe_reencode_error(exc: BaseException, dst: Path) -> dict:
+    """A diagnostic for one failed re-encode that leaks no private path (R3).
+
+    The old code counted failures and moved on, so a systematic problem (every
+    frame failing for the same reason) looked exactly like "no frames". Keeping
+    the first cause — type, message and *lengths*, never the path itself —
+    makes the failure actionable while staying privacy-safe.
+    """
+    text = str(exc)
+    return {
+        "error_type": type(exc).__name__,
+        # Messages from Pillow/OS carry the path; strip it, keep the reason.
+        "reason": text.split(":")[0].strip()[:120] if text else type(exc).__name__,
+        "target_path_length": len(str(dst)),
+        "target_name_length": len(dst.name),
+        "max_path": 260,
+        "likely_long_path": len(str(dst)) >= 260,
+    }
+
+
+def _no_frames_message(
+    *,
+    segments: int,
+    reencode_failures: int,
+    excluded_missing_frames: int,
+    excluded_by_budget: int,
+    excluded_resolve_failures: int,
+    excluded_outside_range: int,
+    first_reencode_error: dict | None,
+) -> str:
+    """Explain *why* no segment made it into the package (TSB-366-R3).
+
+    The previous single sentence merged "the frame files are missing" with "the
+    size budget ran out". Those need opposite fixes, and neither mentions a
+    re-encode failure at all — which is exactly what a long-path save produced.
+    The message now names the dominant cause and lists every counter.
+    """
+    parts: list[str] = []
+    if reencode_failures:
+        detail = ""
+        if first_reencode_error:
+            detail = (
+                f"（首个失败：{first_reencode_error['error_type']} "
+                f"{first_reencode_error['reason']}；"
+                f"目标路径 {first_reencode_error['target_path_length']} 字符"
+                f"≥ MAX_PATH {first_reencode_error['max_path']}"
+                f"={first_reencode_error['likely_long_path']}）"
+            )
+        parts.append(
+            f"{reencode_failures} 张代表帧重编码失败，无法写入分析包{detail}"
+        )
+    if excluded_by_budget:
+        parts.append(f"{excluded_by_budget} 张因分析包体积预算不足被跳过")
+    if excluded_missing_frames:
+        parts.append(f"{excluded_missing_frames} 张代表帧文件缺失")
+    if excluded_resolve_failures:
+        parts.append(f"{excluded_resolve_failures} 张代表帧路径不在项目工作区内")
+
+    if not parts:
+        # Every segment had frames but all of them fell outside the shot's own
+        # time range — a detection//trim inconsistency, not a saving problem.
+        if excluded_outside_range:
+            return (
+                f"无当前有效镜头：{excluded_outside_range} 张代表帧的时间点都不在"
+                f"对应镜头的时间范围内（共 {segments} 个合格镜头），"
+                "请重新检测或人工复核镜头边界"
+            )
+        return (
+            f"无当前有效镜头：{segments} 个合格镜头都没有可用的代表帧，"
+            "请重新检测或增加分析包预算"
+        )
+
+    return (
+        f"无当前有效镜头：{segments} 个合格镜头均未能产出代表帧。"
+        + "；".join(parts) + "。"
+    )
+
+
+def _write_text_long(path: Path, text: str) -> None:
+    """Write UTF-8 text to a path that may exceed Windows' MAX_PATH (R3).
+
+    ``Path.write_text`` goes through the ordinary Win32 API, which refuses paths
+    at/after 260 characters even when the directory exists. Writing through
+    :func:`long_path` keeps a deep workspace's JSON documents and README next to
+    the images that were already saved successfully.
+    """
+    with open(long_path(path), "wb") as handle:
+        handle.write(text.encode("utf-8"))
+
+
 def _safe_save(image, path: Path, **kwargs) -> None:
-    """Save a Pillow image without hitting Windows' MAX_PATH limit."""
+    """Save a Pillow image without hitting Windows' MAX_PATH limit (TSB-366-R3).
+
+    Two independent platform facts shape this function, and getting either one
+    wrong loses frames silently:
+
+    1. ``image.save(path)`` lets Pillow infer the encoder from the file
+       *extension*. Past ``MAX_PATH`` (260) the open fails with
+       ``FileNotFoundError``, so we fall back to encoding into memory and
+       writing the bytes through :func:`long_path`.
+    2. In that fallback there is no file name, so the format **must** be passed
+       explicitly. Reusing ``kwargs`` unchanged raised
+       ``ValueError: unknown file extension:`` every single time — the fallback
+       had never worked, and the caller's broad ``except (OSError, ValueError)``
+       turned it into "the frame is missing".
+
+    ``format`` is only honoured when the caller did not supply one; the encoder
+    options (``quality``, …) are forwarded untouched so a short-path and a
+    long-path save produce the same image.
+    """
     import io as _io
 
     from ..ffmpeg import long_path
@@ -83,7 +197,9 @@ def _safe_save(image, path: Path, **kwargs) -> None:
         return
     except (FileNotFoundError, OSError):
         buffer = _io.BytesIO()
-        image.save(buffer, **kwargs)
+        save_kwargs = dict(kwargs)
+        save_kwargs.setdefault("format", _LONG_PATH_SAVE_FORMAT)
+        image.save(buffer, **save_kwargs)
         with open(long_path(path), "wb") as handle:
             handle.write(buffer.getvalue())
 
@@ -260,9 +376,17 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
     sheet_labels: dict[int, str] = {}
     frame_index = 0
     total_frames = 0
+    # TSB-366-R3: four independent reasons a frame can be left out, counted
+    # separately. Combining them is what produced the old "missing or over
+    # budget" message that told nobody anything.
     reencode_failures = 0
     excluded_missing_frames = 0
     excluded_by_budget = 0
+    excluded_resolve_failures = 0
+    excluded_outside_range = 0
+    # First re-encoding failure, for a diagnostic that a user can act on. Only
+    # the error type, the message and a length are kept — never a full path.
+    first_reencode_error: dict | None = None
 
     for seg in segments:
         seg_frames = frames_by_seg.get(seg.id, [])
@@ -271,24 +395,30 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
         budget_omitted = False
         for f in seg_frames:
             if not seg.start_sec - EPSILON_SEC <= f.time_sec <= seg.end_sec + EPSILON_SEC:
+                excluded_outside_range += 1
                 continue
             if budget.remaining() <= 0:
                 budget_omitted = budget.truncated = True
                 budget.skipped += 1
+                excluded_by_budget += 1
                 continue
             try:
                 src = resolve_in_project(project_id, f.image_path)
             except ValueError:
+                excluded_resolve_failures += 1
                 continue
             if not safe_is_file(src):
+                excluded_missing_frames += 1
                 continue
 
             name = f"{frame_index:04d}_{seg.id[:8]}_{int(round(f.time_sec * 1000)):08d}.jpg"
             dst = frames_dir / name
             try:
                 _sanitized_copy(src, dst, quality)
-            except (OSError, ValueError):
+            except (OSError, ValueError) as exc:
                 reencode_failures += 1
+                if first_reencode_error is None:
+                    first_reencode_error = _describe_reencode_error(exc, dst)
                 continue
 
             if not budget.add(dst):
@@ -296,6 +426,7 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
                 # Budget exhausted; stop adding frames but keep the JSON entry
                 # valid by simply not referencing a file we deleted.
                 budget.skipped += 1
+                excluded_by_budget += 1
                 continue
 
             frames_out.append(
@@ -339,7 +470,15 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
     } for a in assets.values() if a.id in included_asset_ids]
     if not segments_json:
         shutil.rmtree(pkg_dir)
-        raise ValueError('无当前有效镜头：代表帧缺失或预算不足，请重新检测或增加分析包预算')
+        raise ValueError(_no_frames_message(
+            segments=len(segments),
+            reencode_failures=reencode_failures,
+            excluded_missing_frames=excluded_missing_frames,
+            excluded_by_budget=excluded_by_budget,
+            excluded_resolve_failures=excluded_resolve_failures,
+            excluded_outside_range=excluded_outside_range,
+            first_reencode_error=first_reencode_error,
+        ))
 
     # Build contact sheets.
     per_sheet = cols * rows
@@ -383,6 +522,12 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
             "excluded_invalid_source": excluded_invalid_source,
             "excluded_missing_frames": excluded_missing_frames,
             "excluded_by_budget": excluded_by_budget,
+            # TSB-366-R3: the remaining reasons, counted apart so "no frames"
+            # is never again reported as "missing or over budget".
+            "excluded_resolve_failures": excluded_resolve_failures,
+            "excluded_outside_range": excluded_outside_range,
+            "reencode_failures": reencode_failures,
+            "first_reencode_error": first_reencode_error,
             "package_truncated": budget.truncated,
             "note": (
                 "Only assets referenced by the selected segments are listed. "
@@ -412,20 +557,21 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
         "package": {"contact_sheet_cols": cols, "contact_sheet_rows": rows},
     }
 
-    (pkg_dir / "assets.json").write_text(
-        json.dumps(assets_json, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    (pkg_dir / "segments.json").write_text(
-        json.dumps(segments_json, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    (pkg_dir / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    (pkg_dir / "README.txt").write_text(
+    # ``Path.write_text`` uses the ordinary Win32 path API, which stops at
+    # MAX_PATH; a deep workspace therefore lost assets.json/segments.json even
+    # though every image had been written successfully (TSB-366-R3).
+    _write_text_long(pkg_dir / "assets.json",
+                     json.dumps(assets_json, ensure_ascii=False, indent=2))
+    _write_text_long(pkg_dir / "segments.json",
+                     json.dumps(segments_json, ensure_ascii=False, indent=2))
+    _write_text_long(pkg_dir / "manifest.json",
+                     json.dumps(manifest, ensure_ascii=False, indent=2))
+    _write_text_long(
+        pkg_dir / "README.txt",
         "\n".join(
             [
                 "Travel Storyboard — Round 1 analysis package",
-                "=" * 50,
+                "=\" * 5",
                 "",
                 "This package contains candidate shots (segments) as contact sheets and",
                 "structured JSON. Use it to plan one or more story lines.",
@@ -440,11 +586,11 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
                 "",
                 "When you reply with review requests, return a JSON object:",
                 "  {",
-                "    \"schema_version\": \"2.0\",",
-                "    \"requests\": [",
-                "      {\"asset_id\": \"...\", \"segment_id\": \"...\",",
-                "       \"start_sec\": 123.5, \"end_sec\": 135.0,",
-                "       \"priority\": \"high\", \"reason\": \"...\"}",
+                "    \\\"schema_version\\\": \\\"2.0\\\",",
+                "    \\\"requests\\\": [",
+                "      {\\\"asset_id\\\": \\\"...\\\", \\\"segment_id\\\": \\\"...\\\",",
+                "       \\\"start_sec\\\": 123.5, \\\"end_sec\\\": 135.0,",
+                "       \\\"priority\\\": \\\"high\\\", \\\"reason\\\": \\\"...\\\"}",
                 "    ]",
                 "  }",
                 "The app will import this file and auto-generate low-res previews for",
@@ -452,15 +598,20 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
                 "",
             ]
         ),
-        encoding="utf-8",
     )
 
     # Zip the whole package for upload.
     zip_path = project_cache_dir(project_id) / "packages" / f"{version}.zip"
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(long_path(zip_path), "w", zipfile.ZIP_DEFLATED) as zf:
         for p in sorted(pkg_dir.rglob("*")):
-            if safe_is_file(p):
-                zf.write(p, p.relative_to(pkg_dir.parent))
+            if not safe_is_file(p):
+                continue
+            # ``ZipFile.write(path, ...)`` calls ``os.stat(path)`` internally,
+            # which cannot see a path past MAX_PATH (TSB-366-R3). Reading bytes
+            # through ``long_path`` and adding them as a named entry keeps the
+            # archive identical without depending on the OS path limit.
+            with open(long_path(p), "rb") as handle:
+                zf.writestr(p.relative_to(pkg_dir.parent).as_posix(), handle.read())
 
     total_size = sum(
         safe_stat(p).st_size for p in pkg_dir.rglob("*") if safe_is_file(p)
@@ -477,6 +628,7 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
         "truncated": budget.truncated,
         "items_skipped": budget.skipped,
         "reencode_failures": reencode_failures,
+        "first_reencode_error": first_reencode_error,
         "used_bytes": budget.used_bytes,
         "max_bytes": budget.limit_bytes,
     }
@@ -537,10 +689,19 @@ def package_task(job_id: str) -> None:
         result = _build_package(project_id, options, job_id=job_id)
 
     if result["reencode_failures"]:
+        cause = result.get("first_reencode_error") or {}
+        detail = ""
+        if cause:
+            detail = (
+                f"（首个：{cause.get('error_type', '')} {cause.get('reason', '')}；"
+                f"目标路径 {cause.get('target_path_length', 0)} 字符）"
+            )
         failures.record(
             kind="frame",
             ref=project_id,
-            message=f"{result['reencode_failures']} 张分镜图重编码失败，已从包中排除",
+            message=(
+                f"{result['reencode_failures']} 张分镜图重编码失败，已从包中排除{detail}"
+            ),
         )
     if result["truncated"]:
         # The package is still usable, but the user must know it is incomplete.
