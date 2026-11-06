@@ -5,6 +5,8 @@
 | 诊断基线 | `12bef0a984d5c0193ce5a0a42b2493b02f60b6f6` |
 | 根因与证据 | [ROOT_CAUSE.md](validation/tsb366-r3/ROOT_CAUSE.md) |
 | 证据目录 | [docs/validation/tsb366-r3/](validation/tsb366-r3/) |
+| **交付 SHA** | **`73bf982c6b8d6ee71df2d901321b03015e673b4b`** |
+| CI | run #103，**7/7 success** —— https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42189919219 |
 
 > **结论**：代表帧**没有**丢在查询、时间范围、路径解析或预算这些环节，
 > 而是**全部丢在"重编码保存"**：`_safe_save()` 的长路径回退分支
@@ -218,3 +220,58 @@ FAILED test_the_fallback_names_the_format_explicitly
    但需要在后续改动中留意。
 4. **`long_path()` 对新建文件依赖父目录已存在**：目录创建仍需 `safe_mkdir`，
    两者必须配合使用。
+
+
+---
+
+## 九、CI 执行结果
+
+| 项 | 值 |
+|---|---|
+| 交付 SHA | `73bf982c6b8d6ee71df2d901321b03015e673b4b` |
+| run | **#103** |
+| 链接 | https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42189919219 |
+| 结论 | **7/7 success** |
+
+| 作业 | 结论 |
+|---|---|
+| `Required FFmpeg (windows-latest)` | ✅ success |
+| `Required FFmpeg (ubuntu-latest)` | ✅ success |
+| `Backend (Python 3.11)` ×2 | ✅ success |
+| `Backend (Python 3.13)` ×2 | ✅ success |
+| `Frontend` | ✅ success |
+
+**Required FFmpeg Windows / Ubuntu 真实执行并通过**——这两个作业跑的就是
+`test_ffmpeg_integration.py`（普通 Backend 作业会 ignore 它）。
+
+本轮新增的 15 项长路径测试也在 `backend` 作业范围内执行；其中 4 项 Windows 专属
+用例在 Ubuntu 上带明确 skip 原因，回退分支由强制模拟用例覆盖。
+
+---
+
+## 十、完成判定（对照任务书 §9）
+
+| 条件 | 状态 |
+|---|---|
+| 确认 main HEAD 和工作区 | ✅ `12bef0a`，干净 |
+| 目标用例本机 3 次复现结果已记录 | ✅ 深目录 3/3 失败、默认目录 3/3 通过 |
+| 确认失败在 package 阶段 | ✅ 第 5 步 `execute('package')` |
+| 读取失败 Job 的完整 error/stats | ✅ 各层计数已采集 |
+| 采集 Asset/Segment/Frame 数据库状态 | ✅ 见 ROOT_CAUSE §二 |
+| 确认代表帧在哪一层被排除 | ✅ **重编码保存**层 |
+| 验证 image_path / resolve / safe_is_file / Pillow 解码 | ✅ 四层全部健康 |
+| 核对路径长度、tmp_path、custom output_dir | ✅ 阈值 260 已定量 |
+| 核对 FFmpeg/Pillow/OpenCV 与 CI 差异 | ✅ 差异在 tmp_path 长度 |
+| 对比两个 SHA 是否同一失败机制 | ✅ 同一机制 |
+| 根因有可复现证据 | ✅ 三处缺陷全部可复现 |
+| 修复不破坏原片只读/目录隔离/隐私清理 | ✅ EXIF/GPS 清理有专门测试 |
+| **目标用例 10/10** | ✅ **10/10** |
+| **FFmpeg 集成文件 3/3** | ✅ **3/3** |
+| 完整测试通过 | ✅ **1716 / 0 failed / 5 skipped** |
+| 现有 CI 通过 | ✅ run #103 7/7 |
+| 发布记录和证据索引完成 | ✅ 本文 + `ROOT_CAUSE.md` + `README.md` + `DIAGNOSIS.md` |
+| 已提交推送，工作区干净 | ✅ `73bf982`，与 origin 一致 |
+
+**关于"完整测试通过"**：本机全量 1716 项 0 失败是在**临时目录根 58 字符**下取得的。
+这一点已在 §五 如实说明：临时目录过短会让 320 字符用例失败，过长会触发
+视频链路的另一处既存长路径缺陷（§七，未修）。**没有通过缩短测试路径或改断言来达成绿色。**
