@@ -6,6 +6,8 @@
 | 上一轮 | TSB-367 = `f9585e1`，CI run #97 7/7 |
 | 差距分析 | [GAP_ANALYSIS.md](validation/tsb367-r1/GAP_ANALYSIS.md)（编码前逐项实测） |
 | 证据目录 | [docs/validation/tsb367-r1/](validation/tsb367-r1/) |
+| **交付 SHA** | **`905027b7ab51b2c21b60d79d660cd44bc15a8a09`** |
+| CI | run #99，**7/7 success** —— https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42148849971 |
 
 > **本轮性质**：不重新设计 TSB-367，只修复代码审阅发现的 9 项问题。
 > **未接入任何模型**，未开发 TSB-368/369/371，未改动 Vision Provider 的 408 分类。
@@ -221,3 +223,48 @@ tests=1667 failures=1 errors=0 skipped=5
 6. **`update_constraints` 的软偏好仍只记录不生效**，待 TSB-368/369 消费。
 7. **操作列表无分页**，`limit` 上限 50。
 8. **`0002` 的 `legacy_plan_migrations` 索引**：`0003` 已补索引；已执行过 TSB-367 版本 `0002` 的库在升级到 `0003` 时会被检查并补建索引，但**旧库若曾用 `init_db()` 建表且缺索引**，`0003` 同样会补上——此路径有测试覆盖，但未在真实历史库上演练。
+
+
+---
+
+## 八、CI 执行结果
+
+| 项 | 值 |
+|---|---|
+| 交付 SHA | `905027b7ab51b2c21b60d79d660cd44bc15a8a09` |
+| run | **#99** |
+| 链接 | https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42148849971 |
+| 结论 | **7/7 success** |
+
+| 作业 | 结论 |
+|---|---|
+| `Frontend` | ✅ success |
+| `Required FFmpeg (ubuntu-latest)` | ✅ success |
+| `Required FFmpeg (windows-latest)` | ✅ success |
+| `Backend (Python 3.11)` ×2 | ✅ success |
+| `Backend (Python 3.13)` ×2 | ✅ success |
+
+408 用例在 CI 通过、本机失败 —— 与上一轮一致的环境差异，本轮未改动该模块，也未修改其分类逻辑。
+
+---
+
+## 九、完成判定（对照任务书 §七）
+
+| 条件 | 状态 |
+|---|---|
+| 预览与最终应用镜头 ID 完全一致 | ✅ R1-01，9 项测试 |
+| stale / failed 状态能够正确持久化 | ✅ R1-02，12 项测试 |
+| 状态机和数据库约束一致 | ✅ 触发器覆盖 INSERT/UPDATE，终态集合统一 |
+| 最终快照完整引用校验生效 | ✅ R1-03，10 项检查 |
+| invalid 快照无法发布 | ✅ 提案与 apply 双重阻断，反向验证成立 |
+| 历史 Alembic 数据库可以正常升级 | ✅ R1-04，`0003` 前向 revision |
+| init_db 与 Alembic 结构一致 | ✅ 比较表/列/索引/外键/触发器 |
+| 前端具备最小人工操作入口 | ✅ R1-05，六类操作，目标显式 |
+| move_shot 边界行为正确 | ✅ R1-06，跨章节 + 自身锚点 |
+| all 锁定可以正确部分解锁 | ✅ R1-07，20 格矩阵保持全绿 |
+| move_section 语义明确 | ✅ R1-08，写入合同 + 交错标记 |
+| 真正的并发竞争测试通过 | ✅ R1-09，双线程 + Barrier + 5 轮 |
+| 后端完整测试通过（408 单独记录） | ✅ 1666/1667，唯一失败为既存 408 |
+| 前端测试/类型/Lint/Build 通过 | ✅ 123 passed，四项全绿 |
+| GitHub CI 全部通过 | ✅ run #99 7/7 |
+| 提交已推送，工作区干净 | ✅ `905027b`，与 origin 一致 |
