@@ -318,6 +318,27 @@ def walk_files(root: str | Path):
     can record it.
     """
     base = Path(root)
+
+    def _plain(text: str) -> Path:
+        r"""Strip the extended-length prefix before handing a path to callers.
+
+        TSB-366-R4-R1: once `safe_scandir` falls back to `long_path()`, every
+        `DirEntry.path` it returns carries the ``\\?\`` (or ``\\?\UNC\``)
+        prefix. Yielded verbatim, that prefix leaked into
+        `Path.relative_to(...)`, into stored `Frame.image_path` values and into
+        `ValueError: '\\?\C:\...' is not in the subpath of ...` -- the
+        os.stat form is meant to be an internal detail of the compat layer, not
+        a value callers ever see (AGENTS.md: never persist or expose the
+        extended-length form).
+        """
+        if os.name != "nt":
+            return Path(text)
+        if text.startswith("\\\\?\\UNC\\"):
+            return Path("\\\\" + text[8:])
+        if text.startswith("\\\\?\\"):
+            return Path(text[4:])
+        return Path(text)
+
     stack = [base]
     while stack:
         current = stack.pop()
@@ -335,12 +356,12 @@ def walk_files(root: str | Path):
                 is_dir = entry.is_dir(follow_symlinks=False)
             except OSError:
                 # Cannot classify: treat as a file so the caller reports it.
-                yield Path(entry.path)
+                yield _plain(entry.path)
                 continue
             if is_dir:
-                stack.append(Path(entry.path))
+                stack.append(_plain(entry.path))
             else:
-                yield Path(entry.path)
+                yield _plain(entry.path)
 
 
 def safe_unlink(path: str | Path, *, missing_ok: bool = True) -> None:

@@ -429,3 +429,48 @@ def test_the_zip_is_built_by_walking_through_the_compat_layer():
     assert "walk_files(" in code, (
         "打包必须经 walk_files（内部 safe_scandir + long_path）枚举"
     )
+
+
+def test_walk_files_never_leaks_the_extended_length_prefix(tmp_path, monkeypatch):
+    r"""TSB-366-R4-R1: `walk_files` 不得把 `\\?\` 前缀交给调用方。
+
+    深路径下 `safe_scandir` 会回退到 `long_path()`，此时 `DirEntry.path`
+    带扩展长度前缀。修复前 `walk_files` 原样 yield，前缀于是泄漏进
+    `Path.relative_to(...)`，在 windows-latest 上抛
+    `ValueError: '\\?\C:\...' is not in the subpath of ...`
+    （CI run 42390622837）。
+
+    扩展长度形式是兼容层的**内部细节**：既不写库、也不进 API。
+    这里强制走回退分支，断言所有 yield 出的路径都不带前缀。
+    """
+    import os as _os
+
+    import app.ffmpeg as ff
+
+    root = tmp_path / "walk"
+    (root / "sub").mkdir(parents=True)
+    (root / "a.txt").write_text("a")
+    (root / "sub" / "b.txt").write_text("b")
+
+    if _os.name != "nt":
+        # The prefix only exists on Windows; the same normalisation is a no-op
+        # elsewhere, so assert the paths come back ordinary and absolute-ish.
+        got = sorted(str(p) for p in ff.walk_files(root))
+        assert any(p.endswith("a.txt") for p in got)
+        assert any(p.endswith("b.txt") for p in got)
+        assert not any(p.startswith("\\\\?\\") for p in got)
+        return
+
+    # Force the extended-length fallback so the prefixed entries are produced.
+    real_scandir = _os.scandir
+    prefixed = str(ff.long_path(root))
+
+    def forced(path):
+        return real_scandir(prefixed if _os.fspath(path) == str(root) else path)
+
+    monkeypatch.setattr(_os, "scandir", forced)
+    got = [str(p) for p in ff.walk_files(root)]
+    assert got, "遍历不应为空"
+    assert not any(p.startswith("\\\\?\\") for p in got), (
+        f"walk_files 泄漏了扩展长度前缀: {[p for p in got if p.startswith(chr(92)*2+chr(63)+chr(92))][:3]}"
+    )
