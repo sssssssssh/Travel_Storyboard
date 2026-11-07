@@ -240,6 +240,8 @@ jobs:
           tests/test_video_model_switch_scope.py
           tests/test_video_provider_wiring.py
           tests/test_video_capability_store.py
+          tests/test_tsb366r3_package_deep.py
+          tests/test_tsb366r4r1_native_video_longpath_e2e.py
 
       # TSB-361: a red job whose failing test id only lives in the (login-only)
       # job log is not evidence. scripts/ci_annotate.py turns the junit XML into

@@ -166,6 +166,21 @@ def register_task(job_type: str) -> Callable:
     return decorator
 
 
+#: ``stats.phase`` values that mean "the work is over".
+#:
+#: TSB-366-R4-R1: ``phase`` was written by whole-``stats`` overwrite with no
+#: monotonicity guard, so a *late* ``running`` write from a second executor
+#: clobbered a terminal ``complete`` and the job read back as still running.
+#: That is exactly the CI failure ``assert stats["phase"] in {"complete",
+#: "failed"}`` -> ``AssertionError: running``. Terminal phases are now
+#: immutable, mirroring the rule already enforced for ``Job.status``.
+TERMINAL_PHASES = ("complete", "failed", "cancelled")
+
+
+def _phase_is_terminal(phase) -> bool:
+    return isinstance(phase, str) and phase in TERMINAL_PHASES
+
+
 def update_job(job_id: str, *, expected_statuses=None, **fields) -> bool:
     """Atomic compare-and-update; terminal states are immutable.
 
@@ -178,6 +193,19 @@ def update_job(job_id: str, *, expected_statuses=None, **fields) -> bool:
             cleanup = (row.stats or {}).get("cleanup") if row else None
             if cleanup is not None:
                 fields["stats"] = {**fields["stats"], "cleanup": cleanup}
+            # TSB-366-R4-R1: a terminal phase is a one-way door. Refuse a write
+            # that would move a finished job's phase back to a running state --
+            # but keep the rest of the payload (counters, cleanup audit) so a
+            # late writer cannot erase the completion record either.
+            if row is not None:
+                stored = (row.stats or {}).get("phase")
+                incoming = (fields["stats"] or {}).get("phase")
+                if _phase_is_terminal(stored) and not _phase_is_terminal(incoming):
+                    fields["stats"] = {**(fields["stats"] or {}), "phase": stored}
+                    logger.info(
+                        "Job %s phase write %r rejected: already terminal (%r)",
+                        job_id, incoming, stored,
+                    )
         stmt = update(Job).where(Job.id == job_id)
         status = fields.get("status")
         if status is not None:

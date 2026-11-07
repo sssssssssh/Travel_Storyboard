@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="5" time="0.982" timestamp="2026-11-07T23:19:50.933655+08:00" hostname="192.168.124.49"><testcase classname="tests.test_tsb366r4r1_job_phase_race" name="test_a3_a_late_running_write_cannot_overwrite_a_terminal_phase" time="0.632"><failure message="AssertionError: Job 停在 'running'；终态被迟到的 running 覆盖了（CI 失败的正是这一形态）&#10;assert 'running' in {'complete', 'failed'}">client = &lt;starlette.testclient.TestClient object at 0x1048a5dc0&gt;
+
+    def test_a3_a_late_running_write_cannot_overwrite_a_terminal_phase(client):
+        """核心回归：终态写入之后，迟到的 `running` 不得把它盖回运行中。
+    
+        修复前：`starting → running → complete → running` 之后，Job 读到的
+        `phase` 是 `running` —— 与 CI 失败断言完全一致。
+        修复后：一旦写入终态（complete/failed/cancelled），后续的 `running`
+        写入必须被忽略，Job 保持终态。
+        """
+        _pid, jid = _make_job()
+    
+        _write_phase(jid, "starting")
+        _write_phase(jid, "running")
+        _write_phase(jid, "complete")   # first executor finishes
+        _write_phase(jid, "running")    # second executor's later stage (late write)
+    
+        final = _phase(jid)
+&gt;       assert final in {"complete", "failed"}, (
+            f"Job 停在 {final!r}；终态被迟到的 running 覆盖了"
+            f"（CI 失败的正是这一形态）"
+        )
+E       AssertionError: Job 停在 'running'；终态被迟到的 running 覆盖了（CI 失败的正是这一形态）
+E       assert 'running' in {'complete', 'failed'}
+
+tests/test_tsb366r4r1_job_phase_race.py:85: AssertionError</failure></testcase><testcase classname="tests.test_tsb366r4r1_job_phase_race" name="test_a3b_a_cancelled_job_also_keeps_its_terminal_phase" time="0.015"><failure message="AssertionError: assert 'running' == 'cancelled'&#10;  &#10;  - cancelled&#10;  + running">client = &lt;starlette.testclient.TestClient object at 0x10e4ab4a0&gt;
+
+    def test_a3b_a_cancelled_job_also_keeps_its_terminal_phase(client):
+        """取消终态同样不可被迟到的 `running` 覆盖。"""
+        _pid, jid = _make_job(status="cancelling")
+        _write_phase(jid, "running")
+        _write_phase(jid, "cancelled")
+        _write_phase(jid, "running")
+&gt;       assert _phase(jid) == "cancelled"
+E       AssertionError: assert 'running' == 'cancelled'
+E         
+E         - cancelled
+E         + running
+
+tests/test_tsb366r4r1_job_phase_race.py:97: AssertionError</failure></testcase><testcase classname="tests.test_tsb366r4r1_job_phase_race" name="test_a3c_the_terminal_phase_is_idempotent" time="0.009" /><testcase classname="tests.test_tsb366r4r1_job_phase_race" name="test_a3d_non_terminal_transitions_still_progress" time="0.010" /><testcase classname="tests.test_tsb366r4r1_job_phase_race" name="test_a3e_the_job_stats_writer_is_phase_monotonic" time="0.003" /></testsuite></testsuites>

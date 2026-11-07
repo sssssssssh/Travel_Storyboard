@@ -1863,3 +1863,50 @@ Windows 真实执行全部长路径用例；Linux 上 4 项 Windows 专属用例
 | T-R4-03 | 打开生成的分析包 README.txt | 分隔线是 50 个等号；JSON 示例无双引号转义残留 |
 | T-R4-04 | 导出分析包后删除派生视频再重跑 | 报 `CLIP_UNREADABLE`，不得假报成功 |
 | T-R4-05 | 深路径下取消视频任务 | staging 被清理，无残留字节，无跨项目删除 |
+
+---
+
+## TSB-366-R4-R1 视频任务生命周期与 Windows 深路径 E2E
+
+发布记录：[docs/RELEASE_TSB_366_R4_R1.md](RELEASE_TSB_366_R4_R1.md)
+证据目录：[docs/validation/tsb366-r4-r1/](validation/tsb366-r4-r1/)
+
+### R1-A：`stats.phase` 终态不可变
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_tsb366r4r1_job_phase_race.py::test_a3_...` | 终态写入后，迟到的 `running` **不得**把它盖回运行中（CI 失败的正是这一形态） |
+| `::test_a3b_...` | 取消终态同样不可被迟到 `running` 覆盖 |
+| `::test_a3c_...` | 重复写同一终态幂等，不降级 |
+| `::test_a3d_...` | **反向约束**：终态保护不得挡住正常阶段性推进（`starting→running→complete`） |
+| `::test_a3e_...` | 接线：视频任务必须经单调保护写 `phase`，不得整体覆盖后把终态盖回 |
+| 反向验证 | 移除守卫 ⇒ **2 RED** |
+
+### R1-A：V31 执行权归属
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_video_e2e_formal_api.py::test_v31_...` | 只由 **API 已调度**的那个执行者跑完；等待其到达终态后才断言；`finished_at` 必须存在、status 必须终态 |
+| 反向验证 | 恢复旧"自动 + 手动"双执行者 ⇒ **RED**（`finished_at is None`） |
+
+### R1-B：Windows ≥260 字符派生 MP4 端到端
+
+| 产物 | 守护的行为 |
+| --- | --- |
+| `test_tsb366r4r1_native_video_longpath_e2e.py::test_a_derived_clip_...` | 在 Windows 读回 `LongPathsEnabled`；断言**实际派生 clip 路径 ≥260**；`safe_*` 可读；重新 `probe_clip()` 校验无音轨/size/SHA/duration/宽高；字节完整；Mock 恰好 1 次且含完整 MP4；原片 SHA/size/mtime 不变；staging 清理干净 |
+| `::test_the_compat_helpers_are_what_keep_a_deep_clip_readable` | 反向证据：Windows 上普通 `Path.stat` 必须失败而 `safe_stat` 成功（复现 R4 前缺陷）；POSIX 明确标注不适用 |
+| 平台口径 | Windows = 真实 MAX_PATH 证据；POSIX = 仅业务链路证据，二者不互相冒充 |
+
+### 验收漏覆盖修复
+
+| 项 | 说明 |
+| --- | --- |
+| `tests/test_tsb366r3_package_deep.py` | 原先**不在** CI 强制媒体清单（命中数 0），R3 深路径 Package 回归从未在 CI 真实执行。本轮已补入，与 `TSB-366-R4-R1` 的 E2E 一并强制 |
+
+### R4-R1 手动确认项（建议纳入 T01–T25）
+
+| 编号 | 场景 | 期望 |
+| --- | --- | --- |
+| T-R41-01 | Windows `LongPathsEnabled=0` 下把项目 `output_dir` 放到深路径后跑视频分析 | 派生 MP4 路径 ≥260 仍能完成分析，Observation 落库，staging 清理干净 |
+| T-R41-02 | 任务跑完后立即读取任务状态 | `phase` 为 `complete`/`failed`，**不会**停在 `running` |
+| T-R41-03 | 同一任务因异常被重复触发执行 | 不出现重复外发请求、重复 Observation 或终态回退 |

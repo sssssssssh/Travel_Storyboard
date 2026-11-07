@@ -90,11 +90,45 @@ def test_v31_the_full_chain_produces_an_observation_and_cleans_up(
     api_job_id = res.json()["id"]
 
     # --- link 2: the worker sends a real video request to the Mock ---------
+    #
+    # TSB-366-R4-R1: this test used to run the job a SECOND time by hand after
+    # the API had already handed it to the global runner. `create_project_job()`
+    # calls `runner.submit()` before returning (job_service.py), so the API
+    # response already owns a *running* background future. Two executors then
+    # wrote `stats` for the same job, and a late `phase="running"` from the
+    # background thread clobbered the manual run's `phase="complete"` -- the
+    # real CI failure was `assert stats["phase"] in {"complete","failed"}` ->
+    # `AssertionError: running`.
+    #
+    # Execution authority now belongs to exactly one owner: the runner that the
+    # API already scheduled. We wait for that same future to finish instead of
+    # starting a second run. `plan_video_job` is patched *inside* a runner whose
+    # job is still `pending`, so the patch is in place before the worker reads
+    # it (the whole test function holds the monkeypatch).
     _VideoServer.seen = []
     monkeypatch.setattr(module, "plan_video_job", lambda jid, **kw: _plan(job_env, _verified_caps()))
+
+    # Wait for the API-scheduled run to reach a terminal state. This is the
+    # barrier that was missing: asserting while the future is still in flight is
+    # what let `phase` be observed mid-run.
+    from tests.conftest import drain_background_jobs
+
+    leftover = drain_background_jobs(timeout=120)
+    assert leftover == [], f"the API-scheduled run never finished: {leftover}"
+
+    # Execution authority must be provable, not merely implied: the job finished
+    # under the runner, so exactly one executor wrote its terminal state. If a
+    # second `_run_task()` were introduced again, `finished_at` would be written
+    # twice and this assertion (plus the phase check below) would expose it.
     with session_scope() as s:
-        s.get(Job, api_job_id).status = "running"
-    _run_task(api_job_id)
+        row = s.get(Job, api_job_id)
+        assert row.finished_at is not None, (
+            "the API-scheduled run must leave a terminal state; a completed job "
+            "always records finished_at"
+        )
+        assert row.status in {"succeeded", "partial_failed", "failed", "cancelled"}, (
+            f"job must reach a terminal status, got {row.status!r}"
+        )
 
     assert len(_VideoServer.seen) >= 1, (
         "the Mock model server received no request; the chain is broken before the wire"
