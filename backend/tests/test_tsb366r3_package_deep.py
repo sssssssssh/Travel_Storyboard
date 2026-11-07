@@ -123,14 +123,29 @@ def _ensure_frame(project_id: str, asset_id: str, *, count: int = 1) -> str:
         span = max(end - start, 0.001)
         for i in range(count):
             image_path = target_dir / f"{new_id()}.jpg"
-            Image.new("RGB", (160, 90), (10, 200, 30)).save(image_path, format="JPEG")
+            # TSB-366-R4-R1: a deep workspace puts the frame itself past
+            # MAX_PATH. Plain `Image.save(path)` obeys the short-path API on
+            # Windows and silently failed to write the file, so the package saw
+            # "no frames" (CI run 42388339787 -> `AssertionError: []`).
+            # Encode in memory and write through long_path, exactly as
+            # production's `_safe_save` does.
+            import io as _io
+
+            buf = _io.BytesIO()
+            Image.new("RGB", (160, 90), (10, 200, 30)).save(buf, format="JPEG")
+            with open(long_path(image_path), "wb") as fh:
+                fh.write(buf.getvalue())
+            written = os.stat(long_path(image_path)).st_size
+            assert written > 0 and safe_is_file(image_path), (
+                f"test frame was not written at len={len(str(image_path))}"
+            )
             # Spread the times inside the shot so each frame is valid.
             t = start + span * (i + 0.5) / count
             s.add(Frame(
                 id=new_id(), asset_id=asset_id, segment_id=seg_id,
                 time_sec=t,
                 image_path=str(image_path),
-                file_size_bytes=image_path.stat().st_size,
+                file_size_bytes=written,
             ))
         s.commit()
     return seg_id
@@ -280,7 +295,10 @@ def test_partial_reencode_failure_keeps_good_frames_and_separates_counters(
     # The per-reason counters live in manifest.json, not in the compact result.
     zip_path = resolve_in_project(pid, result["zip"])
     pkg_dir = zip_path.with_suffix("")
-    manifest = json.loads((pkg_dir / "manifest.json").read_text(encoding="utf-8"))
+    # Read through the compat layer: this file lives under whatever output_dir
+    # the project was given, and a deep one would defeat plain read_text.
+    with open(long_path(pkg_dir / "manifest.json"), encoding="utf-8") as fh:
+        manifest = json.load(fh)
     selection = manifest["selection"]
     assert selection["reencode_failures"] >= 1
     assert selection["excluded_by_budget"] == 0, (
