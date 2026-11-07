@@ -12,6 +12,8 @@ original defect look intermittent.
 from __future__ import annotations
 
 import json
+import os
+import stat
 import subprocess
 import zipfile
 from pathlib import Path
@@ -169,13 +171,33 @@ def test_package_in_a_deep_workspace_contains_its_frames(client, tmp_path, deep_
     # Layout: packages/<version>/<files> and packages/<version>.zip, so the
     # package directory is the zip's stem, not its parent.
     pkg_dir = zip_path.with_suffix("")
-    assert pkg_dir.is_dir(), f"package directory missing next to {zip_path.name}"
+    # TSB-366-R4-R1: this test is *about* paths past MAX_PATH, so it must not
+    # inspect them with the same short-path API whose limits it is exercising.
+    # `Path.is_dir()` / `iterdir()` failed on windows-latest here (run
+    # 42387196869: "package directory missing next to <ver>.zip") even though
+    # the directory existed and every file in it had been written through
+    # long_path(). Probe with os.stat(long_path(...)) instead.
+    def _dir_exists(d: Path) -> bool:
+        try:
+            return stat.S_ISDIR(os.stat(long_path(d)).st_mode)
+        except OSError:
+            return False
+
+    def _dir_entries(d: Path) -> list[str]:
+        try:
+            return sorted(os.listdir(long_path(d)))
+        except OSError:
+            return []
+
+    assert _dir_exists(pkg_dir), (
+        f"package directory missing next to {zip_path.name} "
+        f"(len={len(str(pkg_dir))}); zip exists={safe_is_file(zip_path)}"
+    )
 
     # --- the point of this test: the targets really are past MAX_PATH ---------
     segments_path = pkg_dir / "segments.json"
     assert safe_is_file(segments_path), (
-        f"segments.json missing; package contains: "
-        f"{sorted(p.name for p in pkg_dir.iterdir())[:10]}"
+        f"segments.json missing; package contains: {_dir_entries(pkg_dir)[:10]}"
     )
     assert len(str(segments_path)) >= MAX_PATH, (
         f"segments.json 路径只有 {len(str(segments_path))} 字符，未跨过 MAX_PATH"

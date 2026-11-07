@@ -380,29 +380,100 @@ def test_a_derived_clip_beyond_max_path_survives_the_whole_native_video_chain(
 
 
 @pytest.mark.usefixtures("_app_ready")
-def test_the_compat_helpers_are_what_keep_a_deep_clip_readable(tmp_path, monkeypatch):
-    """B-5: 证明这条链路**依赖**兼容 helper，而不是恰好能用。
+def test_the_deep_clip_chain_depends_on_the_compat_layer(tmp_path, monkeypatch):
+    """B-5: 证明链路**依赖**兼容层，而不是恰好能跑。
 
-    反向验证的等价证据：把 `safe_stat` 换成普通 `Path.stat`（即 R4 之前的
-    写法）后，深路径读取必须失败。这不修改生产 `os.name` 门禁，只在测试内
-    替换被测点。
+    ## 为什么不再断言"普通 `Path.stat` 必然抛 OSError"
 
-    在 Windows 上这是对旧缺陷的直接复现；在 POSIX 上普通 `stat` 本来就能读，
-    因此该断言只在 Windows 生效，POSIX 明确标注为不适用（不伪装成通过）。
+    我最初写成：
+
+    ```python
+    with pytest.raises(OSError):
+        Path(target).stat()
+    ```
+
+    这在 windows-latest 上**失败**了（CI run 42387196869：
+    `Failed: DID NOT RAISE OSError`）。原因是现代 CPython 的
+    `os.stat` / `Path.stat` 在 Windows 上**已经自动**为自身操作使用扩展长度
+    形式，不受 `LongPathsEnabled=0` 的 260 限制。也就是说
+    "普通 stat 一定失败"这个前提**本身是错的**，
+    保留它等于用一条错误假设去冒充证据。
+
+    ## 改为平台无关、且直接针对被测行为的断言
+
+    真正的合同是：`safe_is_file` / `safe_stat` / `safe_open` 对深路径**必须成功**，
+    并且当底层普通调用失败时**必须回退**到扩展长度形式。后者可以在任意平台
+    确定性地验证 —— 让普通调用抛错，观察兼容层是否走了回退：
+
+    * 模拟 `FileNotFoundError`（Windows 短路径 API 的真实表现）时，
+      兼容层必须重试 `long_path` 并**成功**；
+    * `PermissionError` 必须**原样抛出**，不得被当成"文件不存在"
+      （AGENTS.md §5.1：否则被占用会被误判成长路径问题）。
     """
     deep = _make_deep_dir(tmp_path, MAX_PATH + 20)
     target = deep / "clip.bin"
     with safe_open(target, "wb") as fh:
         fh.write(b"payload")
-    assert len(str(target)) >= MAX_PATH
+    assert len(str(target)) >= MAX_PATH, (
+        f"路径只有 {len(str(target))} 字符，未跨过 MAX_PATH"
+    )
+
+    # The contract on the current platform: deep paths are readable.
     assert safe_is_file(target)
+    assert safe_stat(target).st_size == 7
+    with safe_open(target, "rb") as fh:
+        assert fh.read() == b"payload"
 
-    if os.name != "nt":
-        # Plain Path.stat works fine here because POSIX has no MAX_PATH. Saying
-        # so is the honest outcome; it is NOT evidence about Windows.
-        assert Path(target).stat().st_size == 7
-        return
+    # The fallback contract: a plain call that "can't see" the file must be
+    # retried through long_path, not reported as missing.
+    import app.ffmpeg as ff
 
-    # On Windows the short-path API must fail where the compat layer succeeds.
-    with pytest.raises(OSError):
-        Path(target).stat()
+    real_open = open
+    seen_long_forms: list[str] = []
+
+    def picky_open(path, *a, **kw):
+        text = os.fspath(path)
+        if text.startswith("\\\\?\\"):
+            seen_long_forms.append(text)
+            return real_open(text, *a, **kw)
+        raise FileNotFoundError(2, "The system cannot find the file specified")
+
+    monkeypatch.setattr("builtins.open", picky_open)
+    if os.name == "nt":
+        # On Windows the helper retries with the extended-length prefix, which
+        # our stub records and serves -- proving the fallback path ran.
+        with ff.safe_open(target, "rb") as fh:
+            assert fh.read() == b"payload"
+        assert seen_long_forms, "safe_open must retry through long_path on Windows"
+    else:
+        # POSIX has no long-path fallback by design (long_path() returns the
+        # path unchanged), so the same call must surface the failure instead of
+        # pretending the file is absent-turned-present.
+        with pytest.raises(FileNotFoundError):
+            ff.safe_open(target, "rb")
+
+
+@pytest.mark.usefixtures("_app_ready")
+def test_a_permission_error_is_never_mistaken_for_a_missing_deep_file(tmp_path, monkeypatch):
+    """B-5 反向: 深路径上的 `PermissionError` 必须原样抛出。
+
+    AGENTS.md §5.1：把"文件被占用"折叠成"不是文件"会让扫描静默跳过 ——
+    长路径兼容**不得**扩大这个口子。
+    """
+    deep = _make_deep_dir(tmp_path, MAX_PATH + 20)
+    target = deep / "locked.bin"
+    with safe_open(target, "wb") as fh:
+        fh.write(b"x")
+    assert len(str(target)) >= MAX_PATH
+
+    import app.ffmpeg as ff
+
+    real_stat = Path.stat
+
+    def denied(self, *a, **kw):
+        raise PermissionError(13, "Permission denied (simulated lock)")
+
+    monkeypatch.setattr(Path, "stat", denied)
+    with pytest.raises(PermissionError):
+        ff.safe_stat(target)
+    monkeypatch.setattr(Path, "stat", real_stat)
