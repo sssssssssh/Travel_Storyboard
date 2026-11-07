@@ -1,6 +1,8 @@
 # TSB-366-R4-R1 验证证据索引
 
 **开工基线：** `afeefe3b6789abc94c98234b7f092afef6f2b300`（= `origin/main`，工作区干净）
+**最终代码 SHA：** `224e154`
+**CI：** [run 42392563283](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42392563283) — **7/7 success**（含 windows-latest）
 **机器：** macOS 15.7.7 arm64 / Python 3.12.14 / FFmpeg+ffprobe 9.0.2
 
 > **本机是 macOS，没有 MAX_PATH。** 本目录所有"绿色"只证明业务链路与无回归，
@@ -13,7 +15,7 @@
 | `raw/RED-before-fix.xml` | R1-A 修复前的 junit 原件（2 RED） |
 | `full-backend.xml` | 后端全量（1738 / 0 / 0 / 48） |
 | `media-run-1..3.xml` | 媒体清单 72 文件连续 3 次（1299 / 0 / 0 / 44） |
-| `ci-run-<id>.txt` | 最终 CI 运行记录 |
+| `ci-run-42392563283.json` | 最终 CI 7/7 作业明细 |
 
 ## 关键数字
 
@@ -24,7 +26,7 @@
 | 反向（移除 phase 守卫） | **2 RED** |
 | 反向（恢复旧 V31 双执行者） | **1 RED**（`finished_at is None`） |
 | V31 单例 ×25（CI 条件） | **25/25** |
-| 后端全量 | **1738 / 0 / 0 / 48** |
+| 后端全量 | **1741 / 0 / 0 / 48** |
 | 媒体清单 ×3 | **1299 / 0 / 0 / 44** |
 | 本机派生 clip 路径长度 | **394**（≥260） |
 | CI 强制清单文件数 | **72**（含新 E2E 与 R3 package deep） |

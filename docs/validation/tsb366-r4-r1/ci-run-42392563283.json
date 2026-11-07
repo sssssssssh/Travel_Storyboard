@@ -1,0 +1,39 @@
+{
+  "run_id": 42392563283,
+  "head_sha": "224e1544d66a07affc60295993fe30cea798693f",
+  "conclusion": "success",
+  "html_url": "https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42392563283",
+  "jobs_total": 7,
+  "jobs_success": 7,
+  "note": "TSB-366-R4-R1 final. windows-latest Required FFmpeg passed, which is the only place the >=260-char derived-clip E2E and the R3 package deep-path suite actually run under LongPathsEnabled=0.",
+  "jobs": [
+    {
+      "name": "Frontend",
+      "conclusion": "success"
+    },
+    {
+      "name": "Backend (Python 3.13)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Backend (Python 3.11)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Required FFmpeg (ubuntu-latest)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Backend (Python 3.13)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Backend (Python 3.11)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Required FFmpeg (windows-latest)",
+      "conclusion": "success"
+    }
+  ]
+}
