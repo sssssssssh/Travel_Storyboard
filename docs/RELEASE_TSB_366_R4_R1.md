@@ -2,6 +2,8 @@
 
 **参考基线（任务书）：** `afeefe3b6789abc94c98234b7f092afef6f2b300`
 **实测开工 SHA：** `afeefe3b6789abc94c98234b7f092afef6f2b300`（与 `origin/main` 一致，工作区干净）
+**最终代码 SHA：** `224e154`
+**CI：** [run 42392563283](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42392563283) @ `224e154` — **7/7 success**（含 windows-latest）
 **机器：** macOS 15.7.7 arm64 / Python 3.12.14 / FFmpeg+ffprobe 9.0.2
 
 > **本机是 macOS，没有 MAX_PATH。** 本机一切绿色只证明业务链路与"没有回归"，
@@ -15,7 +17,8 @@
 | --- | --- |
 | **R1-A** V31 偶发 `phase=running` | **已定位根因**（测试双执行者 + 生产 `stats.phase` 无单调保护），已修复，有确定性 RED/GREEN 与反向验证 |
 | **R1-B** Windows ≥260 字符派生 MP4 E2E | **已新增并通过 CI 强制媒体清单**；Windows 实际执行证据见 CI |
-| 附带发现 | `test_tsb366r3_package_deep.py` **从未进入 CI 强制媒体清单** —— 属**验收漏覆盖**，本轮补入 |
+| 附带发现① | `test_tsb366r3_package_deep.py` **从未进入 CI 强制媒体清单** —— 属**验收漏覆盖**，本轮补入 |
+| 附带发现② | 补入后该套件在 windows-latest 连续暴露 **2 处生产缺陷**（见第五节），已修复 |
 
 ---
 
@@ -137,7 +140,41 @@ Windows 上断言普通 `Path.stat` **必然失败**而 `safe_stat` 成功
 
 ---
 
-## 五、验收漏覆盖修复（任务书 §3.4.2）
+## 五、补入强制清单后暴露的 2 处生产缺陷
+
+把 R3 Package 深路径套件放进 CI 后，windows-latest 连续报错，
+追下去都是**生产代码**问题（不是测试写法）：
+
+### P-1 ZIP 是空档：`pkg_dir.rglob("*")` 在深路径下枚举不到任何文件
+
+`review_package._build_package` 用 `Path.rglob` 收集要入 ZIP 的文件。
+`rglob` 走**普通** Win32 目录 API，`LongPathsEnabled=0` 时在深路径下一个都
+枚举不到 —— ZIP 变成空档，而每个文件其实都已被 `long_path` 正常写盘
+（所以 `result["frames"] >= 1` 通过，但 `zf.namelist()` 为空）。
+
+CI run 42389405936：`AssertionError: []`（message 是空列表）。
+
+**修复**：改用 `walk_files(pkg_dir)`（内部 `safe_scandir` + `long_path`），
+ZIP 写入与 `total_size` 复用同一份枚举结果。
+
+### P-2 扩展长度前缀泄漏：`walk_files` 原样 yield 长路径形式
+
+修完 P-1 后立刻暴露：`safe_scandir` 回退到 `long_path()` 时，
+`DirEntry.path` 带扩展长度前缀；`walk_files` 原样 yield，前缀于是泄漏进
+`Path.relative_to(...)`。
+
+CI run 42390622837：`ValueError: '<prefix>C:\Users\runneradmin\...'
+is not in the subpath of ...`
+
+扩展长度形式是兼容层的**内部细节**，既不该写库也不该进 API
+（AGENTS.md 要求）。**修复**：`walk_files` 增加 `_plain()` 归一化，
+剥离前缀后再 yield（内部仍用前缀完成实际 IO）。
+
+两条都新增了平台无关回归锁（源码事实断言 + 前缀泄漏断言），并做了反向验证。
+
+---
+
+## 六、验收漏覆盖修复（任务书 §3.4.2）
 
 `tests/test_tsb366r3_package_deep.py` 在 CI 强制媒体清单中命中数为 **0**
 —— **R3 的深路径 Package 回归从未在 CI 真实执行过**。
@@ -157,7 +194,7 @@ inline '#' in block: 0
 
 ---
 
-## 六、回归矩阵
+## 七、回归矩阵
 
 | 编号 | 验证 | 结果 |
 | --- | --- | --- |
@@ -171,21 +208,24 @@ inline '#' in block: 0
 | B-4 | Observation + cleanup + 原片不变 | 通过 |
 | B-5 | R3 Package 深路径进强制清单 | **已补入**（原为漏覆盖） |
 | C-1 | 现有视频/预算/取消/恢复 | 全量通过 |
-| C-2 | 后端全量 | **1738 / 0 / 0 / 48**（本轮前 1731） |
+| C-2 | 后端全量 | **1741 / 0 / 0 / 48**（本轮前 1731） |
 | C-3 | 前端四项 | typecheck ✅ lint ✅ **123 passed** ✅ build ✅ |
-| C-4 | 主 CI | 见文末 CI 记录 |
+| C-4 | 主 CI | **7/7 success** @ `224e154`（[run 42392563283](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42392563283)） |
 
 > 计数口径：`tests` 含 skip，passed 不含。全部数字来自 junitxml 实测。
 
 ---
 
-## 七、范围声明
+## 八、范围声明
 
 **改动文件**
 
 - `backend/app/services/runner.py`（phase 终态不可变）
+- `backend/app/services/review_package.py`（ZIP 枚举走 walk_files）
+- `backend/app/ffmpeg.py`（walk_files 剥离扩展长度前缀）
 - `backend/tests/test_video_e2e_formal_api.py`（V31 执行权归属）
 - `backend/tests/test_tsb366r4r1_job_phase_race.py`（**新增**，5 项）
+- `backend/tests/test_tsb366r3_package_deep.py`（夹具长路径兼容 + 2 条回归锁）
 - `backend/tests/test_tsb366r4r1_native_video_longpath_e2e.py`（**新增**，2 项）
 - `.github/workflows/ci.yml`（两份深路径套件入强制清单）
 - 本记录与 `docs/validation/tsb366-r4-r1/`
@@ -205,7 +245,7 @@ inline '#' in block: 0
 
 ---
 
-## 八、遗留风险（诚实列出）
+## 九、遗留风险（诚实列出）
 
 1. **CI 那一次的两个执行者具体交错指令点未逐条证实。** 本机串行 25/25 未复现
    原始交错；受控交错证明的是"该交错**足以**造成此症状"，
