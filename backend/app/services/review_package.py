@@ -44,6 +44,7 @@ from ..ffmpeg import (
     long_path,
     safe_image_open,
     safe_is_file,
+    walk_files,
     safe_mkdir,
     safe_stat,
     safe_unlink,
@@ -606,10 +607,16 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
 
     # Zip the whole package for upload.
     zip_path = project_cache_dir(project_id) / "packages" / f"{version}.zip"
+    # TSB-366-R4-R1: `Path.rglob("*")` walks with the *plain* Win32 directory
+    # APIs, so past MAX_PATH it yields nothing at all -- the archive came out
+    # EMPTY even though every file had been written through long_path. That is
+    # the same class of defect TSB-366-R3 fixed for saving, missed on the
+    # enumeration side. `walk_files` enumerates via `safe_scandir`/`long_path`.
+    package_files = sorted(
+        p for p in walk_files(pkg_dir) if safe_is_file(p)
+    )
     with zipfile.ZipFile(long_path(zip_path), "w", zipfile.ZIP_DEFLATED) as zf:
-        for p in sorted(pkg_dir.rglob("*")):
-            if not safe_is_file(p):
-                continue
+        for p in package_files:
             # ``ZipFile.write(path, ...)`` calls ``os.stat(path)`` internally,
             # which cannot see a path past MAX_PATH (TSB-366-R3). Reading bytes
             # through ``long_path`` and adding them as a named entry keeps the
@@ -617,9 +624,7 @@ def _build_package(project_id: str, options: dict, job_id: str | None = None) ->
             with open(long_path(p), "rb") as handle:
                 zf.writestr(p.relative_to(pkg_dir.parent).as_posix(), handle.read())
 
-    total_size = sum(
-        safe_stat(p).st_size for p in pkg_dir.rglob("*") if safe_is_file(p)
-    )
+    total_size = sum(safe_stat(p).st_size for p in package_files)
     rel_dir = rel_to_data(pkg_dir)
 
     result = {

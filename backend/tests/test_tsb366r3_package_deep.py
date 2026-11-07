@@ -397,3 +397,35 @@ def test_the_readme_json_sample_is_valid_json(client, tmp_path):
     req = doc["requests"][0]
     for key in ("asset_id", "segment_id", "start_sec", "end_sec", "priority", "reason"):
         assert key in req, f"README 示例缺少字段 {key}"
+
+
+@pytest.mark.usefixtures("_app_ready")
+def test_the_zip_is_built_by_walking_through_the_compat_layer():
+    """TSB-366-R4-R1: 打包必须用长路径兼容的目录枚举。
+
+    修复前 `_build_package` 用 `pkg_dir.rglob("*")` 收集要入 ZIP 的文件。
+    `rglob` 走的是**普通** Win32 目录 API，`LongPathsEnabled=0` 时在深路径下
+    一个都枚举不到 —— ZIP 变成**空档**，而每个文件其实都已被 long_path
+    正常写盘（CI run 42389405936 的 `AssertionError: []` 就是这个）。
+
+    与 R3 修好的"保存"一侧是同一类缺陷，只是漏了"枚举"这一侧。
+    这条用例断言可观测的源码事实：打包路径不得再用 rglob/iterdir。
+    """
+    import inspect
+
+    import app.services.review_package as rp
+
+    src = inspect.getsource(rp._build_package)
+    # Count executable code only: comments/docstrings legitimately name the old
+    # call to explain why it was removed.
+    code = "\n".join(
+        line for line in src.splitlines() if not line.strip().startswith("#")
+    )
+    code = code.split('"""')[-1] if '"""' in code else code
+    assert "rglob(" not in code, (
+        "_build_package 不得用 pkg_dir.rglob()/iterdir() 枚举打包内容："
+        "普通目录 API 在 Windows 深路径下会返回空，ZIP 会是空档"
+    )
+    assert "walk_files(" in code, (
+        "打包必须经 walk_files（内部 safe_scandir + long_path）枚举"
+    )
