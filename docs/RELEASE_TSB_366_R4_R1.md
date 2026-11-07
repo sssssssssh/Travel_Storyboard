@@ -3,7 +3,8 @@
 **参考基线（任务书）：** `afeefe3b6789abc94c98234b7f092afef6f2b300`
 **实测开工 SHA：** `afeefe3b6789abc94c98234b7f092afef6f2b300`（与 `origin/main` 一致，工作区干净）
 **最终代码 SHA：** `224e154`
-**CI：** [run 42392563283](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42392563283) @ `224e154` — **7/7 success**（含 windows-latest）
+**文档终态 SHA：** `421a5ad`
+**CI：** **7/7 success**，两个 SHA 各跑一次：[42392563283](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42392563283) @ 代码终态 `224e154`、[42393640114](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42393640114) @ 文档终态 `421a5ad`（均含 windows-latest）
 **机器：** macOS 15.7.7 arm64 / Python 3.12.14 / FFmpeg+ffprobe 9.0.2
 
 > **本机是 macOS，没有 MAX_PATH。** 本机一切绿色只证明业务链路与"没有回归"，

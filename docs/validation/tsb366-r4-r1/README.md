@@ -1,7 +1,7 @@
 # TSB-366-R4-R1 验证证据索引
 
 **开工基线：** `afeefe3b6789abc94c98234b7f092afef6f2b300`（= `origin/main`，工作区干净）
-**最终代码 SHA：** `224e154`
+**最终代码 SHA：** `224e154`　**文档终态 SHA：** `421a5ad`
 **CI：** [run 42392563283](https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42392563283) — **7/7 success**（含 windows-latest）
 **机器：** macOS 15.7.7 arm64 / Python 3.12.14 / FFmpeg+ffprobe 9.0.2
 
@@ -15,7 +15,8 @@
 | `raw/RED-before-fix.xml` | R1-A 修复前的 junit 原件（2 RED） |
 | `full-backend.xml` | 后端全量（1738 / 0 / 0 / 48） |
 | `media-run-1..3.xml` | 媒体清单 72 文件连续 3 次（1299 / 0 / 0 / 44） |
-| `ci-run-42392563283.json` | 最终 CI 7/7 作业明细 |
+| `ci-run-42392563283.json` | CI 7/7 作业明细（代码终态 `224e154`） |
+| `ci-run-42393640114.json` | CI 7/7 作业明细（文档终态 `421a5ad`） |
 
 ## 关键数字
 

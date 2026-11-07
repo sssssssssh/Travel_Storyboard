@@ -1,0 +1,39 @@
+{
+  "run_id": 42393640114,
+  "head_sha": "421a5ad8fe097cb7f0f8b22e59215951e362edf5",
+  "conclusion": "success",
+  "html_url": "https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42393640114",
+  "jobs_total": 7,
+  "jobs_success": 7,
+  "note": "Final R4-R1 SHA (code + docs). Same 7/7 as run 42392563283 on the code-only SHA 224e154.",
+  "jobs": [
+    {
+      "name": "Frontend",
+      "conclusion": "success"
+    },
+    {
+      "name": "Backend (Python 3.11)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Required FFmpeg (ubuntu-latest)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Backend (Python 3.11)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Backend (Python 3.13)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Backend (Python 3.13)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Required FFmpeg (windows-latest)",
+      "conclusion": "success"
+    }
+  ]
+}
