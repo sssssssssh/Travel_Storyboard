@@ -5,7 +5,7 @@
 | 基线 | `bddadd82a7d37fc681549fb3e6036511914985d3` |
 | 阶段 | 368-0 / 368-A / 368-B |
 | 368-0 提交 | `68477a4034d1067754ad8fe0c4ec1bbf4c8936d3` |
-| 368-A/B 提交 | 见 §七（最终 SHA） |
+| 368-A/B 提交 | `2bd05293424bbd7983bfe893a67415e8b7f08848` |
 | 证据目录 | [docs/validation/tsb368/](validation/tsb368/) |
 
 ---
@@ -157,7 +157,7 @@ GET /api/projects/{project_id}/director/context
 | 项 | 值 |
 |---|---|
 | 368-0 提交 | `68477a4034d1067754ad8fe0c4ec1bbf4c8936d3` |
-| 368-A/B 提交 | 见文末 CI 回填 |
+| 368-A/B 提交 | `2bd05293424bbd7983bfe893a67415e8b7f08848` |
 | **后端全量** | **1804 collected / 0 failed / 0 errors / 6 skipped** |
 | **前端全量** | **148 passed**（17 文件） |
 | 前端四项 | typecheck / lint / test / build 全部通过 |
@@ -199,3 +199,42 @@ GET /api/projects/{project_id}/director/context
 任何既有测试断言、原片。
 
 **未引入**：新数据库、向量检索、新依赖、新表。
+
+
+---
+
+## 九、CI 执行结果
+
+| 项 | 值 |
+|---|---|
+| 主提交 SHA | `2bd05293424bbd7983bfe893a67415e8b7f08848` |
+| run | **#120** |
+| 链接 | https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42575414061 |
+| 结论 | **7/7 success** |
+
+| 作业 | 结论 |
+|---|---|
+| `Frontend` | ✅ success |
+| `Required FFmpeg (windows-latest)` | ✅ success |
+| `Required FFmpeg (ubuntu-latest)` | ✅ success |
+| `Backend (Python 3.11)` ×2 | ✅ success |
+| `Backend (Python 3.13)` ×2 | ✅ success |
+
+---
+
+## 十、未完成 / 遗留
+
+1. **真实旅行素材验收未做**：本轮全部使用合成视频。G5/G6 门禁仍未满足，
+   **不得**据此宣称可发布。
+2. **真实模型输出未验证**：三渠道的语义/运动/视频结果在测试中由 ORM 直接构造，
+   未经真实模型产生。字段映射按**真实写入点**核对过，但真实模型的取值分布未经检验。
+3. **`freshness_unverified` 是常态**：多帧与原生视频的签名在无重分析前提下无法重算，
+   因此这两类在正常浏览中几乎总是 `freshness_unverified`。这是**如实反映**，
+   不是缺陷；若未来需要精确新鲜度，需要设计可离线重算的签名方案。
+4. **`source_identity` 需要读源文件**：`verify_freshness=true` 时会对每个有静帧结果的
+   素材做一次有界采样（192KB）。默认关闭；开启时的 I/O 成本未做大规模实测。
+5. **UI 未接入代表帧缩略图**：任务书 §3.5 提到"点击候选可沿用已有安全的代表帧 URL"，
+   本轮未实现该交互，只展示了结构化信息。
+6. **分页一致性**：跨多次请求不冻结快照（任务书 §4.3 允许），并发改动期间翻页可能
+   看到新增/移除的镜头。
+7. **多样性策略只有一种**：`diversify` 布尔开关，未提供多种跨素材策略。
