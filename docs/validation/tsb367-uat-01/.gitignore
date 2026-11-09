@@ -1,0 +1,2 @@
+﻿# TSB-367-UAT-01 — local-only artifacts, never committed.
+*.local.*

@@ -76,6 +76,13 @@ function ExportEditor({ id }: { id: string }) {
       ? { ...row, shot_id: row.shot_id }
       : null
   })()
+  // TSB-367-UAT-01 / UAT-F01: boundary checks for the move buttons. Disabling at
+  // the ends is what stops a click from producing a proposal that cannot change
+  // anything — the old code only required *a* selection, so "上移" on the first
+  // shot still created a no-op operation the user had to reject by hand.
+  const canMoveUp = Boolean(selectedShot) && selectedIndex !== null && selectedIndex > 0
+  const canMoveDown = Boolean(selectedShot) && selectedIndex !== null
+    && selectedIndex < draft.length - 1
   function setDraft(value: SetStateAction<DraftShot[]>) {
     setEditor((current) => ({ ...current, dirty: true,
       draft: typeof value === 'function' ? value(current.draft) : value }))
@@ -427,17 +434,25 @@ function ExportEditor({ id }: { id: string }) {
                 : '先在下方剪辑列表点选一个镜头'}
             </span>
 
+            {/* TSB-367-UAT-01 / UAT-F01: anchors follow the server contract.
+                `before_shot_id = X` puts the shot *before* X, `after_shot_id = X`
+                puts it *after* X. So moving up must anchor `before` the previous
+                shot, and moving down must anchor `after` the next one. The
+                previous version used `after` on the previous shot for "up" (a
+                no-op, because the shot was already after it) and used `before` on
+                the previous shot for "down" on the last row (which moved it up).
+                Both buttons are also disabled at the ends instead of silently
+                producing a proposal that changes nothing. */}
             <Button
               variant="ghost"
-              disabled={!selectedShot || selectedIndex === null}
+              disabled={!canMoveUp}
               onClick={() => {
-                if (!selectedShot || selectedIndex === null) return
-                const target = selectedIndex > 0 ? draft[selectedIndex - 1] : draft[selectedIndex + 1]
-                if (!target) return
+                const previous = canMoveUp ? draft[(selectedIndex as number) - 1] : undefined
+                if (!selectedShot || !previous) return
                 setPendingOps([{
                   type: 'move_shot',
                   shot_id: selectedShot.shot_id,
-                  [selectedIndex > 0 ? 'after_shot_id' : 'before_shot_id']: target.shot_id,
+                  before_shot_id: previous.shot_id,
                 }])
               }}
             >
@@ -446,17 +461,14 @@ function ExportEditor({ id }: { id: string }) {
 
             <Button
               variant="ghost"
-              disabled={!selectedShot || selectedIndex === null}
+              disabled={!canMoveDown}
               onClick={() => {
-                if (!selectedShot || selectedIndex === null) return
-                const target = selectedIndex < draft.length - 1
-                  ? draft[selectedIndex + 1]
-                  : draft[selectedIndex - 1]
-                if (!target) return
+                const next = canMoveDown ? draft[(selectedIndex as number) + 1] : undefined
+                if (!selectedShot || !next) return
                 setPendingOps([{
                   type: 'move_shot',
                   shot_id: selectedShot.shot_id,
-                  [selectedIndex < draft.length - 1 ? 'after_shot_id' : 'before_shot_id']: target.shot_id,
+                  after_shot_id: next.shot_id,
                 }])
               }}
             >

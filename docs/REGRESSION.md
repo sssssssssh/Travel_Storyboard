@@ -1910,3 +1910,69 @@ Windows 真实执行全部长路径用例；Linux 上 4 项 Windows 专属用例
 | T-R41-01 | Windows `LongPathsEnabled=0` 下把项目 `output_dir` 放到深路径后跑视频分析 | 派生 MP4 路径 ≥260 仍能完成分析，Observation 落库，staging 清理干净 |
 | T-R41-02 | 任务跑完后立即读取任务状态 | `phase` 为 `complete`/`failed`，**不会**停在 `running` |
 | T-R41-03 | 同一任务因异常被重复触发执行 | 不出现重复外发请求、重复 Observation 或终态回退 |
+
+
+## TSB-367-UAT-01 操作面板真实浏览器验收（UAT-F01）
+
+发布记录：[docs/RELEASE_TSB_367_UAT_01.md](RELEASE_TSB_367_UAT_01.md)
+证据索引：[docs/validation/tsb367-uat-01/README.md](validation/tsb367-uat-01/README.md)
+
+**验收性质**：真实 Chrome 156.0.8078.80 + Playwright 1.44.1 驱动生产构建；
+**不是 jsdom**。隔离数据目录在仓库外，2 个合成视频 / 5 Segment / 3 已保存镜头。
+
+### 缺陷 UAT-F01（P1）：上移/下移锚点错误
+
+| 按钮 | 原实现 | 后果 |
+|---|---|---|
+| 上移 | `after_shot_id = draft[idx-1]` | 目标本来就在前一个镜头之后 → **移动无效** |
+| 下移（末项） | `before_shot_id = draft[idx-1]` | 反而把镜头**往上移** |
+| 两者 | 只判断 `!selectedShot` | 首项「上移」/末项「下移」**可点**，产生无意义提案 |
+
+服务端语义：`before_shot_id = B` ⇒ 放在 B **前**；`after_shot_id = B` ⇒ 放在 B **后**。
+原实现把两者用反了。
+
+### 新增用例（`frontend/src/pages/Export.move.test.tsx`，6 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `up on the middle shot anchors BEFORE the previous shot` | 上移发出 `before_shot_id`，不是 `after` |
+| `down on the middle shot anchors AFTER the next shot` | 下移发出 `after_shot_id`，不是 `before` |
+| `up is disabled for the first shot` | 首项上移禁用 |
+| `down is disabled for the last shot` | 末项下移禁用 |
+| `up on the last shot moves it one step up, not a no-op` | 末项上移是真移动 |
+| `a disabled move never issues a request` | 禁用时不产生任何提案请求 |
+
+断言对象是**面板会发出的 `move_shot` 载荷**，因为"无效移动"同样会返回成功，
+只看 API 是否 200 测不出该缺陷。
+
+### RED / GREEN / 反向验证
+
+| 阶段 | 结果 |
+|---|---|
+| 修复前 | **5 failed | 1 passed** |
+| 修复后 | **6 passed** |
+| 还原缺陷（反向验证） | **5 failed**，失败集合与 RED 完全一致 |
+
+### 真实浏览器 UAT 结果（12/12）
+
+| ID | 场景 | 结果 | 三重证据 |
+|---|---|---|---|
+| UAT-01 | 进入页面、识别版本、令牌消失 | PASS | 页面 + API + 截图 |
+| UAT-02 | 指定镜头，目标标签随选择变化 | PASS | `selected-shot` / `operation-target` |
+| UAT-03 | 上移/下移锚点、边界禁用、拒绝不变 | PASS | POST 载荷 + `[B,A,C]` + 版本 +1 |
+| UAT-04 | 裁剪 diff 正确、Segment 未变 | PASS | diff 文本 + 前后快照 |
+| UAT-05 | 锁定/解锁；锁定后裁剪被拒 | PASS | `locked` 字段 + 409 |
+| UAT-06 | 移除：拒绝保留 / 确认仅移除该镜头 | PASS | 前后 `shot_ids` |
+| UAT-07 | 改选后旧提案作用对象 | PASS | 只有原提案镜头被改 |
+| UAT-08 | 未保存草稿刷新保留、服务端不变 | PASS | 输入值 + 版本号 |
+| UAT-09 | 两标签页 409 不覆盖 | PASS | 409 + 版本不变 + 页面提示 |
+| UAT-10 | 历史与恢复产生新版本 | PASS | 版本 +1，旧版本保留 |
+| UAT-11 | 无效项目 / 无令牌 | PASS | 404 / 401 |
+| UAT-12 | 源片 SHA-256 不变 | PASS | 前后哈希一致 |
+
+### 非缺陷观察（未改，如实记录）
+
+**UAT-07 可用性**：改选镜头后旧提案仍显示，而目标标签已更新为新镜头，可能
+让用户误以为提案作用于新镜头。实测应用后**只有原提案的镜头被改**（服务端以
+提案自身的 `shot_id` 为准），**无数据安全缺陷**，属认知风险。按任务书"发现
+FAIL 才改"的原则本轮不动，列为建议改进项。
