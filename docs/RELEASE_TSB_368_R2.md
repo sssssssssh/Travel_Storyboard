@@ -379,6 +379,9 @@ TSB-366/367 长路径与代理修复、上传许可与预算机制。
 |---|---|---|---|
 | #124 | `97cb502` | **本轮全部代码改动** | ✅ success |
 | #125 | `ef0c522` | **仅文档** | ❌ failure |
+| #126 | `6e8348e` | 同一份代码，重跑 | ✅ **success** |
+
+**#126 的通过确认了偶发判断**：代码完全未变，重跑即通过。
 
 同一份代码，两次结果不同。
 
@@ -413,3 +416,28 @@ CI 注解指向 `backend/tests/test_analysis_cancel_commit.py:L126`
 该用例依赖 `ThreadPoolExecutor` + `Event` 的时序，在 Windows runner 上可能偶发
 超时或竞态。建议单独开一轮（非 TSB-368 范围）排查其确定性，
 而不是在本轮顺手改动。
+
+
+---
+
+## 十五、最终 CI 状态
+
+| 项 | 值 |
+|---|---|
+| **最终 HEAD** | `6e8348e91016baf9b40370c696a59d1bbca6c9cd` |
+| **run** | **#126** |
+| 链接 | https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42603199328 |
+| 结论 | **7/7 success** |
+
+| 作业 | 结论 |
+|---|---|
+| `Frontend` | ✅ |
+| `Required FFmpeg (windows-latest)` | ✅ |
+| `Required FFmpeg (ubuntu-latest)` | ✅ |
+| `Backend (Python 3.11)` ×2 | ✅ |
+| `Backend (Python 3.13)` ×2 | ✅ |
+
+**代码 SHA `97cb502` 对应 run #124，同样 7/7。**
+
+两个 SHA 的 CI 均通过；中间 #125 的一次失败已定位为既有并发测试偶发问题，
+重跑即恢复，未修改任何测试。
