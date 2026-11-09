@@ -1,1 +1,2 @@
-﻿*.local.*
+﻿# TSB-368-R2 local-only artifacts, never committed.
+*.local.*
