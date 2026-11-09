@@ -644,3 +644,82 @@ export interface PlanOperationRequest {
   operations: Record<string, unknown>[]
   reason: string
 }
+
+
+// ---------------------------------------------------------------------------
+// TSB-368-B — read-only director candidates
+// ---------------------------------------------------------------------------
+
+export type ObservationState =
+  | 'current' | 'stale' | 'freshness_unverified' | 'not_analyzed' | 'failed'
+
+export interface ObservationOut {
+  state: ObservationState
+  result_id: string | null
+  method: string
+  status: string
+  source_version: string
+  status_detail: Record<string, unknown>
+  limitations: string[]
+}
+
+export interface DirectorCandidate {
+  segment_id: string
+  asset_id: string
+  asset_display_name: string
+  source_window: { start_sec: number; end_sec: number }
+  detected_window: { start_sec: number; end_sec: number }
+  duration_sec: number
+  eligibility: 'eligible' | 'needs_review' | 'excluded'
+  exclusion_reasons: string[]
+  human: { rating: string; rating_source: string; story_role: string; note: string }
+  technical: {
+    quality_metrics: Record<string, unknown>
+    duration_sec: number
+    is_trimmed: boolean
+    content_tags?: Record<string, unknown>
+  }
+  observations: {
+    static: ObservationOut
+    multiframe: ObservationOut
+    video_native: ObservationOut
+  }
+  editorial_hints: {
+    priority: 'preferred' | 'noted' | 'unrated' | 'excluded'
+    reasons: string[]
+  }
+  evidence_refs: {
+    type: string
+    result_id: string
+    segment_id: string
+    method: string
+    source_version: string
+    state: string
+  }[]
+  limitations: string[]
+  is_representative: boolean
+}
+
+export interface DirectorCoverage {
+  library_segments: number
+  eligible_segments: number
+  needs_review_segments: number
+  excluded_segments: number
+  static_valid: number
+  multiframe_valid: number
+  video_native_valid: number
+  segments_with_any_valid_reading: number
+  no_valid_model_reading: number
+  coverage_complete: boolean
+}
+
+export interface DirectorCandidatesOut {
+  project_id: string
+  query_version: string
+  total: number
+  offset: number
+  limit: number
+  items: DirectorCandidate[]
+  coverage: DirectorCoverage
+  limitations: string[]
+}

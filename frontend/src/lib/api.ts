@@ -230,6 +230,9 @@ export const endpoints = {
   storyboardVersion: (id: string, versionId: string) =>
     `/api/projects/${id}/storyboard/versions/${versionId}`,
   storyboardRestore: (id: string) => `/api/projects/${id}/storyboard/restore`,
+  // --- TSB-368-B read-only director browsing ---
+  directorCandidates: (id: string) => `/api/projects/${id}/director/candidates`,
+  directorContext: (id: string) => `/api/projects/${id}/director/context`,
   // --- TSB-367 plan operations ---
   planOperations: (id: string, boardId: string) =>
     `/api/projects/${id}/storyboards/${boardId}/operations`,

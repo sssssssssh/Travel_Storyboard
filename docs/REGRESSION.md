@@ -1976,3 +1976,62 @@ Windows 真实执行全部长路径用例；Linux 上 4 项 Windows 专属用例
 让用户误以为提案作用于新镜头。实测应用后**只有原提案的镜头被改**（服务端以
 提案自身的 `shot_id` 为准），**无数据安全缺陷**，属认知风险。按任务书"发现
 FAIL 才改"的原则本轮不动，列为建议改进项。
+
+
+## TSB-368 AI 导演候选素材查询与策划输入
+
+发布记录：[docs/RELEASE_TSB_368.md](RELEASE_TSB_368.md)
+证据索引：[docs/validation/tsb368/README.md](validation/tsb368/README.md)
+
+### 368-0：UAT-07 旧提案错标目标（`OperationPanel.stale.test.tsx`，7 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| switching selection drops the previous proposal | 改选后旧 diff 消失、无可确认按钮、不发 apply |
+| changing the operation type drops the old proposal | 同镜头换操作也不残留旧确认 |
+| a late propose response cannot resurrect a panel | 在途响应迟到不改写面板 |
+| a local proposal is never applied automatically | 提案不会自动应用 |
+| rejecting a proposal leaves the version untouched | reject 不建版本 |
+| a dirty draft survives a selection change | 未保存草稿跨选择保留 |
+| a 409 keeps the user draft and shows a conflict | 409 保留草稿且不重放 |
+
+RED 3 failed → GREEN 7 → 反向验证 3 failed（集合一致）。
+
+### 368-A：聚合层（`test_tsb368_candidates.py` 24 项 + `test_tsb368_query_cost.py` 4 项）
+
+| 场景 | 守护行为 |
+|---|---|
+| 无任何 AI 结果 | 合法镜头仍返回，`not_analyzed`，不制造描述 |
+| 只有静帧 | `static` 有证据，`video_native` 仍 `not_analyzed` |
+| 只有多帧 | `multiframe` 有证据，不冒充原生视频 |
+| 三渠道齐全 | 并列保留，覆盖人数**去重** |
+| 旧版/失效结果 | 不作为 valid，标 `stale` |
+| 窗口不匹配 | 视频/多帧按存储窗口比对判 `stale` |
+| `failed` | 标 `failed` 且冒泡到候选 `limitations` |
+| 人工收藏 + 画质差 | 不被质量分否决 |
+| 人工 exclude | 不进自动候选，但仍在 coverage 分母 |
+| `needs_review`/`invalid` | 与 `INVALID_SEGMENT_STATUSES` 对齐 |
+| 跨项目注入 | 不出现在响应 |
+| `confidence` | 标 `uncalibrated` |
+| 事件时间越界 | 丢弃并计入限制 |
+| **N+1** | SQL 数不随镜头数增长（实测恒定 7 条） |
+
+### 368-B：API 与 UI（`test_tsb368_director_api.py` 35 项 + `DirectorCandidates.test.tsx` 12 项）
+
+| 场景 | 守护行为 |
+|---|---|
+| coverage 口径 | 分母恒定，不随筛选/分页变 |
+| 分页 | 0/1/3/12/1000+ 无重复无遗漏，顺序稳定 |
+| 非法参数 | 400/422，未知项目 404 |
+| 无令牌 | 401/403 |
+| `scene_tag` | 只匹配有静帧读数的镜头，未分析不误命中 |
+| `q` | 只搜人工备注/已观察主体/标签 |
+| 多样性 | 跨 asset 轮转，但人工收藏仍优先 |
+| 只读 | 不建 Job/版本/编辑行，不改人工数据 |
+| context | 版本化 DTO + 稳定 `input_digest`，不含故事线 |
+| `brief` | 用户输入的主题**不**变成视频内容断言 |
+| 泄漏 | 无源路径、令牌、模型原始响应 |
+| UI | 三渠道独立徽标；空项目 vs 空筛选区分；无写按钮 |
+
+反向验证：把「有过期记录」错当「已覆盖」→
+`test_a_superseded_result_is_stale_not_current` 精确失败。

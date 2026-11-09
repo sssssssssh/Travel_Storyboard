@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from . import __version__
 from .api import (
     assets,
+    director,
     export,
     storyboard,
     jobs,
@@ -137,6 +138,7 @@ app.include_router(story.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
 app.include_router(storyboard.router, prefix="/api")
 app.include_router(plan_operations.router, prefix="/api")
+app.include_router(director.router, prefix="/api")
 
 
 @app.get("/api", include_in_schema=False)

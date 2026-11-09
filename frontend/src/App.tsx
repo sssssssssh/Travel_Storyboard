@@ -6,6 +6,7 @@ import Home from './pages/Home'
 import Project from './pages/Project'
 import Review from './pages/Review'
 import AIDirector from './pages/AIDirector'
+import DirectorCandidates from './pages/DirectorCandidates'
 import Export from './pages/Export'
 import Settings from './pages/Settings'
 import { version } from '../package.json'
@@ -40,6 +41,7 @@ function Shell() {
           <Route path="/project/:id/review" element={<Review />} />
           <Route path="/project/:id/ai" element={<AIDirector />} />
           <Route path="/project/:id/export" element={<Export />} />
+          <Route path="/project/:id/director" element={<DirectorCandidates />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
