@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, endpoints } from '../lib/api'
 import type { PlanOperationDiff, PlanOperationOut, PlanOperationRequest } from '../lib/types'
@@ -32,6 +32,16 @@ export interface OperationPanelProps {
   pendingOperations: Record<string, unknown>[]
   /** Human-readable description of what the pending operations target. */
   targetLabel?: string
+  /**
+   * Identity of what `pendingOperations` currently targets (TSB-368-0).
+   *
+   * `proposal` lives in this component's state, so a parent that only rebuilds
+   * `pendingOperations` leaves an old preview on screen next to a *new* target
+   * label — the user could confirm an operation aimed at a different shot. When
+   * this value changes, every piece of derived panel state is discarded, and any
+   * response still in flight for the previous identity is ignored on arrival.
+   */
+  selectionKey?: string
   onApplied?: (op: PlanOperationOut) => void
 }
 
@@ -71,6 +81,7 @@ export function OperationPanel({
   baseVersionId,
   pendingOperations,
   targetLabel,
+  selectionKey = '',
   onApplied,
 }: OperationPanelProps) {
   const qc = useQueryClient()
@@ -78,8 +89,35 @@ export function OperationPanel({
   const [conflict, setConflict] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // TSB-368-0 — identity of the panel's current subject.
+  //
+  // `pendingOperations` is a fresh array on every parent render, so it cannot be
+  // compared by reference. The panel therefore remembers *which* subject the
+  // visible proposal was built for, and drops it the moment that subject
+  // changes. Comparing during render (rather than in an effect) means the stale
+  // diff is never painted for even one frame against a new target label.
+  const [proposalKey, setProposalKey] = useState<string | null>(null)
+  const staleProposal = proposal !== null && proposalKey !== selectionKey
+  if (staleProposal) {
+    setProposal(null)
+    setProposalKey(null)
+    // Conflict/error text belongs to the subject that produced it.
+    setConflict(null)
+    setError(null)
+  }
+
+  // In-flight requests are tagged with the subject they were started for. A
+  // response that arrives after the user moved on must not own the panel.
+  //
+  // `issuedRef` is written only inside the mutation callback (a user action, not
+  // a render), which is where React allows ref mutation; reading it in the
+  // result callbacks compares the subject the request truly started for against
+  // the subject the panel shows now.
+  const issuedRef = useRef<string | null>(null)
+
   const propose = useMutation({
     mutationFn: () => {
+      issuedRef.current = selectionKey
       const body: PlanOperationRequest = {
         schema_version: 1,
         base_version_id: baseVersionId,
@@ -95,11 +133,15 @@ export function OperationPanel({
       })
     },
     onSuccess: (op) => {
+      // Drop a late response for a subject the user has already left.
+      if (issuedRef.current !== selectionKey) return
       setProposal(op)
+      setProposalKey(issuedRef.current)
       setConflict(null)
       setError(null)
     },
     onError: (err) => {
+      if (issuedRef.current !== selectionKey) return
       const status = (err as { status?: number }).status
       if (status === 409) {
         setConflict(err.message)

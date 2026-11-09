@@ -582,6 +582,14 @@ function ExportEditor({ id }: { id: string }) {
             targetLabel={
               selectedShot ? `镜头 ${selectedShot.shot_id.slice(0, 8)}` : undefined
             }
+            // TSB-368-0: identity of *what the panel is currently about*.
+            //
+            // It must change when the selection changes (UAT-07: an A proposal
+            // must not survive under a B label) AND when the intended operation
+            // changes on the same shot (a trim preview must not stay confirmable
+            // after switching to 移除). Serialised because `pendingOps` is a
+            // fresh array every render, so reference equality never holds.
+            selectionKey={`${selectedShot?.shot_id ?? ''}|${JSON.stringify(pendingOps)}`}
           />
         </div>
       )}
