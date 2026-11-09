@@ -2109,3 +2109,69 @@ RED 5 failed → GREEN → 反向验证 5 failed。
 | `test_a_flat_reading_changes_the_digest` | 扁平内容参与 digest |
 
 **该缺陷无法被合成测试发现**——上一轮测试数据全部是嵌套格式。
+
+
+## TSB-368-R2 原生视频证据链端到端
+
+发布记录：[docs/RELEASE_TSB_368_R2.md](RELEASE_TSB_368_R2.md)
+证据索引：[docs/validation/tsb368-r2/README.md](validation/tsb368-r2/README.md)
+字段映射：[PRODUCER_CONSUMER_MAPPING.md](validation/tsb368-r2/PRODUCER_CONSUMER_MAPPING.md)
+
+### P0-01：生产事件字段与读取端完全不匹配
+
+生产 `TemporalEvent.to_dict()` 写出 `start_abs_sec`/`end_abs_sec`/`event_type`/
+`description`，读取端查找的是 `start_sec`/`start`/`type`/`label`。
+**每个真实事件都在第一个 `isinstance` 检查处被丢弃**，表现为「有摘要、无事件」。
+
+与 R1 的 `analysis_json` 缺陷同类：测试数据编码了读取方的假设。
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_production_event_shape_keeps_times_type_and_description` | 生产序列化格式完整映射 |
+| `test_two_valid_production_events_are_both_accepted` | accepted=2，不漏 |
+| `test_relative_times_are_never_used_as_absolute` | 10s 偏移下不得取 `start_rel_sec` |
+| `test_legacy_event_shape_is_still_accepted` | 旧 `{start_sec,label}` 仍可用 |
+| `test_malformed_events_are_dropped_with_a_reason[8]` | NaN/Inf/bool/缺失/反向/越界 |
+| `test_a_dropped_event_is_reported_as_filtered_not_as_no_events` | 不把"被过滤"说成"没有" |
+| `test_a_superseded_video_row_is_not_presented_as_current_events` | 过期不冒充当前 |
+| `test_no_video_row_means_not_analyzed_with_no_invented_events` | 无记录不编造 |
+| `test_event_provenance_is_complete` | result_id/segment_id/method/source_version 齐全 |
+| `test_changing_a_video_event_description_changes_the_digest` | 内容变→digest 变 |
+
+### P0-01 生产写入路径（不能用手写 ORM 代替）
+
+| 用例 | 覆盖 |
+|---|---|
+| `test_store_observation_persists_production_event_shape` | 真实 `store_observation` 落库 |
+| `test_native_video_api_returns_the_stored_events` | 原生 API `id`/`events` |
+| `test_director_candidates_surface_the_same_events` | 候选 DTO 内容一致 |
+| `test_context_references_the_same_result_and_content` | context 引用可回读同一行 |
+| `test_no_raw_model_payload_or_path_leaks` | 无 usage/路径泄漏 |
+| `test_a_second_run_supersedes_the_first...` | 恰好一行 current |
+| `test_the_candidate_reads_the_current_row_after_a_rerun` | 指向新行 |
+| `test_a_source_change_blocks_publication_visibly` | 来源变化拒绝发布 |
+| `test_publication_is_refused_when_the_job_is_not_running` | JOB_INVALID |
+
+### P1-02：`input_digest` 漏掉 `important_human_labels`
+
+`build_context` 返回的标签来自 `usable` 全集，digest 只算 `chosen`。
+`max_candidates` 小于库规模时，标签外镜头的备注变化不影响 digest。
+
+修复：对**构造完成的整个返回文档**计算 digest（排除自身 + 版本号）。
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_changing_a_label_outside_the_candidates_changes_the_digest` | 标签变化→digest 变 |
+| `test_changing_a_label_rating_outside_the_candidates_changes_the_digest` | 评分同理 |
+| `test_digest_covers_every_field_the_context_returns` | note/rating/role/window 全覆盖 |
+| `test_coverage_changes_are_reflected` | coverage 变化纳入 |
+| `test_identical_input_gives_an_identical_digest...` | 确定性 + 读取顺序无关 |
+| `test_a_different_project_does_not_move_the_digest` | 无关项目不扰动 |
+| `test_excluded_shots_never_enter_the_candidates...` | 排除不进候选 |
+| `test_an_explicit_annotation_still_outranks_a_segment_exclude` | R1 优先级不回归 |
+| `test_digest_has_no_paths_or_tokens` | 无敏感信息 |
+
+### 文档修正
+
+`CONTEXT_CONSUMPTION_CONTRACT.md` 的 `analysis.summary` 改为真实的顶层 `summary`；
+补充端点评测字段名（`id` vs `result_id`）。**未改动任何 API。**

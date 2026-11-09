@@ -28,6 +28,7 @@ Design rules that shaped the code:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
@@ -417,33 +418,23 @@ def _video_channel(rows: list, segment: Segment, limitations: list[str]) -> Obse
         channel_limits.append("source_signature_not_recomputable_without_reanalysis")
 
     analysis = row.analysis_json or {}
-    events_raw = row.events_json or []
-    events: list[dict[str, Any]] = []
-    dropped = 0
-    for ev in events_raw:
-        if not isinstance(ev, dict):
-            continue
-        start = ev.get("start_sec", ev.get("start"))
-        end = ev.get("end_sec", ev.get("end"))
-        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
-            dropped += 1
-            continue
-        if start < segment.start_sec - 1e-6 or end > segment.end_sec + 1e-6 or start >= end:
-            dropped += 1
-            continue
-        events.append({
-            "start_sec": float(start), "end_sec": float(end),
-            "label": str(ev.get("label") or ev.get("type") or "")[:120],
-            "confidence": ev.get("confidence"),
-            "confidence_calibration": "uncalibrated",
-        })
-    if dropped:
-        channel_limits.append(f"{dropped}_event(s)_outside_shot_window")
+    events_raw = row.events_json if isinstance(row.events_json, list) else []
+    events, counters, drop_reasons = _normalize_video_events(events_raw, segment)
+    # Surface every drop reason as a limitation as well: a consumer that only
+    # reads `limitations` must still learn that events existed and were filtered,
+    # rather than concluding the model reported nothing (C6).
+    for reason in drop_reasons:
+        if reason not in channel_limits:
+            channel_limits.append(reason)
 
     payload = {
         "summary": str(analysis.get("summary") or "")[:600],
-        "events": events[:20],
+        "events": events[:MAX_EVENTS],
         "event_count_total": len(events_raw),
+        # "events existed but were filtered" must never read as "the model said
+        # nothing" — so the counts and the reasons travel with the payload.
+        "event_counters": counters,
+        "drop_reasons": drop_reasons,
         "clip": {
             "start_sec": row.clip_start_sec, "end_sec": row.clip_end_sec,
             "duration_sec": row.clip_duration_sec,
@@ -463,6 +454,122 @@ def _video_channel(rows: list, segment: Segment, limitations: list[str]) -> Obse
         status=row.status, source_version=row.source_signature or "",
         payload=payload, limitations=channel_limits,
     )
+
+
+#: Upper bound on events projected into a candidate payload.
+MAX_EVENTS = 20
+
+#: Absolute-time keys produced by ``video_schema.TemporalEvent.to_dict()``.
+_ABS_START = "start_abs_sec"
+_ABS_END = "end_abs_sec"
+#: Historical shapes seen in rows written before the production format settled.
+_LEGACY_START = ("start_sec", "start")
+_LEGACY_END = ("end_sec", "end")
+#: Tolerance for float drift when comparing against the shot window.
+_EVENT_EPS = 1e-6
+
+
+def _numeric(value: Any) -> float | None:
+    """A finite float, or None. Rejects bools, strings, NaN and Inf."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    f = float(value)
+    return f if math.isfinite(f) else None
+
+
+def _normalize_video_events(
+    events_raw: list, segment: Segment
+) -> tuple[list[dict[str, Any]], dict[str, int], list[str]]:
+    """Map stored video events onto the public, absolute-time shape.
+
+    The production writer serializes ``TemporalEvent``, whose authoritative times
+    are ``start_abs_sec`` / ``end_abs_sec`` in **source seconds**, with
+    ``start_rel_sec`` / ``end_rel_sec`` measured from the clip start. Reading the
+    relative values as absolute would silently shift every event by the clip
+    offset, so they are never used as a fallback: if the absolute pair is absent
+    the event is dropped and the reason is recorded.
+
+    Legacy rows (``start_sec``/``end_sec`` or ``start``/``end``) are still read so
+    historical data does not disappear. When both shapes are present and
+    disagree, the production contract wins and the conflict is reported rather
+    than quietly resolved in whichever direction happens to be convenient.
+    """
+    accepted: list[dict[str, Any]] = []
+    counters = {"accepted": 0, "dropped": 0, "skipped_non_object": 0}
+    reasons: list[str] = []
+
+    def drop(reason: str) -> None:
+        counters["dropped"] += 1
+        if reason not in reasons:
+            reasons.append(reason)
+
+    for ev in events_raw:
+        if not isinstance(ev, dict):
+            counters["skipped_non_object"] += 1
+            continue
+
+        start = _numeric(ev.get(_ABS_START))
+        end = _numeric(ev.get(_ABS_END))
+
+        legacy_start = next(
+            (v for v in (_numeric(ev.get(k)) for k in _LEGACY_START) if v is not None),
+            None,
+        )
+        legacy_end = next(
+            (v for v in (_numeric(ev.get(k)) for k in _LEGACY_END) if v is not None),
+            None,
+        )
+
+        if start is None or end is None:
+            # Distinguish "the field was wrong" from "the field was absent": the
+            # first is a data defect worth chasing, the second is an empty value.
+            defect = ""
+            for key in (_ABS_START, _ABS_END):
+                raw = ev.get(key)
+                if raw is None:
+                    continue
+                if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                    defect = "event_time_not_numeric"
+                elif not math.isfinite(float(raw)):
+                    defect = "event_time_non_finite"
+                if defect:
+                    break
+            if defect:
+                drop(defect)
+                continue
+            if legacy_start is None or legacy_end is None:
+                drop("event_missing_time")
+                continue
+            # Historical row: its stored values were absolute for those writers.
+            start, end = legacy_start, legacy_end
+        elif legacy_start is not None and abs(legacy_start - start) > 1e-3:
+            # Both shapes present and inconsistent: keep production, report it.
+            if "event_time_shape_conflict" not in reasons:
+                reasons.append("event_time_shape_conflict")
+
+        assert start is not None and end is not None
+        if start >= end:
+            drop("event_reversed_window")
+            continue
+        if start < segment.start_sec - _EVENT_EPS or end > segment.end_sec + _EVENT_EPS:
+            drop("event_outside_shot_window")
+            continue
+
+        text = ev.get("description") or ev.get("label") or ev.get("type") or ""
+        accepted.append({
+            "start_sec": round(start, 3),
+            "end_sec": round(end, 3),
+            "event_type": str(ev.get("event_type") or ev.get("type") or "")[:64],
+            "label": str(text)[:200],
+            "confidence": ev.get("confidence"),
+            # The model's own number, never a calibrated probability.
+            "confidence_calibration": "uncalibrated",
+            "evidence": [str(x)[:32] for x in (ev.get("evidence") or [])][:6],
+            "limitations": [str(x)[:64] for x in (ev.get("limitations") or [])][:6],
+        })
+        counters["accepted"] += 1
+
+    return accepted, counters, reasons
 
 
 # ---------------------------------------------------------------------------

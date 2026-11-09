@@ -44,7 +44,7 @@ TSB-369 拿 `/director/context` 的 `candidate_summaries[].readings`，
 |---|---|---|
 | `static` | `GET /api/segments/{segment_id}/vision-result` | `visual.scene_tags/subjects/visible_actions/lighting/composition/mood`、`evidence.state` |
 | `multiframe` | `GET /api/segments/{segment_id}/motion-review` | `motion_type`、`action_summary`、`stability_risk`、`human_verdict` |
-| `video_native` | `GET /api/segments/{segment_id}/video-observation` | `analysis.summary`、`events[]`、`honesty{audio_analyzed,color_unverified}` |
+| `video_native` | `GET /api/segments/{segment_id}/video-observation` | **`summary`（顶层）**、`events[]`、`audio_analyzed`、`color_unverified`、`observed_temporal_quality` |
 
 **优点**：context 保持小巧；TSB-369 可只取需要的候选；隐私边界与现有端点一致。
 **代价**：多轮请求；TSB-369 必须自己处理"取不到"。
@@ -190,3 +190,23 @@ TSB-368-R1 实测：真实库响应中 `source_path` / `token` / `request_usage`
 3. **必须**读 `limitations` 与 `uncovered_segment_count`，并在输出里体现
    "本方案基于 99 个镜头中的 10 个有观测证据的镜头"。
 4. 若 TSB-369 的输出会让用户以为"AI 看过全部素材"，那是**验收失败**，不是文案问题。
+
+
+---
+
+## 9. 字段名更正（TSB-368-R2）
+
+上一版本文档写作 `analysis.summary`，与实际响应不符。**按真实端点更正如下**
+（以 `video_analysis.observation_payload()` 的返回为准，未改动 API）：
+
+| 端点 | 真实字段 |
+|---|---|
+| `GET /segments/{id}/video-observation` | `id`（不是 `result_id`）、`segment_id`、`asset_id`、`summary`（**顶层**）、`events[]`、`is_current`、`audio_analyzed`、`color_unverified`、`observed_temporal_quality`、`clip{start_sec,end_sec,duration_sec,size_bytes,sha256}`、`segment_window{start_sec,end_sec}` |
+| 导演 DTO 中对应的引用名 | `observations.video_native.result_id` ← 对应端点的 `id` |
+
+`events[]` 的元素是生产序列化的原样结构：`event_type` / `start_abs_sec` /
+`end_abs_sec` / `start_rel_sec` / `end_rel_sec` / `description` / `confidence` /
+`confidence_is_calibrated` / `evidence` / `limitations`。
+
+**注意**：`start_rel_sec` 是相对 clip 起点的时间，**不是**源视频绝对时间。
+除 `start_abs_sec` / `end_abs_sec` 外不得用其他字段当作绝对时间。

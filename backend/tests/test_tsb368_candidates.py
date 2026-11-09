@@ -517,8 +517,14 @@ def test_events_outside_the_shot_window_are_dropped_and_reported():
         pid = p.id
 
     c = _collect(pid)[0]
-    labels = [e["label"] for e in c.video_native.payload["events"]]
+    payload = c.video_native.payload
+    labels = [e["label"] for e in payload["events"]]
     assert labels == ["inside"]
+    # TSB-368-R2: the reason is reported as a structured drop reason, and the
+    # counts prove the event existed rather than being absent.
+    assert "event_outside_shot_window" in payload["drop_reasons"]
+    assert payload["event_counters"]["dropped"] == 3
+    assert payload["event_count_total"] == 4
     assert any("outside_shot_window" in lim for lim in c.video_native.limitations)
 
 

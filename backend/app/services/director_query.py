@@ -169,47 +169,34 @@ def select(
     return kept[offset: offset + limit], total
 
 
-def input_digest(project_id: str, candidates: Iterable[Candidate], brief: dict[str, Any]) -> str:
-    """Deterministic digest of the normalized planning input.
+#: Bumped when the *shape* of the digested document changes. Downstream caches
+#: keyed on the digest must be invalidated when this moves.
+DIGEST_VERSION = "2"
 
-    P1-03: this must identify *everything the next stage reads*, not just the
-    shot skeleton. A digest over identity and rating alone stayed constant while
-    the human note changed from "普通海景" to "旅程情绪高潮", and while a shot was
-    re-analysed into different evidence — so a downstream plan could be cached
-    against input it never saw.
 
-    Covered (and nothing else):
-      * identity and window            — what the shot *is*
-      * normalized human rating/role/note — what the user decided
-      * eligibility                    — whether it may be planned at all
-      * per-channel result id + state + a digest of the *content the planner will
-        read* (scene tags, subjects, actions, motion summary, video summary)
-      * limitations that change meaning — the honest caveats travel with it
+def input_digest(document: dict[str, Any]) -> str:
+    """SHA-256 of the normalized planning input the downstream stage will read.
 
-    Deliberately absent: filesystem paths, tokens, raw model responses, request
-    usage, timestamps, random ids. The digest is a change detector over public,
-    normalized fields — not proof that source bytes are unchanged; readings whose
-    signatures cannot be recomputed stay ``freshness_unverified``.
+    R2 fixed a structural bug here: the digest used to be computed from the
+    *candidate list* (and then only the first ``max_candidates``), while the
+    context also returns ``important_human_labels`` drawn from every usable shot.
+    With ``max_candidates`` smaller than the library, editing a label on a shot
+    that fell outside the summaries changed the response but not the digest, so a
+    cache would happily reuse a plan built on different input.
+
+    The only implementation that cannot drift is to digest **the document that is
+    actually returned**, minus the digest itself. Adding a field to the context
+    then automatically puts it in scope, instead of requiring a matching edit
+    here — which is exactly the edit that was forgotten last time.
     """
-    normalized = {
-        "project_id": project_id,
-        "brief": {
-            "theme": brief.get("theme", ""),
-            "target_duration_sec": brief.get("target_duration_sec"),
-        },
-        "candidates": [_digest_entry(c) for c in sorted(candidates, key=_TIMELINE_KEY)],
-    }
-    blob = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    body = {k: v for k, v in document.items() if k != "input_digest"}
+    body["_digest_version"] = DIGEST_VERSION
+    blob = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def _content_fingerprint(channel) -> str | None:
-    """A stable digest of the content a planner would read from this channel.
-
-    Hashing the projected content (rather than the row id) is what makes a
-    re-analysis detectable: a new row with identical content is genuinely the
-    same input, while an edited reading over the same row is not.
-    """
+    """A stable digest of the content a planner would read from this channel."""
     if not channel.result_id:
         return None
     payload = channel.payload or {}
@@ -221,7 +208,8 @@ def _content_fingerprint(channel) -> str | None:
         "action_summary": payload.get("action_summary", ""),
         "summary": payload.get("summary", ""),
         "events": [
-            {"start": e.get("start_sec"), "end": e.get("end_sec"), "label": e.get("label")}
+            {"start": e.get("start_sec"), "end": e.get("end_sec"),
+             "type": e.get("event_type"), "label": e.get("label")}
             for e in (payload.get("events") or [])
         ],
     }
@@ -230,41 +218,25 @@ def _content_fingerprint(channel) -> str | None:
 
 
 def _digest_entry(c: Candidate) -> dict[str, Any]:
+    """The per-shot view used inside ``candidate_summaries``.
+
+    Content fingerprints are carried so that a re-run which rewrites the same row
+    (same id, same version) still moves the digest.
+    """
     return {
         "segment_id": c.segment_id,
         "asset_id": c.asset_id,
-        "start": round(c.source_start, 3),
-        "end": round(c.source_end, 3),
+        "source_window": {"start_sec": round(c.source_start, 3),
+                          "end_sec": round(c.source_end, 3)},
         "eligibility": c.eligibility,
-        # Human decisions, verbatim — the note is part of the input the planner reads.
-        "rating": c.human["rating"],
-        "story_role": c.human["story_role"],
-        "note": c.human["note"],
-        # Each channel: is it usable, which version, and what does it say.
-        "static": {
-            "state": c.static.state,
-            "result_id": c.static.result_id,
-            "source_version": c.static.source_version,
-            "content": _content_fingerprint(c.static),
+        "human": {"rating": c.human["rating"], "story_role": c.human["story_role"],
+                  "note": c.human["note"][:200]},
+        "editorial_priority": c.editorial["priority"],
+        "content": {
+            "static": _content_fingerprint(c.static),
+            "multiframe": _content_fingerprint(c.multiframe),
+            "video_native": _content_fingerprint(c.video_native),
         },
-        "multiframe": {
-            "state": c.multiframe.state,
-            "result_id": c.multiframe.result_id,
-            "source_version": c.multiframe.source_version,
-            "content": _content_fingerprint(c.multiframe),
-
-
-        },
-        "video_native": {
-            "state": c.video_native.state,
-            "result_id": c.video_native.result_id,
-            "source_version": c.video_native.source_version,
-            "content": _content_fingerprint(c.video_native),
-
-
-        },
-        "priority": c.editorial["priority"],
-        "limitations": list(c.limitations),
     }
 
 
@@ -297,18 +269,11 @@ def build_context(
             if ch.result_id:
                 readings.append({"channel": name, "state": ch.state,
                                  "result_id": ch.result_id})
-        summaries.append({
-            "segment_id": c.segment_id,
-            "asset_id": c.asset_id,
-            "source_window": {"start_sec": c.source_start, "end_sec": c.source_end},
-            "eligibility": c.eligibility,
-            "human": {"rating": c.human["rating"], "story_role": c.human["story_role"],
-                      "note": c.human["note"][:200]},
-            "editorial_priority": c.editorial["priority"],
-            "priority_reasons": c.editorial["reasons"][:8],
-            "readings": readings,
-            "limitations": c.limitations[:8],
-        })
+        entry = _digest_entry(c)
+        entry["priority_reasons"] = c.editorial["reasons"][:8]
+        entry["readings"] = readings
+        entry["limitations"] = c.limitations[:8]
+        summaries.append(entry)
 
     labelled = [
         {
@@ -343,10 +308,10 @@ def build_context(
     ):
         limitations.append("freshness_unverified_for_some_readings")
 
-    return {
+    document: dict[str, Any] = {
         "schema_version": "1.0",
         "project_id": project_id,
-        "input_digest": input_digest(project_id, chosen, brief),
+        "input_digest": "",
         "brief": {
             "theme": brief.get("theme", ""),
             "target_duration_sec": brief.get("target_duration_sec"),
@@ -366,3 +331,6 @@ def build_context(
             "excluded_segments": withheld_excluded,
         },
     }
+    # Digest the finished document, so every field the caller receives is covered.
+    document["input_digest"] = input_digest(document)
+    return document
