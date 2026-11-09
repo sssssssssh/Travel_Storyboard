@@ -4,6 +4,8 @@
 |---|---|
 | 基线 | `4520636999a45425f5b0c06f5924adda7d99554b` |
 | 上一轮代码 | `2bd05293424bbd7983bfe893a67415e8b7f08848`（TSB-368-A/B） |
+| **本轮提交** | **`9b7c8740125ca0aea52413e309c50da07880b2da`** |
+| **CI** | run #122，**7/7 success** —— https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42583185884 |
 | 证据目录 | [docs/validation/tsb368-r1/](validation/tsb368-r1/) |
 
 ---
@@ -17,7 +19,7 @@
 | **真实模型输出 UAT** | ✅ **PASS**（静帧 8 条、多帧 4 条真实结果，内容核对无误） |
 | **真实浏览器页面验收** | ✅ **PASS**（真实 Chrome，99 镜头） |
 | **合成数据测试** | ✅ 通过 |
-| **Windows/Ubuntu CI** | 见 §七 |
+| **Windows/Ubuntu CI** | ✅ **run #122，7/7 success** |
 | **TSB-369 输入合同** | ✅ **已定型**，见 `CONTEXT_CONSUMPTION_CONTRACT.md` |
 
 > ⚠️ **真实素材 UAT 能执行，是因为本机存在用户授权的真实项目**
@@ -276,3 +278,45 @@ motion_summary/video_summary/events）做 SHA-256 前 16 位。
 5. **UI 素材筛选下拉只含当前页素材**：已记录为 UI 限制，未修（非本轮范围）。
 6. **嵌套/扁平两种 `analysis_json` 长期并存**：本轮做了兼容读取，但**未迁移历史数据**。
    建议后续统一写入格式并清理，否则每个新读取方都要重复这段兼容逻辑。
+
+
+---
+
+## 十、CI 执行结果
+
+| 项 | 值 |
+|---|---|
+| 提交 SHA | `9b7c8740125ca0aea52413e309c50da07880b2da` |
+| run | **#122** |
+| 链接 | https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42583185884 |
+| 结论 | **7/7 success** |
+
+| 作业 | 结论 |
+|---|---|
+| `Frontend` | ✅ |
+| `Required FFmpeg (windows-latest)` | ✅ |
+| `Required FFmpeg (ubuntu-latest)` | ✅ |
+| `Backend (Python 3.11)` ×2 | ✅ |
+| `Backend (Python 3.13)` ×2 | ✅ |
+
+---
+
+## 十一、关闭标准对照（任务书 §8）
+
+| 标准 | 状态 |
+|---|---|
+| HEAD/origin/工作区已核对 | ✅ `4520636` → `9b7c874`，全程干净 |
+| `exclude`+`pending` 有 RED/GREEN/反向证据 | ✅ 5→0→5 |
+| `needs_review` 不再成为自动策划候选 | ✅ 4→0→4 |
+| digest 对人工备注与模型内容变化敏感 | ✅ 含"ID 不变但内容变"专项 |
+| 相同输入 digest 确定性不回归 | ✅ |
+| 查询只读、SQL 不随镜头线性增长 | ✅ 恒定 7 条 |
+| 真实素材 UAT 统计与数据库一致 | ✅ **PASS**（99/99、8/4/0、89+10） |
+| 真实页面与 API 口径一致，无虚构"已分析" | ✅ `current` 计数 0 |
+| 已确认 TSB-369 如何获得真实内容证据 | ✅ `CONTEXT_CONSUMPTION_CONTRACT.md` |
+| 后端/前端完整回归与 7/7 CI | ✅ 1832 + 148；run #122 |
+| 文档/证据索引完成，提交推送且干净 | ✅ |
+
+**本轮可以关闭「代码合同修复」与「真实素材数据聚合 UAT」两项门禁。**
+
+**不能关闭的**：原生视频渠道真实效果、人工标注真实效果（本库均为 0 条）。
