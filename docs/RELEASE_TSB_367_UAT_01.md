@@ -9,6 +9,8 @@
 | 服务 | 生产部署路径（前端构建产物由后端托管），`127.0.0.1:9123` |
 | 数据 | **仓库外**隔离目录 `F:\tsb-uat-367-01\run2\`，独立数据库 |
 | 素材 | 2 个合成视频、5 个 Segment、3 个已保存镜头（真实 `shot_id`） |
+| **交付 SHA** | **`f330bf3c944822ffb7270f0cbf7d9e6821d38c65`** |
+| CI | run #117，**7/7 success** —— https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42555839337 |
 
 > **验收环境是真实的**：Chrome 由 Playwright 通过 CDP 驱动，页面是 `pnpm run build`
 > 的产物由 FastAPI 托管，数据来自真实数据库与真实 FFmpeg 分析。**未使用 jsdom**。
@@ -200,3 +202,54 @@ changed shots: [ 'fce8f2d4' ]        ← 只有原提案的镜头被改
 操作面板其他行为、任何既有测试断言。
 
 **未删除/skip/xfail** 任何既有测试。
+
+
+---
+
+## 七、CI 执行结果
+
+| 项 | 值 |
+|---|---|
+| 交付 SHA | `f330bf3c944822ffb7270f0cbf7d9e6821d38c65` |
+| run | **#117** |
+| 链接 | https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42555839337 |
+| 结论 | **7/7 success** |
+
+| 作业 | 结论 |
+|---|---|
+| `Frontend` | ✅ success |
+| `Required FFmpeg (windows-latest)` | ✅ success |
+| `Required FFmpeg (ubuntu-latest)` | ✅ success |
+| `Backend (Python 3.11)` ×2 | ✅ success |
+| `Backend (Python 3.13)` ×2 | ✅ success |
+
+---
+
+## 八、完成度判定
+
+| 门禁 | 状态 |
+|---|---|
+| 真实浏览器 UAT-01～UAT-12 | ✅ **12/12 通过（真实 Chrome）** |
+| UAT-F01 RED → 最小修复 → GREEN | ✅ 5 failed → 6 passed |
+| 反向验证 | ✅ 还原缺陷后 5 failed，集合与 RED 一致 |
+| 镜头切换 / 待确认提案 / 未保存草稿 / 409 冲突 | ✅ 全部实测通过 |
+| 每步同时核对页面 + 请求 + 版本 | ✅ 三重证据逐项留存 |
+| 原片内容/大小/mtime 不变 | ✅ SHA-256 前后一致 |
+| 前端四项 | ✅ 129 passed |
+| 后端完整回归 | ✅ 1741 / 0 failed / 6 skipped（均已登记原因） |
+| CI | ✅ run #117 7/7 |
+| 发布记录 / 回归清单 / 证据索引 | ✅ 已完成 |
+| 工作区干净、已推送 | ✅ 与 origin 一致 |
+
+**结论：本轮 UAT 通过，无 BLOCKED 项。**
+
+### 未完成 / 遗留
+
+1. **真实旅行素材验收未做**：本轮全部使用合成素材（2 个测试图案视频）。
+   AGENTS.md §六 的真实素材门禁仍未满足，**不得据此宣称已满足发布门禁**。
+2. **UAT-07 可用性改进建议**（未改）：改选镜头后旧提案仍显示、目标标签已更新，
+   存在认知风险。实测无数据安全问题，按"发现 FAIL 才改"原则本轮不动。
+3. **T03 建议项（未验证）**：任务书提到的其余边界（如超长镜头名、极端时长）
+   本轮未逐一执行。
+4. **手动验收清单**：本轮已由自动化真实浏览器完成，无需转交人工清单；
+   但若需复跑，步骤见证据索引 `README.md` 的"复现方式"。
