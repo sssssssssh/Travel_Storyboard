@@ -175,6 +175,22 @@ class Candidate:
         }
 
 
+def _visual_payload(analysis: dict | None) -> dict[str, Any]:
+    """Pull the `visual` block out of a semantic result, tolerating both shapes.
+
+    The production writer stores ``validated.visual`` directly
+    (``semantic._store_result`` → ``analysis_json=validated.visual``), i.e. the
+    row looks like ``{"scene_tags": [...], "subjects": [...]}``. Older rows wrap
+    it as ``{"visual": {...}}``. Assuming only one shape silently reported every
+    real still-frame reading as empty — the content existed, the reader missed it.
+    """
+    data = analysis or {}
+    nested = data.get("visual")
+    if isinstance(nested, dict):
+        return nested
+    return {k: data[k] for k in VISUAL_KEYS if k in data}
+
+
 # ---------------------------------------------------------------------------
 # Freshness
 # ---------------------------------------------------------------------------
@@ -291,7 +307,7 @@ def _static_channel(
     limitations.extend(channel_limits)
 
     analysis = row.analysis_json or {}
-    visual = analysis.get("visual") or {}
+    visual = _visual_payload(analysis)
     evidence = row.evidence_json or {}
     frame_ids = evidence.get("frame_ids") or []
     payload = {
@@ -453,9 +469,39 @@ def _video_channel(rows: list, segment: Segment, limitations: list[str]) -> Obse
 # Eligibility & editorial signals
 # ---------------------------------------------------------------------------
 
-def _eligibility(segment: Segment, annotation_rating: str | None) -> tuple[str, list[str]]:
+def normalized_rating(segment: Segment, annotation: Any) -> tuple[str, str]:
+    """The single source of truth for a shot's human rating.
+
+    Returns ``(rating, source)``. Precedence, deliberately narrow:
+
+    1. an annotation with an *explicit* rating (``favorite``/``like``/``exclude``)
+       wins — it is the newest and most specific human statement;
+    2. otherwise the segment column;
+    3. otherwise ``pending``.
+
+    The trap this exists to close (TSB-368-R1 P0-01): the app creates an
+    annotation row with ``rating="pending"`` as soon as a user merely types a
+    note. Treating a non-empty annotation rating as an override let that
+    placeholder erase an explicit ``exclude`` on the segment, so an excluded shot
+    came back as eligible. A ``pending`` annotation carries no opinion and must
+    never outrank a real one.
+    """
+    seg_rating = (segment.user_rating or "").strip()
+    ann_rating = (getattr(annotation, "rating", None) or "").strip()
+    if ann_rating and ann_rating != "pending":
+        return ann_rating, "annotation"
+    if seg_rating:
+        return seg_rating, "segment"
+    return "pending", "none"
+
+
+def _eligibility(segment: Segment, rating: str) -> tuple[str, list[str]]:
+    """Classify a shot for planning, from the *already normalized* rating.
+
+    Takes the rating rather than re-deriving it: two independent precedence
+    rules is exactly how `human.rating` and `eligibility` drifted apart.
+    """
     reasons: list[str] = []
-    rating = (annotation_rating or segment.user_rating or "pending").strip()
 
     if rating in NEGATIVE_RATINGS:
         reasons.append("human_excluded")
@@ -486,13 +532,11 @@ def _human(segment: Segment, annotation: Any) -> dict[str, Any]:
     more specific record); the segment column wins over the default. Neither is
     ever derived from AI output.
     """
-    seg_rating = (segment.user_rating or "pending").strip()
-    ann_rating = (getattr(annotation, "rating", None) or "").strip()
-    rating = ann_rating if ann_rating and ann_rating != "pending" else seg_rating
+    rating, source = normalized_rating(segment, annotation)
     note = (getattr(annotation, "note", None) or "").strip()
     return {
-        "rating": rating or "pending",
-        "rating_source": "annotation" if ann_rating and ann_rating != "pending" else "segment",
+        "rating": rating,
+        "rating_source": source,
         "story_role": (segment.story_role or "").strip(),
         "note": note,
     }
@@ -646,10 +690,10 @@ def collect_candidates(
 
         limitations: list[str] = []
         annotation = annotations.get(seg.id)
-        eligibility, exclusion_reasons = _eligibility(
-            seg, getattr(annotation, "rating", None)
-        )
         human = _human(seg, annotation)
+        # Classify from the same normalized rating the DTO reports, so the two
+        # can never contradict each other.
+        eligibility, exclusion_reasons = _eligibility(seg, human["rating"])
 
         static = _static_channel(
             static_rows.get(seg.id, []), seg, asset, limitations,

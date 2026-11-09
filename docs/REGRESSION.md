@@ -2035,3 +2035,77 @@ RED 3 failed → GREEN 7 → 反向验证 3 failed（集合一致）。
 
 反向验证：把「有过期记录」错当「已覆盖」→
 `test_a_superseded_result_is_stale_not_current` 精确失败。
+
+
+## TSB-368-R1 真实素材验收与策划输入合同收口
+
+发布记录：[docs/RELEASE_TSB_368_R1.md](RELEASE_TSB_368_R1.md)
+证据索引：[docs/validation/tsb368-r1/README.md](validation/tsb368-r1/README.md)
+TSB-369 输入合同：[CONTEXT_CONSUMPTION_CONTRACT.md](validation/tsb368-r1/CONTEXT_CONSUMPTION_CONTRACT.md)
+
+### P0-01：人工排除被 pending 注解覆盖
+
+`_eligibility()` 曾用 `annotation_rating or segment.user_rating`；应用写备注时会自动
+创建 `rating="pending"` 的注解行，它非空所以覆盖了 Segment 上的 `exclude`，
+使得用户排除的镜头出现在 `eligible` 查询与策划输入中。
+
+修复：抽出 `normalized_rating()` 作为唯一事实源，`_human()` 与 `_eligibility()`
+共用，`_eligibility()` 接收已归一化评分。
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_segment_exclude_with_pending_annotation_is_still_excluded` | pending 注解不得覆盖 exclude |
+| `test_excluded_shot_never_reaches_the_planning_context` | 排除镜头不进 context |
+| `test_excluded_shot_is_invisible_to_the_default_eligible_query` | 默认查询看不到 |
+| `test_annotation_exclude_overrides_a_pending_segment` | 明确注解可排除 |
+| `test_annotation_favorite_overrides_a_segment_exclude` | 明确注解可恢复 |
+| `test_a_note_without_a_rating_does_not_change_segment_rating` | 只写备注不改评级 |
+| `test_human_rating_and_eligibility_can_never_contradict` | 6 组组合下二者永不矛盾 |
+
+RED 5 failed → GREEN → 反向验证 5 failed。
+
+### P1-02：needs_review 不得进入自动策划
+
+`build_context()` 曾允许 `needs_review` 进入 `candidate_segment_ids`。
+修复：只接受 `eligible`；新增 `withheld` 汇总字段。
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_a_shot_awaiting_review_is_not_an_automatic_planning_candidate[3]` | needs_review/archived/invalid 仅可查看 |
+| `test_an_unanalysed_eligible_shot_is_still_a_planning_candidate` | 未分析≠排除 |
+| `test_context_reports_review_and_exclusion_counts` | 计数与 coverage 一致 |
+| `test_context_ids_and_summaries_stay_consistent` | ids 与 summaries 描述同一集合 |
+
+### P1-03：input_digest 敏感性
+
+原 digest 不含人工备注与模型内容。修复后覆盖：身份/时间窗、评分/角色/**备注全文**、
+资格、每渠道 `state`+`result_id`+`source_version`+**内容指纹**、limitations。
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_digest_is_deterministic_across_calls` | 确定性 |
+| `test_digest_changes_when_only_the_human_note_changes` | 备注变化可感知 |
+| `test_digest_changes_when_the_current_semantic_result_changes` | 静帧内容变化可感知 |
+| `test_digest_tracks_reading_content_even_when_the_version_id_is_unchanged` | **ID/签名不变但内容变也可感知** |
+| `test_digest_tracks_motion_summary_content_with_a_stable_id` | 多帧内容同上 |
+| `test_digest_changes_when_theme_or_duration_changes` | brief 变化可感知 |
+| `test_digest_changes_when_the_candidate_set_changes` | 候选集变化可感知 |
+| `test_digest_ignores_other_projects` | 无关项目不扰动 |
+| `test_digest_ignores_a_superseded_reading` | 过期结果不扰动 |
+| `test_digest_has_no_paths_tokens_or_random_noise` | 无敏感信息 |
+
+### P0-02：真实数据格式兼容（真实素材 UAT 发现）
+
+生产写入点 `semantic._store_result` 存的是**扁平**的 `validated.visual`；
+导演层读取的是**嵌套** `analysis_json["visual"]`。全库两种格式并存
+（嵌套 772 / 扁平 14），导致真实项目所有静帧内容不可见。
+
+修复：新增 `_visual_payload()` 兼容两种格式。
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_a_flat_analysis_json_is_read_correctly` | 扁平格式可读 |
+| `test_a_nested_analysis_json_is_still_read` | 嵌套格式仍可读 |
+| `test_a_flat_reading_changes_the_digest` | 扁平内容参与 digest |
+
+**该缺陷无法被合成测试发现**——上一轮测试数据全部是嵌套格式。

@@ -172,33 +172,100 @@ def select(
 def input_digest(project_id: str, candidates: Iterable[Candidate], brief: dict[str, Any]) -> str:
     """Deterministic digest of the normalized planning input.
 
-    Contains no timestamp and no randomness, so the same library and the same
-    brief always produce the same value. It is a *change detector*, not proof
-    that source files are unchanged — sources whose signatures cannot be
-    recomputed stay ``freshness_unverified``.
+    P1-03: this must identify *everything the next stage reads*, not just the
+    shot skeleton. A digest over identity and rating alone stayed constant while
+    the human note changed from "普通海景" to "旅程情绪高潮", and while a shot was
+    re-analysed into different evidence — so a downstream plan could be cached
+    against input it never saw.
+
+    Covered (and nothing else):
+      * identity and window            — what the shot *is*
+      * normalized human rating/role/note — what the user decided
+      * eligibility                    — whether it may be planned at all
+      * per-channel result id + state + a digest of the *content the planner will
+        read* (scene tags, subjects, actions, motion summary, video summary)
+      * limitations that change meaning — the honest caveats travel with it
+
+    Deliberately absent: filesystem paths, tokens, raw model responses, request
+    usage, timestamps, random ids. The digest is a change detector over public,
+    normalized fields — not proof that source bytes are unchanged; readings whose
+    signatures cannot be recomputed stay ``freshness_unverified``.
     """
     normalized = {
         "project_id": project_id,
-        "brief": {"theme": brief.get("theme", ""),
-                  "target_duration_sec": brief.get("target_duration_sec")},
-        "candidates": [
-            {
-                "segment_id": c.segment_id,
-                "asset_id": c.asset_id,
-                "start": round(c.source_start, 3),
-                "end": round(c.source_end, 3),
-                "rating": c.human["rating"],
-                "story_role": c.human["story_role"],
-                "static": c.static.state,
-                "multiframe": c.multiframe.state,
-                "video_native": c.video_native.state,
-                "edit_plan": c.editorial["priority"],
-            }
-            for c in sorted(candidates, key=_TIMELINE_KEY)
-        ],
+        "brief": {
+            "theme": brief.get("theme", ""),
+            "target_duration_sec": brief.get("target_duration_sec"),
+        },
+        "candidates": [_digest_entry(c) for c in sorted(candidates, key=_TIMELINE_KEY)],
     }
     blob = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _content_fingerprint(channel) -> str | None:
+    """A stable digest of the content a planner would read from this channel.
+
+    Hashing the projected content (rather than the row id) is what makes a
+    re-analysis detectable: a new row with identical content is genuinely the
+    same input, while an edited reading over the same row is not.
+    """
+    if not channel.result_id:
+        return None
+    payload = channel.payload or {}
+    visual = payload.get("visual") or {}
+    material = {
+        "visual": {k: visual.get(k) for k in sorted(visual)} if visual else {},
+        "evidence_state": payload.get("evidence_state", ""),
+        "motion_type": payload.get("motion_type", ""),
+        "action_summary": payload.get("action_summary", ""),
+        "summary": payload.get("summary", ""),
+        "events": [
+            {"start": e.get("start_sec"), "end": e.get("end_sec"), "label": e.get("label")}
+            for e in (payload.get("events") or [])
+        ],
+    }
+    blob = json.dumps(material, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _digest_entry(c: Candidate) -> dict[str, Any]:
+    return {
+        "segment_id": c.segment_id,
+        "asset_id": c.asset_id,
+        "start": round(c.source_start, 3),
+        "end": round(c.source_end, 3),
+        "eligibility": c.eligibility,
+        # Human decisions, verbatim — the note is part of the input the planner reads.
+        "rating": c.human["rating"],
+        "story_role": c.human["story_role"],
+        "note": c.human["note"],
+        # Each channel: is it usable, which version, and what does it say.
+        "static": {
+            "state": c.static.state,
+            "result_id": c.static.result_id,
+            "source_version": c.static.source_version,
+            "content": _content_fingerprint(c.static),
+        },
+        "multiframe": {
+            "state": c.multiframe.state,
+            "result_id": c.multiframe.result_id,
+            "source_version": c.multiframe.source_version,
+            "content": _content_fingerprint(c.multiframe),
+
+
+        },
+        "video_native": {
+            "state": c.video_native.state,
+            "result_id": c.video_native.result_id,
+            "source_version": c.video_native.source_version,
+            "content": _content_fingerprint(c.video_native),
+
+
+        },
+        "priority": c.editorial["priority"],
+        "limitations": list(c.limitations),
+    }
 
 
 def build_context(
@@ -210,8 +277,15 @@ def build_context(
     max_candidates: int = 40,
 ) -> dict[str, Any]:
     """The read-only planning input for TSB-369. Generates no story."""
-    # Only shots a planner may actually use; excluded ones are never offered.
-    usable = [c for c in candidates if c.eligibility in (ELIGIBLE, NEEDS_REVIEW)]
+    # P1-02: ONLY `eligible` shots are offered to the planner.
+    #
+    # `needs_review` means a human has not confirmed the source yet. It stays
+    # visible in /candidates?eligibility=all and is counted in coverage, but it
+    # must not be silently ordered into a story — a plan that reaches for
+    # unconfirmed footage is exactly the failure the review gate exists to stop.
+    # If a future product decision wants "force use anyway", that needs its own
+    # explicit acknowledgement contract rather than a quiet widening here.
+    usable = [c for c in candidates if c.eligibility == ELIGIBLE]
     usable.sort(key=_editorial_key)
     chosen = usable[:max_candidates]
 
@@ -251,7 +325,13 @@ def build_context(
     ][:20]
 
     uncovered = int(coverage.get("no_valid_model_reading", 0))
+    withheld_review = int(coverage.get("needs_review_segments", 0))
+    withheld_excluded = int(coverage.get("excluded_segments", 0))
     limitations: list[str] = ["no_story_generated_this_round"]
+    if withheld_review:
+        limitations.append("shots_awaiting_review_withheld_from_planning")
+    if withheld_excluded:
+        limitations.append("human_excluded_shots_withheld_from_planning")
     if uncovered:
         limitations.append("many_shots_not_analyzed")
     if not coverage.get("coverage_complete"):
@@ -279,4 +359,10 @@ def build_context(
         "limitations": limitations,
         "needs_more_analysis": uncovered > 0,
         "uncovered_segment_count": uncovered,
+        # The planner is told what it did NOT get, so a later stage cannot
+        # mistake silence for "there was nothing there".
+        "withheld": {
+            "needs_review_segments": withheld_review,
+            "excluded_segments": withheld_excluded,
+        },
     }
