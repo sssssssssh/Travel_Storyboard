@@ -36,10 +36,21 @@ from .director_plan_schema import PlanDraft, VariantDraft
 #: Tolerance for float drift when checking the timeline against the shot sum.
 TIMELINE_EPS = 1e-3
 
-#: Phrases that assert a specific identity or place the model cannot know from
-#: pixels. Deliberately narrow: this is a backstop, not the primary mechanism —
-#: the primary mechanism is that factual claims must carry evidence refs.
-_PLACE_OR_IDENTITY_MARKERS = ()  # reserved; structural citation is the real check
+#: Words that assert something about SOUND. Audio is never analysed in this
+#: project (every clip ships silent), so a claim containing these describes
+#: something the system cannot have observed. Kept narrow on purpose: the real
+#: mechanism is that audio has no evidence channel at all; this catches the case
+#: where such wording is smuggled in under a visual citation.
+_AUDIO_CLAIM_MARKERS = (
+    "节拍", "音乐", "配乐", "歌声", "人声", "旁白", "解说", "海浪声", "风声",
+    "水声", "鸟鸣", "噪音", "杂音", "对白", "台词",
+    "beat", "music", "sound", "audio", "narration", "voiceover",
+)
+
+
+def _mentions_audio(text: str) -> bool:
+    low = text.lower()
+    return any(m in low for m in _AUDIO_CLAIM_MARKERS)
 
 
 class PlanValidationError(Exception):
@@ -198,6 +209,15 @@ def _validate_claims(shot, entry: PlanningEntry, problems: list[Problem],
             continue
 
         # kind == "observed_signal": must point at a real, usable reading.
+        # Before that: audio is never analysed, so no observation may describe it.
+        if _mentions_audio(claim.text):
+            problems.append(Problem(
+                "AUDIO_CLAIM_WITHOUT_ANALYSIS",
+                f"claim {claim.text[:60]!r} describes sound, but audio is not analysed "
+                "for these clips",
+                vid, sid,
+            ))
+            continue
         if not claim.evidence_refs:
             problems.append(Problem(
                 "UNSUPPORTED_VISUAL_CLAIM",

@@ -36,6 +36,7 @@ from ..database import session_scope
 from ..models import (
     Asset,
     Segment,
+    StoryboardVersion,
     SegmentMotionReview,
     SegmentSemanticResult,
     SegmentVideoObservation,
@@ -150,6 +151,9 @@ class PlanningEntry:
     video_native: VideoEvidence
     editorial_priority: str
     limitations: list[str]
+    #: True when the shot is locked in the base storyboard version. A draft never
+    #: writes, but it must disclose that it is proposing to move a locked shot.
+    locked_in_base: bool = False
 
     @property
     def has_usable_reading(self) -> bool:
@@ -231,18 +235,32 @@ class PlanningInput:
 # Storyboard state — read only, never auto-creating
 # ---------------------------------------------------------------------------
 
-def _storyboard_state(session: Session, project_id: str) -> tuple[str | None, bool]:
-    """The current version id, or ``(None, True)`` when there is no board.
+def _storyboard_state(
+    session: Session, project_id: str,
+) -> tuple[str | None, bool, frozenset[str]]:
+    """``(current_version_id, absent, locked_segment_ids)`` — strictly read-only.
 
     Deliberately does NOT call ``get_current_version()``: that helper auto-creates
     an empty v1 for a new board, which would turn a read-only preview into a write.
+
+    The locked set is read straight off the version's shot snapshots. It is used
+    only to annotate the plan ("this shot is locked"), never to alter it.
     """
     board = session.scalars(
         select(Storyboard).where(Storyboard.project_id == project_id)
     ).first()
     if board is None or not board.current_version_id:
-        return None, True
-    return board.current_version_id, False
+        return None, True, frozenset()
+
+    locked: set[str] = set()
+    version = session.get(StoryboardVersion, board.current_version_id)
+    if version is not None and version.board_id == board.id:
+        for shot in (version.shots or []):
+            if isinstance(shot, dict) and shot.get("locked"):
+                seg = shot.get("segment_id")
+                if seg:
+                    locked.add(str(seg))
+    return board.current_version_id, False, frozenset(locked)
 
 
 # ---------------------------------------------------------------------------
@@ -418,7 +436,7 @@ def _build(session: Session, project_id: str, limit: int) -> PlanningInput:
     )
     wanted = list(ctx["candidate_segment_ids"])
     if not wanted:
-        base_id, absent = _storyboard_state(session, project_id)
+        base_id, absent, _locked = _storyboard_state(session, project_id)
         return PlanningInput(
             project_id=project_id,
             source_input_digest=ctx["input_digest"],
@@ -510,7 +528,12 @@ def _build(session: Session, project_id: str, limit: int) -> PlanningInput:
             )
         )
 
-    base_id, absent = _storyboard_state(session, project_id)
+    base_id, absent, locked_ids = _storyboard_state(session, project_id)
+    for entry in entries:
+        if entry.segment_id in locked_ids:
+            object.__setattr__(entry, "locked_in_base", True)
+            entry.limitations.append("locked_in_base_storyboard_version")
+
     return PlanningInput(
         project_id=project_id,
         source_input_digest=ctx["input_digest"],

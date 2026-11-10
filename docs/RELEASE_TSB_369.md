@@ -256,3 +256,158 @@ after : {storyboards:1, versions:1, jobs:23, operations:0, editPlan:0, annotatio
 
 这一步**尚未开始**。要成为真正的 AI 导演，需要打开真实模型授权，
 届时模型输出仍要过同一套校验器。本轮已把那个入口做成零网络的功能门禁。
+
+
+---
+
+# 附录：审计轮（TSB-369 复审）
+
+首轮交付后按任务书 §8 测试矩阵逐条复核，发现**两处真实缺陷**与若干未覆盖条目。
+本附录记录补齐过程。
+
+## A-1 真实缺陷一：无音频分析却可以声称"听到节拍"
+
+### 现象
+
+规划器对 `audio_analyzed=False` 的镜头写：
+
+> 「音乐的节拍在 1.2 秒处重击，适合卡点剪辑」
+
+校验器**返回 `[]` 放行**——草案会被展示给用户。
+
+### 为什么这违反本轮要求
+
+这是"把没观察到的说成已观察"在**音频通道**的同一类错误。
+特别要求第 1 条不限于画面。
+
+### RED（修复前实测）
+
+```
+audio_analyzed = False
+problems = []
+*** 漏洞：无音频分析却接受'听到节拍'的断言 ***
+```
+
+### 修复
+
+新增 `_AUDIO_CLAIM_MARKERS` 词表与 `_mentions_audio()`，在 `observed_signal` 分支最先检查，
+命中即报 `AUDIO_CLAIM_WITHOUT_ANALYSIS` 并 `continue`（不再继续找证据）。
+
+同时在 schema 层加固：`EvidenceRef.channel` 是封闭 Literal（三渠道），
+**音频根本不是可引用的证据类型**。
+
+### GREEN
+
+| 用例 | 结果 |
+|---|---|
+| `test_a_claim_about_sound_is_rejected_when_audio_was_never_analysed` | PASS |
+| `test_a_sound_claim_is_rejected_even_when_wording_matches_a_visual_channel` | PASS |
+| `test_an_audio_channel_cannot_even_be_expressed_in_the_schema` | PASS |
+| `test_a_silent_shot_is_marked_audio_unanalysed_for_review` | PASS |
+| `test_the_offline_planner_never_emits_an_audio_claim` | PASS |
+
+### 反向验证
+
+关闭 `_mentions_audio` 守卫 → 前两条**精确失败**；恢复后通过。
+
+---
+
+## A-2 真实缺陷二：锁定镜头未被标注
+
+### 现象
+
+`PlanningEntry` 没有 `locked_in_base`。若 base 版本中某镜头被用户锁定，
+草案仍会给出新的使用区间，却**不告知用户该镜头是锁定的**。
+
+本轮不写 Storyboard，所以这不是数据破坏；但它会**误导用户对"应用"后果的理解**。
+
+### 修复
+
+`_storyboard_state()` 增加第三返回值：从当前版本的 `shots` 快照读出 `locked` 为真的
+`segment_id` 集合（**纯读，不写**）。命中者标注 `locked_in_base=True` 并追加
+`locked_in_base_storyboard_version` 限制项。
+
+### GREEN
+
+| 用例 | 结果 |
+|---|---|
+| `test_a_locked_shot_is_flagged_so_the_draft_cannot_silently_retime_it` | PASS |
+| `test_an_unlocked_shot_is_not_flagged` | PASS |
+| `test_reading_the_input_never_writes_to_a_locked_storyboard` | PASS |
+
+### 反向验证
+
+关闭锁定标注 → 第一条**精确失败**；恢复后通过。
+
+---
+
+## A-3 补齐的覆盖缺口
+
+| §8 矩阵条目 | 首轮状态 | 本轮补齐 |
+|---|---|---|
+| 性能 4/40/**500**/1000 四档 | 仅 4/60/1000 | 参数化四档 + 趋势断言 |
+| 时效 stale/failed 独立负例 | 缺 | 4 条（failed/superseded/window/stale） |
+| 锁定历史版本 | 缺 | 3 条 |
+| 无音频声称节拍 | **缺（漏洞）** | 5 条 |
+| 生命周期：连续两次预览 | 缺 | 字节一致 |
+| 生命周期：切项目 | 部分 | 加切回再切 |
+
+---
+
+## A-4 审计轮验证结果
+
+| 项 | 结果 |
+|---|---|
+| TSB-369 用例总数 | **93**（73 + 20 审计） |
+| 审计轮 RED → GREEN | 2 处真实缺陷 |
+| 审计轮反向验证 | 2 项，均精确命中 |
+| 后端全量 | **1962 collected / 0 failed / 0 errors / 6 skipped** |
+| 前端四项 | 162 passed，typecheck/lint/build 全通过 |
+| 真实 Chrome UAT（重跑） | **12/12 PASS** |
+
+### UAT 新增验证项
+
+填入主题「音乐节拍与海浪声」后生成草案：
+
+```
+5. audio-ish theme never becomes a sound claim  PASS  {"beat":false,"waves":false}
+```
+
+页面任何位置都未出现这两个词。
+
+### 数据库前后（8 项计数）
+
+```json
+before: {"storyboards":1,"versions":1,"jobs":23,"operations":0,"editPlan":0,"annotations":0,"segments":99,"assets":6}
+after : {"storyboards":1,"versions":1,"jobs":23,"operations":0,"editPlan":0,"annotations":0,"segments":99,"assets":6}
+```
+
+---
+
+## A-5 阶段 D 正式验收
+
+见 [PHASE_D_ACCEPTANCE.md](validation/tsb369/PHASE_D_ACCEPTANCE.md)。
+
+要点：
+
+| 项 | 结论 |
+|---|---|
+| D-01 真实库只读预验收 | **PASS**：99 镜头 / 10 有读数 / 89 无读数 / 原生视频 0 / 锁定 0 |
+| D-01 逐项证据核对 | 5 个有读数候选，result_id 可回读，**无一条冒称 `current`** |
+| D-01 只读一致性 | 6 张表计数前后一致 |
+| D-01 逐帧人工观看 | **MANUAL_REVIEW_PENDING** |
+| D-02 模型门禁 | **PASS**：403 + Provider 拒绝 + Mock 不可选，零网络 |
+| 真实模型效果 | 🔒 **BLOCKED (awaiting_explicit_approval_and_price_confirmation)** |
+
+---
+
+## A-6 审计轮结论
+
+首轮交付的**架构与边界是正确的**（只读、证据强制、校验器拦截），
+但 §8 矩阵暴露了两处**语义层疏漏**：音频通道的同类幻觉、锁定状态的披露缺失。
+
+两处都已按"先 RED 再修"的方式处理，并用反向验证证明守卫有效。
+
+**本轮之后仍不得宣称**：
+- AI 已理解全部素材（89/99 无读数，原生视频 0）
+- AI 导演能力已验收（真实模型 BLOCKED）

@@ -2265,3 +2265,40 @@ RED 5 failed → GREEN → 反向验证 5 failed。
 | 去掉证据可用性检查 | `test_validator_rejects_citing_evidence_the_shot_does_not_have` |
 | 允许语义升级 | `test_validator_rejects_upgrading_a_hedged_reading[uncertain|not_visible]` |
 | 去掉 digest 一致性检查 | `test_validator_rejects_a_plan_built_on_different_input` |
+
+
+### TSB-369 审计轮补充（`test_tsb369_audit.py`，20 项）
+
+首轮交付后发现 §8 矩阵有若干条目未被真正覆盖，补齐如下。
+其中**两处是真实缺陷**，不是形式补测。
+
+| 用例 | 守护行为 | 性质 |
+|---|---|---|
+| `test_a_claim_about_sound_is_rejected_when_audio_was_never_analysed` | **无音频分析却声称听到节拍 → 拒绝** | **真实缺陷**（修复前返回 `[]`） |
+| `test_a_sound_claim_is_rejected_even_when_wording_matches_a_visual_channel` | 借视觉引用夹带声音描述也拒绝 | **真实缺陷** |
+| `test_an_audio_channel_cannot_even_be_expressed_in_the_schema` | `channel="audio"` 在 schema 层即不可表达 | 合同加固 |
+| `test_a_silent_shot_is_marked_audio_unanalysed_for_review` | 静音镜头进待复核 | 可见性 |
+| `test_the_offline_planner_never_emits_an_audio_claim` | 规则自身不产生声音断言 | 防回归 |
+| `test_a_locked_shot_is_flagged_so_the_draft_cannot_silently_retime_it` | **锁定镜头必须被标注** | **真实缺陷**（修复前无 `locked_in_base`） |
+| `test_an_unlocked_shot_is_not_flagged` | 未锁定不误报 | 防误报 |
+| `test_reading_the_input_never_writes_to_a_locked_storyboard` | 读锁定版本零写入 | 只读 |
+| `test_a_failed_or_superseded_static_reading_is_not_usable_evidence[*]` | `failed` / 被取代读数不可引用 | 时效负例 |
+| `test_a_failed_video_reading_is_not_analyzed` | `STATE_FAILED` 独立可见 | 时效负例 |
+| `test_a_window_mismatch_makes_the_video_reading_stale` | 窗口不符 → `stale` | 时效负例 |
+| `test_motion_failure_is_visible_and_not_reported_as_analysed` | 多帧失败不冒称已分析 | 时效负例 |
+| `test_statement_count_is_bounded_at_every_scale[4/40/500/1000]` | **四档规模语句数有界** | §8 性能矩阵 |
+| `test_statement_count_does_not_trend_up_with_scale` | 4→1000 无 N+1 趋势 | §8 性能矩阵 |
+| `test_two_previews_for_the_same_project_return_identical_bytes` | 同项目两次预览字节一致 | 生命周期 |
+| `test_switching_projects_mid_session_keeps_results_separate` | 切项目不串数据 | 生命周期 |
+
+### 审计轮反向验证（2 项）
+
+| 注入缺陷 | 失败用例 |
+|---|---|
+| 关闭 `_mentions_audio` 守卫 | `test_a_claim_about_sound_is_rejected...` + `test_a_sound_claim_is_rejected_even_when_wording...` |
+| 关闭锁定标注 | `test_a_locked_shot_is_flagged_so_the_draft_cannot_silently_retime_it` |
+
+### 阶段 D 验收
+
+真实库只读预验收与模型门禁证据见
+[docs/validation/tsb369/PHASE_D_ACCEPTANCE.md](validation/tsb369/PHASE_D_ACCEPTANCE.md)。
