@@ -66,3 +66,6 @@ docs/validation/m5.3-r3.2/FINAL_HEAD_CI.local.json
 
 # WorkBuddy session data (project-local memory, never committed)
 .workbuddy/
+
+# Scratch file used for multi-line commit messages
+.git-commit-msg.txt
