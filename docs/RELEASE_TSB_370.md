@@ -4,6 +4,9 @@
 |---|---|
 | 基线 | `4b156e4d915a4876a129e2f7ee5f5f6b4885643e`（与任务书核对一致） |
 | 证据目录 | [docs/validation/tsb370/](validation/tsb370/) |
+| **代码提交** | `252771514be22413000ff44cd1ce1b924a84cad1` |
+| **最终 HEAD** | `d3378fdab3fca0307d1af2e14c4ee020f0375327` |
+| **CI** | run #134，**7/7 success** —— https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42791564920 |
 | 执行账本 | [REAL_MODEL_RUN_LEDGER.md](validation/tsb370/REAL_MODEL_RUN_LEDGER.md) |
 
 ---
@@ -303,3 +306,105 @@ TSB-366/367/368/369 的全部修复。
 3. **端点恢复后重探测 G3** —— 用文字对照法，避免再次错误归因。
 
 **不建议**：在证据覆盖率 13/99 时做自动渲染或音乐推荐。
+
+
+---
+
+## 十、CI 结果与过程中的两次红灯
+
+| run | head | 结论 |
+|---|---|---|
+| #132 | `2527715` | ❌ 4 个 Backend 作业失败 |
+| #134 | `d3378fd` | ✅ **7/7 success** |
+
+链接：https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42791564920
+
+| 作业 | 结论 |
+|---|---|
+| `Frontend` | ✅ |
+| `Required FFmpeg (windows-latest)` | ✅ |
+| `Required FFmpeg (ubuntu-latest)` | ✅ |
+| `Backend (Python 3.11)` ×2 | ✅ |
+| `Backend (Python 3.13)` ×2 | ✅ |
+
+### 10.1 #132 失败的根因（我的缺陷）
+
+**现象**：本地全量 2000 项全绿，CI 4 个 Backend 作业失败。
+
+**根因**：`test_tsb370_model_api.py` 中 4 个用例**隐式依赖开发者本机 `.env`
+的 `TRAVELSB_MODEL_MODE=on`**。CI 默认 `off`，于是 `authorize_upload()` 提前
+返回 403，断言 502/422 失败。
+
+**判断**：CI 默认关闭模型是**正确**的（CI 不应连真实模型）。
+错的是我的测试依赖了环境。
+
+**修复**：新增 `model_enabled` fixture，由需要的用例显式打开开关并给
+`example.invalid` 占位端点（零网络）。同时把"无授权即 403"的用例也**显式要求
+模型已开启**——否则它可能因"模式关闭"而非"缺少授权"这种**错误原因**通过。
+
+**验证方式**：在本地**模拟 CI 条件**（`MODEL_MODE=off`、无 BASE_URL、无 API_KEY）
+下重跑，通过后才提交。
+
+### 10.2 一个操作失误
+
+提交时误把 `.git-commit-msg.txt` 纳入版本控制，已在下一个提交中移除并加入
+`.gitignore`。
+
+---
+
+## 十一、最终交付清单
+
+### 代码
+
+| 文件 | 作用 |
+|---|---|
+| `backend/app/services/model_call_ledger.py` | 持久化 attempt/byte 预算账本 |
+| `backend/app/services/director_plan_model.py` | 白名单投影 + 回复解析 |
+| `backend/app/services/director_plan_providers.py` | 真实受控 model adapter |
+| `backend/app/api/director.py` | `input-status` 只读端点 + model 分支 |
+| `frontend/src/pages/DirectorPlans.tsx` | digest 接线、禁用生成、409 清草案 |
+| `backend/tools/tsb370_*.py` | 实验驱动（无凭据） |
+
+### 测试
+
+| 文件 | 数量 |
+|---|---:|
+| `test_tsb370_input_status.py` | 9 |
+| `test_tsb370_model_plan.py` | 19 |
+| `test_tsb370_model_api.py` | 10 |
+| 前端 `DirectorPlans.test.tsx` | +4（共 18） |
+| **本轮新增** | **42** |
+
+### 回归
+
+| 项 | 结果 |
+|---|---|
+| 后端全量 | **2000 collected / 0 failed / 0 errors / 6 skipped** |
+| 前端四项 | typecheck / lint / **166 passed** / build 全部通过 |
+| 真实 Chrome UAT | **12 项功能全部通过** |
+
+---
+
+## 十二、原库与源文件未变（可核对）
+
+| 表 | 实验前 | 实验后 |
+|---|---:|---:|
+| Storyboards | 1 | 1 |
+| StoryboardVersions | 1 | 1 |
+| EditPlanShots | 0 | 0 |
+| PlanOperations | 0 | 0 |
+| Jobs | 23 | 23 |
+| UserAnnotations | 0 | 0 |
+
+源文件：**只读引用，未复制、未改写、未上传**。
+
+---
+
+## 十三、一句话总结
+
+> **G0 合同与接线 PASS；真实静帧 (11) 与多帧 (2) 模型调用 PASS 且产出具体可核对；
+> 原生视频因端点故障 BLOCKED（非能力结论）；真实模型策划 BLOCKED（因我的实现缺陷
+> 与 token 预算不足）；人工质量验收 MANUAL_REVIEW_PENDING；发布门禁不关闭。**
+
+**本轮验证了"真实模型确实可用且数据能正确穿透"，但没有验证"AI 导演的创作质量"。**
+这两件事必须分开陈述。
