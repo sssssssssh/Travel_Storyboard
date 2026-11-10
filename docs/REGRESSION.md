@@ -2175,3 +2175,93 @@ RED 5 failed → GREEN → 反向验证 5 failed。
 
 `CONTEXT_CONSUMPTION_CONTRACT.md` 的 `analysis.summary` 改为真实的顶层 `summary`；
 补充端点评测字段名（`id` vs `result_id`）。**未改动任何 API。**
+
+
+## TSB-369 AI 导演故事线生成与镜头编排（草案优先）
+
+发布记录：[docs/RELEASE_TSB_369.md](RELEASE_TSB_369.md)
+合同说明：[PLAN_CONTRACT.md](validation/tsb369/PLAN_CONTRACT.md)
+
+本轮只交付**只读草案**：离线可解释编排 + 严格校验器 + 只读预览页。
+不写 Storyboard、不建 Job、不调模型。
+
+### 证据输入（`test_tsb369_input.py`，17 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_only_eligible_shots_are_planned` | 排除/待复核镜头不进输入 |
+| `test_excluded_shots_with_a_pending_annotation_stay_out` | R1 P0-01 陷阱不复发 |
+| `test_flat_static_and_nested_static_both_reach_the_planner` | 两种 analysis_json 形状 |
+| `test_video_events_arrive_in_source_absolute_seconds` | 10s clip 偏移下取绝对时间 |
+| `test_uncertain_and_not_visible_are_preserved_verbatim` | 不确定性原样传递 |
+| `test_a_static_only_shot_carries_no_video_claim` | 不跨渠道捏造读数 |
+| `test_one_thousand_segments_stay_bounded` | 1000 镜头语句数有界（N+1） |
+| `test_planning_input_never_creates_a_storyboard` | 零副作用 |
+| `test_base_storyboard_version_is_null_when_absent` | 不自动建空 v1 |
+| `test_another_projects_evidence_never_appears` | 跨项目隔离 |
+| `test_user_note_is_data_not_instruction` | 备注是数据不是指令 |
+
+### 编排与校验（`test_tsb369_plan.py`，32 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_offline_plan_is_structurally_valid` | 离线方案通过自身校验 |
+| `test_timeline_is_contiguous_and_sums_to_total` | 时间轴连续且自洽 |
+| `test_offline_plan_is_deterministic` | 同输入同输出 |
+| `test_a_shot_without_any_reading_gets_no_factual_claim` | 无读数即无断言 |
+| `test_the_theme_never_becomes_a_footage_claim` | 主题不入草案 |
+| `test_insufficient_evidence_yields_no_variants...` | 证据不足不编造 |
+| `test_variants_differ_in_more_than_their_titles` | 方案真实不同 |
+| `test_validator_rejects_an_invented_segment` | 不存在的镜头 |
+| `test_validator_rejects_a_shot_from_another_project` | 跨项目镜头 |
+| `test_validator_rejects_a_claim_without_evidence` | 无证据断言 |
+| `test_validator_rejects_upgrading_a_hedged_reading[*]` | **语义升级** |
+| `test_validator_rejects_a_window_outside_the_source` | 越界窗口 |
+| `test_validator_rejects_non_finite_or_reversed_windows[*]` | NaN/Inf/反向 |
+| `test_validator_rejects_a_broken_timeline` | 时间轴断裂 |
+| `test_validator_rejects_a_duration_that_does_not_match_the_window` | 时长不符 |
+| `test_validator_rejects_an_orphan_section` | 孤立 section |
+| `test_validator_rejects_the_same_segment_twice` | 重复镜头 |
+| `test_validator_rejects_variants_that_only_differ_by_title` | 假方案 |
+| `test_validator_rejects_a_plan_built_on_different_input` | digest 不符 |
+| `test_a_video_event_claim_outside_the_shot_is_rejected` | 事件时间越界 |
+| `test_external_provider_makes_no_call_and_refuses` | 模型零网络拒绝 |
+| `test_mock_mode_is_not_selectable` | mock 不可从外部选择 |
+
+### 只读 API（`test_tsb369_api.py`，24 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_preview_writes_nothing` | 六张表计数前后一致 |
+| `test_preview_does_not_create_a_storyboard_for_a_bare_project` | 不自动建 v1 |
+| `test_preview_does_not_touch_annotations_or_ratings` | 人工数据不变 |
+| `test_a_real_change_between_reads_produces_409` | 输入变化 409 |
+| `test_model_mode_is_403_with_no_network` | 未授权 403 |
+| `test_mock_mode_is_not_accepted_from_http` | mock 422 |
+| `test_invalid_payloads_are_422[*]` | 参数校验 |
+| `test_another_projects_shots_never_appear` | 跨项目隔离 |
+| `test_no_paths_or_usage_leak_from_preview` | 无路径/用量泄漏 |
+| `test_two_calls_are_byte_identical` | 确定性 |
+| `test_concurrent_previews_do_not_mix_projects` | 并发不串项目 |
+
+### 前端（`DirectorPlans.test.tsx`，14 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `coverage is shown as counts, including the unanalysed shots` | 覆盖率含未分析数 |
+| `the page states it is offline rules, not an AI reading` | 标注 offline_rules |
+| `there is no control that could write the plan back` | 无应用/保存按钮 |
+| `generating issues only the preview POST and a candidates GET` | 只发一个写请求 |
+| `a shot with no reading shows no invented description` | 不编造画面 |
+| `claims are labelled by kind so a suggestion is not read as an observation` | 断言分类可见 |
+| `reordering recomputes the timeline locally` | 本地重排 |
+| `a 409 keeps the user theme and shows a conflict hint` | 冲突保留输入 |
+| `markdown export declares itself a read-only draft` | 导出声明只读 |
+
+### 反向验证（3 项）
+
+| 注入缺陷 | 失败用例 |
+|---|---|
+| 去掉证据可用性检查 | `test_validator_rejects_citing_evidence_the_shot_does_not_have` |
+| 允许语义升级 | `test_validator_rejects_upgrading_a_hedged_reading[uncertain|not_visible]` |
+| 去掉 digest 一致性检查 | `test_validator_rejects_a_plan_built_on_different_input` |

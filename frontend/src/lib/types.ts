@@ -723,3 +723,102 @@ export interface DirectorCandidatesOut {
   coverage: DirectorCoverage
   limitations: string[]
 }
+
+
+// ---------------------------------------------------------------------------
+// TSB-369 — read-only draft plans
+// ---------------------------------------------------------------------------
+
+export type PlanClaimKind =
+  | 'observed_signal' | 'human_supplied' | 'editorial_suggestion' | 'unknown'
+
+export interface PlanEvidenceRef {
+  channel: 'static' | 'multiframe' | 'video_native'
+  result_id: string
+  segment_id: string
+  evidence_state: string
+  event_start_sec: number | null
+  event_end_sec: number | null
+}
+
+export interface PlanClaim {
+  text: string
+  kind: PlanClaimKind
+  evidence_refs: PlanEvidenceRef[]
+}
+
+export interface PlanShot {
+  shot_id: string
+  segment_id: string
+  asset_id: string
+  section_id: string
+  source_in_sec: number
+  source_out_sec: number
+  planned_duration_sec: number
+  timeline_start_sec: number
+  narrative_role: string
+  selection_reason: string
+  claims: PlanClaim[]
+  evidence_refs: PlanEvidenceRef[]
+  needs_review: string[]
+  transition_hint: string
+  pacing_hint: string
+  audio_hint: string
+}
+
+export interface PlanSection {
+  section_id: string
+  kind: string
+  title: string
+  narrative_role: string
+}
+
+export interface PlanReviewItem {
+  segment_id: string
+  reason: string
+}
+
+export interface PlanVariant {
+  variant_id: string
+  title: string
+  narrative_angle: string
+  logline: string
+  status: 'complete' | 'provisional' | 'insufficient_evidence'
+  sections: PlanSection[]
+  shots: PlanShot[]
+  total_duration_sec: number
+  target_duration_sec: number
+  duration_gap_sec: number
+  review_items: PlanReviewItem[]
+  differences: string[]
+}
+
+export interface PlanDraft {
+  schema_version: string
+  project_id: string
+  planning_mode: 'offline_rules' | 'model'
+  generation_status: 'complete' | 'provisional' | 'insufficient_evidence'
+  source_input_digest: string
+  base_storyboard_version_id: string | null
+  coverage: {
+    library_segments: number
+    segments_with_any_valid_reading: number
+    no_valid_model_reading: number
+    video_native_valid: number
+  }
+  limitations: string[]
+  variants: PlanVariant[]
+  withheld: Record<string, number>
+  needs_more_analysis: boolean
+  warnings: string[]
+}
+
+export interface PlanPreviewRequest {
+  expected_input_digest?: string | null
+  theme?: string
+  target_duration_sec?: number
+  style?: 'chronological' | 'highlights_first' | 'atmospheric'
+  max_candidates?: number
+  variant_count?: number
+  planning_mode?: 'offline_rules' | 'model'
+}

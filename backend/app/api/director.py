@@ -15,7 +15,11 @@ from sqlalchemy.orm import Session
 from .deps import get_db
 from ..models import Project
 from ..services import director_candidates as dc
+from ..services import director_plan_input as dpi
+from ..services import director_plan_validation as dpv
 from ..services import director_query as dq
+from ..services.director_plan_providers import ModelCallNotAuthorized, OfflineRulesPlanner
+from ..services.director_plan_schema import PlanPreviewRequest, PlanningBrief
 from ..services.director_schemas import CandidatesOut, ContextOut
 
 router = APIRouter()
@@ -115,3 +119,85 @@ def director_context(
         brief=brief,
         max_candidates=max_candidates,
     )
+
+
+class PlanRejected(Exception):
+    """A plan that failed validation; carries every problem for the client."""
+
+    def __init__(self, problems: list[dict]) -> None:
+        self.problems = problems
+        super().__init__("plan rejected")
+
+
+@router.post("/projects/{project_id}/director/plans/preview")
+def director_plan_preview(
+    project_id: str,
+    body: PlanPreviewRequest,
+    db: Session = Depends(get_db),
+):
+    """Produce a **read-only draft** plan. Writes nothing, calls no model.
+
+    Status codes are part of the contract:
+
+    * 404 — no such project
+    * 409 ``DIRECTOR_INPUT_CHANGED`` — the library or the human choices moved
+      since the caller read ``/director/context``
+    * 422 ``PLAN_REJECTED`` — the planner produced something invalid (the
+      problems are listed so the client can show them)
+    * 403 ``MODEL_CALL_NOT_AUTHORIZED`` — model planning was requested
+    * 200 — a draft, which may itself be ``insufficient_evidence``
+    """
+    _project_or_404(db, project_id)
+
+    # Model planning is refused in code, before anything is read or sent.
+    if body.planning_mode == "model":
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "MODEL_CALL_NOT_AUTHORIZED",
+                "message": "真实模型策划未获授权；本轮不会发起任何外部模型请求。",
+            },
+        )
+
+    brief = PlanningBrief(
+        theme=body.theme,
+        target_duration_sec=body.target_duration_sec,
+        style=body.style,
+        variant_count=body.variant_count,
+    )
+
+    try:
+        planning_input = dpi.build_planning_input(
+            project_id, max_candidates=body.max_candidates, session=db
+        )
+    except dpi.PlanningInputError as exc:
+        raise HTTPException(status_code=404, detail={"code": exc.code,
+                                                     "message": exc.message})
+
+    if (body.expected_input_digest
+            and body.expected_input_digest != planning_input.source_input_digest):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "DIRECTOR_INPUT_CHANGED",
+                "message": "素材或人工选择已变化，请重新获取候选后再生成草案。",
+                "current_input_digest": planning_input.source_input_digest,
+            },
+        )
+
+    plan = OfflineRulesPlanner().plan(planning_input, brief)
+
+    problems = dpv.validate_plan(plan, planning_input)
+    if problems:
+        # A rejected plan is a defect in the planner, not in the request; the
+        # client still gets the detail so it is never a silent blank screen.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "PLAN_REJECTED",
+                "message": "生成的草案未通过校验，未返回任何方案。",
+                "problems": [p.as_dict() for p in problems],
+            },
+        )
+
+    return plan.model_dump(mode="json")

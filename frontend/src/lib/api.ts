@@ -233,6 +233,7 @@ export const endpoints = {
   // --- TSB-368-B read-only director browsing ---
   directorCandidates: (id: string) => `/api/projects/${id}/director/candidates`,
   directorContext: (id: string) => `/api/projects/${id}/director/context`,
+  directorPlanPreview: (id: string) => `/api/projects/${id}/director/plans/preview`,
   // --- TSB-367 plan operations ---
   planOperations: (id: string, boardId: string) =>
     `/api/projects/${id}/storyboards/${boardId}/operations`,
