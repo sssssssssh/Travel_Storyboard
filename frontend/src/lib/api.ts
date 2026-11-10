@@ -234,6 +234,7 @@ export const endpoints = {
   directorCandidates: (id: string) => `/api/projects/${id}/director/candidates`,
   directorContext: (id: string) => `/api/projects/${id}/director/context`,
   directorPlanPreview: (id: string) => `/api/projects/${id}/director/plans/preview`,
+  directorPlanInputStatus: (id: string) => `/api/projects/${id}/director/plans/input-status`,
   // --- TSB-367 plan operations ---
   planOperations: (id: string, boardId: string) =>
     `/api/projects/${id}/storyboards/${boardId}/operations`,

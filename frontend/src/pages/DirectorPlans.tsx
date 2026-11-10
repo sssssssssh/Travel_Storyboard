@@ -23,6 +23,7 @@ import type {
   DirectorCandidatesOut,
   PlanClaim,
   PlanDraft,
+  PlanInputStatus,
   PlanPreviewRequest,
   PlanShot,
   PlanVariant,
@@ -204,14 +205,30 @@ function VariantCard({
   )
 }
 
+/**
+ * TSB-370: remount on project change.
+ *
+ * The form holds a draft, an error and a bound digest. Clearing them in an effect
+ * works but causes a cascading-render lint error and, worse, leaves one frame
+ * where the previous project's draft is still visible under the new id. A keyed
+ * remount makes "never crosses projects" structural instead of temporal.
+ */
 export default function DirectorPlans() {
+  const { id = '' } = useParams()
+  return <DirectorPlansForm key={id} />
+}
+
+function DirectorPlansForm() {
   const { id = '' } = useParams()
   const [theme, setTheme] = useState('')
   const [target, setTarget] = useState(90)
   const [style, setStyle] = useState<PlanPreviewRequest['style']>('chronological')
   const [variantCount, setVariantCount] = useState(2)
+  const [maxCandidates, setMaxCandidates] = useState(40)
   const [draft, setDraft] = useState<PlanDraft | null>(null)
   const [edited, setEdited] = useState<PlanVariant[] | null>(null)
+  // TSB-370-0: the draft must be bound to the exact input it was built from.
+  const [staleDigest, setStaleDigest] = useState<string | null>(null)
   const [error, setError] = useState<{ code: string; message: string } | null>(null)
 
   const ctx = useQuery({
@@ -221,10 +238,27 @@ export default function DirectorPlans() {
     enabled: Boolean(id),
   })
 
+  // The digest comes from the read-only input-status endpoint, which runs the
+  // same assembly the planner does. Deriving it from /director/candidates
+  // coverage (the previous shape of this code) was not a digest at all.
+  const status = useQuery({
+    queryKey: ['plan-input-status', id, maxCandidates],
+    queryFn: () => api<PlanInputStatus>(
+      `${endpoints.directorPlanInputStatus(id)}?max_candidates=${maxCandidates}`),
+    enabled: Boolean(id),
+    // Always refetch: a stale digest is exactly the bug this guards against.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  })
+
+  const inputDigest = status.data?.input_digest ?? null
+  const digestReady = Boolean(inputDigest)
+
   const preview = useMutation({
     mutationFn: () => {
       const body: PlanPreviewRequest = {
-        expected_input_digest: ctx.data?.coverage ? undefined : undefined,
+        expected_input_digest: inputDigest,
+        max_candidates: maxCandidates,
         theme,
         target_duration_sec: target,
         style,
@@ -243,10 +277,15 @@ export default function DirectorPlans() {
     },
     onError: (err) => {
       const anyErr = err as { status?: number; message?: string; detail?: { code?: string } }
-      setError({
-        code: anyErr.detail?.code ?? `HTTP_${anyErr.status ?? '?'}`,
-        message: anyErr.message ?? '生成草案失败',
-      })
+      const code = anyErr.detail?.code ?? `HTTP_${anyErr.status ?? '?'}`
+      // A conflict must never leave the old draft on screen pretending to match
+      // the new evidence.
+      if (code === 'DIRECTOR_INPUT_CHANGED' || anyErr.status === 409) {
+        setStaleDigest(inputDigest)
+        setDraft(null)
+        setEdited(null)
+      }
+      setError({ code, message: anyErr.message ?? '生成草案失败' })
     },
   })
 
@@ -308,6 +347,15 @@ export default function DirectorPlans() {
                 <option value="atmospheric">氛围优先</option>
               </select>
             </Field>
+            <Field label="候选镜头上限">
+              <select className={inputClass} value={maxCandidates} data-testid="input-max-candidates"
+                      onChange={(e) => setMaxCandidates(Number(e.target.value))}>
+                <option value={20}>20</option>
+                <option value={40}>40</option>
+                <option value={60}>60</option>
+                <option value={100}>100</option>
+              </select>
+            </Field>
             <Field label="方案数">
               <select className={inputClass} value={variantCount} data-testid="input-variants"
                       onChange={(e) => setVariantCount(Number(e.target.value))}>
@@ -316,7 +364,8 @@ export default function DirectorPlans() {
                 <option value={3}>3</option>
               </select>
             </Field>
-            <Button data-testid="generate" disabled={preview.isPending}
+            <Button data-testid="generate"
+                    disabled={preview.isPending || !digestReady}
                     onClick={() => preview.mutate()}>
               {preview.isPending ? '生成中…' : '开始离线策划'}
             </Button>
@@ -324,6 +373,22 @@ export default function DirectorPlans() {
           <div className="mt-2 text-xs text-slate-500" data-testid="readonly-note">
             本页不保存、不应用、不上传。刷新会丢失未导出的草案。
           </div>
+          <div className="mt-1 text-xs text-slate-500" data-testid="digest-state">
+            {status.isError
+              ? '无法读取输入摘要，已禁用生成。'
+              : digestReady
+                ? `输入摘要 ${inputDigest?.slice(0, 12)}… · 已绑定当前证据`
+                : '正在读取输入摘要…'}
+          </div>
+          {staleDigest && (
+            <div className="mt-1 text-xs text-amber-300" data-testid="stale-banner">
+              素材或人工选择在上次生成后发生变化，旧草案已清除。
+              <button className="ml-2 underline" data-testid="reload-input"
+                      onClick={() => { status.refetch(); setStaleDigest(null) }}>
+                重新加载证据
+              </button>
+            </div>
+          )}
         </Card>
 
         {ctx.isError && (

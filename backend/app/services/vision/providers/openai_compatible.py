@@ -170,6 +170,18 @@ def _inline_data_uri(image) -> tuple[str, int]:
     return f"data:{mime};base64,{base64.b64encode(image.data or b'').decode('ascii')}", len(image.data or b"")
 
 
+#: Optional ledger hook (TSB-370). When set, **every** real HTTP POST must obtain
+#: a charge first, so no retry layer can exceed the attempt budget. Default None
+#: keeps all existing behaviour (and all existing tests) unchanged.
+_LEDGER_HOOK = None
+
+
+def set_ledger_hook(hook) -> None:
+    """Install (or clear) the attempt ledger used by :func:`post_model_request`."""
+    global _LEDGER_HOOK
+    _LEDGER_HOOK = hook
+
+
 def post_model_request(url: str, *, content: bytes, headers: dict, timeout: float):
     """The single place the adapter performs an HTTP POST (TSB-366-R2).
 
@@ -188,6 +200,11 @@ def post_model_request(url: str, *, content: bytes, headers: dict, timeout: floa
     ``RemoteProtocolError``). Remote endpoints keep the default behaviour, so
     proxy support for cloud providers is unchanged.
     """
+    hook = _LEDGER_HOOK
+    if hook is not None:
+        # Charged before the socket opens: a request that then times out still
+        # spent a real attempt, and the ledger must say so.
+        hook(len(content))
     if _is_loopback_endpoint(url):
         with httpx.Client(trust_env=False, timeout=timeout) as client:
             return client.post(url, content=content, headers=headers)

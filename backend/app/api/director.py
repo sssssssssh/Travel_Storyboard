@@ -129,6 +129,61 @@ class PlanRejected(Exception):
         super().__init__("plan rejected")
 
 
+@router.get("/projects/{project_id}/director/plans/input-status")
+def director_plan_input_status(
+    project_id: str,
+    max_candidates: int = Query(default=dpi.DEFAULT_MAX_CANDIDATES, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """The single source of truth for "what would the planner see right now?".
+
+    A browser cannot compute ``input_digest`` itself, and calling ``/context`` to
+    guess it risks using a different ``max_candidates`` or brief projection than
+    the planner does — which would make the 409 guard either miss real changes or
+    fire spuriously. This endpoint runs the **same** assembly the planner runs, so
+    the digest it returns is by construction the one the next preview will compare
+    against.
+
+    Read-only: it creates no storyboard, version, or job.
+    """
+    _project_or_404(db, project_id)
+    try:
+        planning_input = dpi.build_planning_input(
+            project_id, max_candidates=max_candidates, session=db
+        )
+    except dpi.PlanningInputError as exc:
+        raise HTTPException(status_code=404,
+                            detail={"code": exc.code, "message": exc.message})
+
+    entries = planning_input.entries
+    return {
+        "project_id": project_id,
+        "input_digest": planning_input.source_input_digest,
+        "max_candidates": max_candidates,
+        "coverage": planning_input.coverage,
+        "withheld": planning_input.withheld,
+        "limitations": planning_input.limitations,
+        "base_storyboard_version_id": planning_input.base_storyboard_version_id,
+        "storyboard_absent": planning_input.storyboard_absent,
+        "segment_count": len(entries),
+        "segments_with_any_valid_reading": sum(
+            1 for e in entries if e.has_usable_reading),
+        "locked_segments": sum(1 for e in entries if e.locked_in_base),
+        "evidence_channels": {
+            "static": sum(1 for e in entries
+                          if e.static.result_id and e.static.state in (
+                              dc.STATE_CURRENT, dc.STATE_UNVERIFIED)),
+            "multiframe": sum(1 for e in entries
+                              if e.multiframe.result_id and e.multiframe.state in (
+                                  dc.STATE_CURRENT, dc.STATE_UNVERIFIED)),
+            "video_native": sum(1 for e in entries
+                                if e.video_native.result_id
+                                and e.video_native.state in (
+                                    dc.STATE_CURRENT, dc.STATE_UNVERIFIED)),
+        },
+    }
+
+
 @router.post("/projects/{project_id}/director/plans/preview")
 def director_plan_preview(
     project_id: str,

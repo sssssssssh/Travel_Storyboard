@@ -21,8 +21,22 @@ vi.mock('../lib/api', () => ({
     directorCandidates: (id: string) => `/api/projects/${id}/director/candidates`,
     directorContext: (id: string) => `/api/projects/${id}/director/context`,
     directorPlanPreview: (id: string) => `/api/projects/${id}/director/plans/preview`,
+    directorPlanInputStatus: (id: string) => `/api/projects/${id}/director/plans/input-status`,
   },
 }))
+
+const DIGEST = 'f'.repeat(64)
+const inputStatus = {
+  project_id: 'p1',
+  input_digest: DIGEST,
+  max_candidates: 40,
+  coverage: { library_segments: 99, segments_with_any_valid_reading: 10,
+              no_valid_model_reading: 89, video_native_valid: 0 },
+  withheld: {}, limitations: [],
+  base_storyboard_version_id: null, storyboard_absent: true,
+  segment_count: 99, segments_with_any_valid_reading: 10, locked_segments: 0,
+  evidence_channels: { static: 8, multiframe: 4, video_native: 0 },
+}
 
 afterEach(() => {
   cleanup()
@@ -105,6 +119,7 @@ const candidatesPayload = {
 
 function setup(planResponse: PlanDraft | (() => Promise<PlanDraft>) = draft()) {
   vi.mocked(api).mockImplementation(async (path: string) => {
+    if (path.includes('/director/plans/input-status')) return inputStatus
     if (path.includes('/director/candidates')) return candidatesPayload
     if (path.includes('/director/plans/preview')) {
       if (typeof planResponse === 'function') return planResponse()
@@ -125,8 +140,19 @@ function setup(planResponse: PlanDraft | (() => Promise<PlanDraft>) = draft()) {
 }
 
 async function generate() {
+  // TSB-370-0: generation is disabled until the input digest is loaded. The old
+  // helper clicked immediately, which is exactly the state the bug allowed.
+  await waitFor(() =>
+    expect((screen.getByTestId('generate') as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(screen.getByTestId('generate'))
   await screen.findByTestId('variant-title')
+}
+
+async function clickGenerateExpecting(selector: string) {
+  await waitFor(() =>
+    expect((screen.getByTestId('generate') as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.click(screen.getByTestId('generate'))
+  return screen.findByTestId(selector)
 }
 
 test('coverage is shown as counts, including the unanalysed shots', async () => {
@@ -155,18 +181,23 @@ test('there is no control that could write the plan back', async () => {
   }
 })
 
-test('generating issues only the preview POST and a candidates GET', async () => {
+test('generating issues only the preview POST, and only read-only GETs otherwise', async () => {
   setup()
   await generate()
   const calls = vi.mocked(api).mock.calls
   const posts = calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST')
+  // Exactly one write-shaped call: the preview. The digest GET must never be a POST.
   expect(posts).toHaveLength(1)
   expect(String(posts[0][0])).toContain('/plans/preview')
+
+  const allowedGets = ['/director/candidates', '/director/plans/input-status']
   for (const c of calls) {
     const m = (c[1] as RequestInit | undefined)?.method ?? 'GET'
     if (m !== 'GET') continue
-    expect(String(c[0])).toContain('/director/candidates')
+    expect(allowedGets.some((p) => String(c[0]).includes(p))).toBe(true)
   }
+  // The input-status read must actually have happened (TSB-370-0).
+  expect(calls.some((c) => String(c[0]).includes('/plans/input-status'))).toBe(true)
 })
 
 test('a shot with no reading shows no invented description', async () => {
@@ -236,16 +267,14 @@ test('trimming shortens the shot and shifts the timeline', async () => {
 
 test('insufficient evidence is shown as such rather than an empty page', async () => {
   setup(draft({ generation_status: 'insufficient_evidence', variants: [] }))
-  fireEvent.click(screen.getByTestId('generate'))
-  const box = await screen.findByTestId('insufficient')
+  const box = await clickGenerateExpecting('insufficient')
   expect(box.textContent).toContain('没有编造')
 })
 
 test('a 409 keeps the user theme and shows a conflict hint', async () => {
   setup(() => Promise.reject(Object.assign(new Error('输入已变化'), { status: 409 })))
   fireEvent.change(screen.getByTestId('input-theme'), { target: { value: '海边日落' } })
-  fireEvent.click(screen.getByTestId('generate'))
-  const err = await screen.findByTestId('plan-error')
+  const err = await clickGenerateExpecting('plan-error')
   expect(err.textContent).toBeTruthy()
   await waitFor(() => expect(screen.queryByTestId('conflict-hint')).toBeTruthy())
   expect((screen.getByTestId('input-theme') as HTMLInputElement).value).toBe('海边日落')
@@ -278,4 +307,78 @@ test('the export text never mentions the theme as footage content', () => {
   const md = buildMarkdown(d, [variant()])
   expect(md).not.toContain('极光')
   expect(md).not.toContain('雪山')
+})
+
+
+// ---------------------------------------------------------------------------
+// TSB-370-0 — the digest must actually reach the server
+// ---------------------------------------------------------------------------
+
+test('the preview request carries the digest from input-status', async () => {
+  setup()
+  await generate()
+  const post = vi.mocked(api).mock.calls.find(
+    (c) => (c[1] as RequestInit | undefined)?.method === 'POST')
+  const body = JSON.parse(String((post?.[1] as RequestInit).body))
+  expect(body.expected_input_digest).toBe(DIGEST)
+  expect(body.expected_input_digest).not.toBeUndefined()
+})
+
+test('generation is disabled until a digest exists', async () => {
+  let resolveStatus: (v: unknown) => void = () => {}
+  const pending = new Promise((r) => { resolveStatus = r })
+  vi.mocked(api).mockImplementation(async (path: string) => {
+    if (path.includes('/plans/input-status')) return pending
+    if (path.includes('/director/candidates')) return candidatesPayload
+    return {}
+  })
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={['/project/p1/director/plan']}>
+        <Routes>
+          <Route path="/project/:id/director/plan" element={<DirectorPlans />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+  await waitFor(() =>
+    expect((screen.getByTestId('generate') as HTMLButtonElement).disabled).toBe(true))
+  resolveStatus(inputStatus)
+  await waitFor(() =>
+    expect((screen.getByTestId('generate') as HTMLButtonElement).disabled).toBe(false))
+})
+
+test('a 409 clears the old draft and offers a reload', async () => {
+  setup()
+  await generate()
+  expect(screen.getByTestId('variant-title')).toBeTruthy()
+
+  vi.mocked(api).mockImplementation(async (path: string) => {
+    if (path.includes('/plans/input-status')) return inputStatus
+    if (path.includes('/director/candidates')) return candidatesPayload
+    if (path.includes('/plans/preview')) {
+      throw Object.assign(new Error('输入已变化'), {
+        status: 409, detail: { code: 'DIRECTOR_INPUT_CHANGED' } })
+    }
+    return {}
+  })
+  fireEvent.click(screen.getByTestId('generate'))
+  await screen.findByTestId('plan-error')
+  // The old draft must not survive the conflict.
+  expect(screen.queryByTestId('variant-title')).toBeNull()
+  expect(screen.getByTestId('stale-banner')).toBeTruthy()
+  expect(screen.getByTestId('reload-input')).toBeTruthy()
+})
+
+test('the digest request uses the chosen max_candidates', async () => {
+  setup()
+  await waitFor(() =>
+    expect((screen.getByTestId('generate') as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.change(screen.getByTestId('input-max-candidates'), { target: { value: '60' } })
+  await waitFor(() => {
+    const hit = vi.mocked(api).mock.calls.some((c) =>
+      String(c[0]).includes('/plans/input-status') && String(c[0]).includes('max_candidates=60'))
+    expect(hit).toBe(true)
+  })
 })

@@ -822,3 +822,25 @@ export interface PlanPreviewRequest {
   variant_count?: number
   planning_mode?: 'offline_rules' | 'model'
 }
+
+
+/** Read-only "what would the planner see right now" snapshot (TSB-370-0). */
+export interface PlanInputStatus {
+  project_id: string
+  input_digest: string
+  max_candidates: number
+  coverage: {
+    library_segments: number
+    segments_with_any_valid_reading: number
+    no_valid_model_reading: number
+    video_native_valid: number
+  }
+  withheld: Record<string, number>
+  limitations: string[]
+  base_storyboard_version_id: string | null
+  storyboard_absent: boolean
+  segment_count: number
+  segments_with_any_valid_reading: number
+  locked_segments: number
+  evidence_channels: { static: number; multiframe: number; video_native: number }
+}
