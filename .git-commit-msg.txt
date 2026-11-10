@@ -1,0 +1,17 @@
+fix(TSB-370): 让模型模式相关测试自带配置，不依赖本地 .env
+
+CI run #132 的 4 个 Backend 作业失败，本地全量却全绿。
+
+根因：`test_tsb370_model_api.py` 中 4 个用例假设 TRAVELSB_MODEL_MODE=on，
+但该值来自开发者本机 .env；CI 默认 off，于是这些用例在
+authorize_upload() 处提前返回 403，断言 502/422 失败。
+
+这是测试对环境的隐藏耦合，属于我的缺陷，不是 CI 配置问题：
+CI 不该连真实模型，默认 off 是正确的。
+
+修复：新增 model_enabled fixture，显式把全局开关打开并给一个
+example.invalid 占位端点（不产生任何网络），由需要的用例自行声明。
+同时把"无授权即 403"的用例也显式要求模型已开启，
+否则它可能因"模式关闭"而非"缺少授权"这种错误原因通过。
+
+本地已在模拟 CI 条件（MODEL_MODE=off、无 BASE_URL、无 API_KEY）下验证通过。

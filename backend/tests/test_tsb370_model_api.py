@@ -65,6 +65,20 @@ def _seed(client, name="t370api"):
 
 
 @pytest.fixture()
+def model_enabled(monkeypatch):
+    """Make the global gate passable, with a dummy endpoint (no network is used)."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "model_mode", "on", raising=False)
+    monkeypatch.setattr(settings, "model_base_url", "https://example.invalid/v1",
+                        raising=False)
+    monkeypatch.setattr(settings, "model_api_key", "test-key-not-real",
+                        raising=False)
+    return settings
+
+
+@pytest.fixture()
 def no_outbound(monkeypatch):
     """Fail the test if anything tries to open a model connection."""
     calls: list[str] = []
@@ -83,7 +97,7 @@ def no_outbound(monkeypatch):
     return calls
 
 
-def test_model_mode_without_a_grant_is_403_and_sends_nothing(client, no_outbound):
+def test_model_mode_without_a_grant_is_403_and_sends_nothing(client, model_enabled, no_outbound):
     pid = _seed(client)
     r = client.post(PREVIEW.format(p=pid), json={
         "planning_mode": "model", "target_duration_sec": 15})
@@ -134,7 +148,7 @@ def test_mock_mode_remains_unreachable(client, no_outbound):
     assert no_outbound == []
 
 
-def test_model_mode_with_a_grant_does_not_write_a_storyboard(client, monkeypatch):
+def test_model_mode_with_a_grant_does_not_write_a_storyboard(client, monkeypatch, model_enabled):
     """Even a successful model plan must stay a read-only draft."""
     from sqlalchemy import func, select
 
@@ -175,7 +189,7 @@ def test_model_mode_with_a_grant_does_not_write_a_storyboard(client, monkeypatch
     assert _counts() == before
 
 
-def test_an_unparseable_model_reply_is_reported_not_replaced(client, monkeypatch):
+def test_an_unparseable_model_reply_is_reported_not_replaced(client, monkeypatch, model_enabled):
     """The offline plan must never stand in for a failed model call."""
     pid = _seed(client)
 
@@ -197,7 +211,7 @@ def test_an_unparseable_model_reply_is_reported_not_replaced(client, monkeypatch
     assert "variants" not in r.json()
 
 
-def test_a_fabricating_model_is_rejected_with_problems(client, monkeypatch):
+def test_a_fabricating_model_is_rejected_with_problems(client, monkeypatch, model_enabled):
     pid = _seed(client)
 
     class _Resp:
@@ -222,7 +236,7 @@ def test_a_fabricating_model_is_rejected_with_problems(client, monkeypatch):
     assert any(p["code"] == "UNKNOWN_SEGMENT" for p in detail["problems"])
 
 
-def test_a_provider_transport_error_is_502(client, monkeypatch):
+def test_a_provider_transport_error_is_502(client, monkeypatch, model_enabled):
     pid = _seed(client)
 
     from app.services.vision.errors import ModelError
