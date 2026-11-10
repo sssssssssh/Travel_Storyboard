@@ -132,6 +132,9 @@ class PlanDraft(Strict):
     withheld: dict[str, int] = Field(default_factory=dict)
     needs_more_analysis: bool = False
     warnings: list[str] = Field(default_factory=list)
+    #: What the model request actually contained (counts only). Present so the UI
+    #: can prove what was sent without exposing the payload.
+    request_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class PlanPreviewRequest(Strict):
@@ -144,6 +147,10 @@ class PlanPreviewRequest(Strict):
     max_candidates: int = Field(default=40, ge=1, le=200)
     variant_count: int = Field(default=2, ge=1, le=3)
     planning_mode: PlanningMode = "offline_rules"
+    #: Explicit per-request grant for a real model call. Absent/false -> the model
+    #: path refuses with 403 and touches no network. This is in addition to
+    #: TRAVELSB_MODEL_MODE and the endpoint checks, never instead of them.
+    upload_acknowledged: bool = False
 
 
 def as_dict(model: BaseModel) -> dict[str, Any]:

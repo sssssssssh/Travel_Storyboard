@@ -16,6 +16,8 @@ Deliberate behaviours:
 from __future__ import annotations
 
 import base64
+import contextvars
+import os
 import json
 import logging
 import ipaddress
@@ -175,11 +177,75 @@ def _inline_data_uri(image) -> tuple[str, int]:
 #: keeps all existing behaviour (and all existing tests) unchanged.
 _LEDGER_HOOK = None
 
+#: Which budget bucket the next POST belongs to. Set by the job runner around each
+#: channel's work; unset means "unknown", which the hook reports rather than guess.
+_LEDGER_CHANNEL: "contextvars.ContextVar[str | None]" = contextvars.ContextVar(
+    "tsb370_ledger_channel", default=None)
+
+
+def ledger_channel(channel: str):
+    """Scope the ledger bucket for the enclosed work (contextvar, not a global)."""
+    return _LedgerChannelScope(channel)
+
+
+class _LedgerChannelScope:
+    __slots__ = ("_channel", "_token")
+
+    def __init__(self, channel: str) -> None:
+        self._channel = channel
+        self._token = None
+
+    def __enter__(self):
+        self._token = _LEDGER_CHANNEL.set(self._channel)
+        return self
+
+    def __exit__(self, *exc) -> None:
+        if self._token is not None:
+            _LEDGER_CHANNEL.reset(self._token)
+        return None
+
+
+def _current_channel(fallback: str) -> str:
+    return _LEDGER_CHANNEL.get() or fallback
+
 
 def set_ledger_hook(hook) -> None:
     """Install (or clear) the attempt ledger used by :func:`post_model_request`."""
     global _LEDGER_HOOK
     _LEDGER_HOOK = hook
+
+
+def _install_ledger_from_env() -> None:
+    """Auto-install the TSB-370 attempt ledger when the experiment asks for it.
+
+    The ledger must live in the *process that sends*, not in the driver process, or
+    it would never see the retries it exists to bound. ``TRAVELSB_MODEL_LEDGER``
+    names a file outside the repo; when it is set, every POST is charged before the
+    socket opens. Production runs never set it, so behaviour there is unchanged.
+    """
+    global _LEDGER_HOOK
+    if _LEDGER_HOOK is not None:
+        return
+    path = os.environ.get("TRAVELSB_MODEL_LEDGER", "").strip()
+    if not path:
+        return
+    from ...model_call_ledger import ModelCallLedger
+
+    ledger = ModelCallLedger(Path(path))
+    default_channel = os.environ.get("TRAVELSB_MODEL_LEDGER_CHANNEL", "").strip()
+
+    def _hook(size: int) -> None:
+        # The channel is decided by whoever is sending, via a context variable,
+        # because one process serves static, motion and video jobs in turn. A
+        # single env-chosen channel would charge motion against the static cap,
+        # which is exactly the mis-accounting the ledger exists to prevent.
+        channel = _current_channel(default_channel or "static")
+        ledger.charge(channel, "auto", size, note=f"auto:{channel}")
+
+    _LEDGER_HOOK = _hook
+
+
+_install_ledger_from_env()
 
 
 def post_model_request(url: str, *, content: bytes, headers: dict, timeout: float):
@@ -280,7 +346,8 @@ class OpenAICompatibleVisionProvider:
         validate_endpoint(self.base_url, allow_insecure=self.allow_insecure)
 
         caps = _capabilities.declared_capabilities()
-        assert_images_supported(caps, len(request.images))
+        if not getattr(request, "text_only", False):
+            assert_images_supported(caps, len(request.images))
 
         content: list[dict] = [{"type": "text", "text": request.prompt}]
         for img in request.images:

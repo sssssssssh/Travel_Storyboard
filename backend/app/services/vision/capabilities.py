@@ -57,7 +57,11 @@ def assert_images_supported(caps: VisionCapabilities, image_count: int) -> None:
     from .errors import MODEL_CAPABILITY_UNSUPPORTED, ModelError
 
     if image_count <= 0:
-        raise ModelError(MODEL_CAPABILITY_UNSUPPORTED, "vision call needs at least one image")
+        # TSB-370-D: a text-only call is legitimate, but only when the caller has
+        # declared that purpose explicitly on the request. A vision call with no
+        # image is still a mistake, so the two cases stay distinguishable.
+        raise ModelError(MODEL_CAPABILITY_UNSUPPORTED,
+                         "vision call needs at least one image")
     if not caps.supports_images:
         raise ModelError(MODEL_CAPABILITY_UNSUPPORTED, "configured provider declares no image support")
     if image_count > 1 and not caps.supports_multi_image:

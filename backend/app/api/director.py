@@ -204,13 +204,14 @@ def director_plan_preview(
     """
     _project_or_404(db, project_id)
 
-    # Model planning is refused in code, before anything is read or sent.
-    if body.planning_mode == "model":
+    # Model planning needs an explicit grant on THIS request, on top of the
+    # global mode switch and the endpoint checks. Absent -> refuse, zero network.
+    if body.planning_mode == "model" and not body.upload_acknowledged:
         raise HTTPException(
             status_code=403,
             detail={
                 "code": "MODEL_CALL_NOT_AUTHORIZED",
-                "message": "真实模型策划未获授权；本轮不会发起任何外部模型请求。",
+                "message": "真实模型策划未获授权；本次请求不会发起任何外部模型调用。",
             },
         )
 
@@ -240,7 +241,10 @@ def director_plan_preview(
             },
         )
 
-    plan = OfflineRulesPlanner().plan(planning_input, brief)
+    if body.planning_mode == "model":
+        plan = _plan_with_model(planning_input, brief)
+    else:
+        plan = OfflineRulesPlanner().plan(planning_input, brief)
 
     problems = dpv.validate_plan(plan, planning_input)
     if problems:
@@ -256,3 +260,51 @@ def director_plan_preview(
         )
 
     return plan.model_dump(mode="json")
+
+
+def _plan_with_model(planning_input, brief):
+    """Run the real model planner through the existing authorization gate.
+
+    Every refusal keeps a stable code so the UI can explain itself:
+    ``MODEL_CALL_NOT_AUTHORIZED`` (no grant / wrong endpoint),
+    ``MODEL_INVALID_OUTPUT`` (unparseable reply), ``MODEL_CALL_FAILED`` (transport).
+    """
+    from ..services.director_plan_model import ModelPlanError
+    from ..services.director_plan_providers import ExternalPlannerProvider
+    from ..services.vision.authorization import (
+        AuthorizedModelContext, authorization_denial_reason,
+    )
+    from ..services.vision.errors import ModelError
+    from ..services.vision import get_provider
+
+    reason = authorization_denial_reason(
+        upload_acknowledged=True, project_id=planning_input.project_id)
+    if reason is not None:
+        code = reason.split(":", 1)[0]
+        raise HTTPException(status_code=403,
+                            detail={"code": code, "message": reason})
+
+    try:
+        provider = get_provider()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail={
+            "code": "MODEL_UNAVAILABLE",
+            "message": f"模型端点不可用：{str(exc)[:160]}"})
+
+    from datetime import datetime, timezone
+
+    ctx = AuthorizedModelContext(
+        project_id=planning_input.project_id,
+        purpose="director_plan",
+        acknowledged_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+    planner = ExternalPlannerProvider(authorized=ctx, provider=provider)
+    try:
+        return planner.plan(planning_input, brief)
+    except ModelError as exc:
+        raise HTTPException(status_code=502, detail={
+            "code": getattr(exc, "code", "MODEL_CALL_FAILED"),
+            "message": str(exc)[:200]})
+    except ModelPlanError as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": exc.code, "message": exc.message})

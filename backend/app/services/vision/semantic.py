@@ -381,6 +381,10 @@ class _Budget:
 
 
 def vision_analyze_task(job_id: str) -> None:
+    # TSB-370: charge every POST from this job to its own ledger bucket.
+    from .providers.openai_compatible import _LEDGER_CHANNEL
+    _LEDGER_CHANNEL.set("static")
+
     """Worker entry point for the ``vision_analyze`` job."""
     from . import get_provider
 

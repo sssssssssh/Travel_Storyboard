@@ -212,6 +212,10 @@ def validate_motion(payload: dict, allowed_timestamps: list[float]) -> dict:
 
 
 def motion_review_task(job_id: str) -> None:
+    # TSB-370: charge every POST from this job to its own ledger bucket.
+    from .providers.openai_compatible import _LEDGER_CHANNEL
+    _LEDGER_CHANNEL.set("multiframe")
+
     """Worker entry point for the ``motion_review`` job."""
     from . import get_provider
 

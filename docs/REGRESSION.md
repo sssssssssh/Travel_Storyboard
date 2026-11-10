@@ -2302,3 +2302,75 @@ RED 5 failed → GREEN → 反向验证 5 failed。
 
 真实库只读预验收与模型门禁证据见
 [docs/validation/tsb369/PHASE_D_ACCEPTANCE.md](validation/tsb369/PHASE_D_ACCEPTANCE.md)。
+
+
+## TSB-370 真实素材 × 自建 PAI-EAS 模型
+
+发布记录：[docs/RELEASE_TSB_370.md](RELEASE_TSB_370.md)
+证据目录：[docs/validation/tsb370/](validation/tsb370/)
+
+### TSB-370-0 输入摘要接线（`test_tsb370_input_status.py`，9 项）
+
+修复 `expected_input_digest` 恒为 `undefined`。digest 改由只读
+`GET /director/plans/input-status` 提供，该端点复用 `build_planning_input()`。
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_input_status_digest_equals_the_one_the_preview_uses` | digest 是同一个量 |
+| `test_a_preview_using_the_status_digest_is_not_rejected` | 不误报 409 |
+| `test_editing_a_human_note_makes_the_old_digest_stale` | 备注变化 → 409 |
+| `test_changing_a_shot_window_makes_the_old_digest_stale` | 时间窗变化 → 409 |
+| `test_input_status_is_read_only` | 不建 Storyboard/版本/Job |
+| `test_input_status_respects_max_candidates_consistently` | 参数一致 |
+
+前端（`DirectorPlans.test.tsx` +4）：
+
+| 用例 | 守护行为 |
+|---|---|
+| `the preview request carries the digest from input-status` | **请求体确实带 digest** |
+| `generation is disabled until a digest exists` | 无摘要禁用生成 |
+| `a 409 clears the old draft and offers a reload` | 409 不显示旧草案 |
+| `the digest request uses the chosen max_candidates` | 摘要与参数一致 |
+
+### 真实模型策划 adapter（`test_tsb370_model_plan.py`，19 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_paths_are_never_in_the_prompt` | 不发路径 |
+| `test_user_notes_and_personal_data_never_leave` | **不发用户备注（含人名电话）** |
+| `test_no_images_are_sent` | 纯文字，不发图 |
+| `test_the_prompt_carries_evidence_ids_and_absolute_times` | 证据 ID 与绝对时间 |
+| `test_a_locked_shot_is_flagged_in_the_prompt` | 锁定披露 |
+| `test_audio_is_declared_unanalysed_in_the_prompt` | 声明音频未分析 |
+| `test_server_fields_cannot_be_overridden_by_the_model` | 权威字段不可覆盖 |
+| `test_an_invented_shot_from_the_model_is_rejected` | 幻觉镜头 |
+| `test_a_sound_claim_from_the_model_is_rejected` | **音频幻觉** |
+| `test_an_uncertain_upgrade_from_the_model_is_rejected` | **语义升级** |
+| `test_two_identical_model_variants_are_rejected` | 假多方案 |
+| `test_out_of_window_times_are_clamped_to_the_real_shot` | 越窗钳制 |
+| `test_evidence_refs_for_ids_the_shot_lacks_are_dropped` | 无效引用丢弃 |
+
+### 模型模式 API（`test_tsb370_model_api.py`，10 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_model_mode_without_a_grant_is_403_and_sends_nothing` | **未授权零外发** |
+| `test_model_mode_off_globally_is_403_even_with_a_grant` | 全局开关 |
+| `test_a_stale_digest_is_409_before_any_model_call` | 409 先于调用 |
+| `test_model_mode_with_a_grant_does_not_write_a_storyboard` | 只读草案 |
+| `test_an_unparseable_model_reply_is_reported_not_replaced` | 不用离线方案冒充 |
+| `test_a_fabricating_model_is_rejected_with_problems` | PLAN_REJECTED |
+| `test_a_provider_transport_error_is_502` | 传输错误 502 |
+
+### 反向验证（3 项）
+
+| 注入缺陷 | 失败用例 |
+|---|---|
+| `expected_input_digest` 改回 undefined | `the preview request carries the digest from input-status` |
+| 去掉每请求授权检查 | `test_model_mode_without_a_grant_is_403_and_sends_nothing` |
+| 把用户备注投影进 prompt | `test_user_notes_and_personal_data_never_leave` |
+
+### 真实模型执行
+
+见 [REAL_MODEL_RUN_LEDGER.md](validation/tsb370/REAL_MODEL_RUN_LEDGER.md)。
+总 attempts **20/20**（上限），未超任何渠道上限。

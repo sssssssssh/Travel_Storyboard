@@ -545,6 +545,10 @@ def register_video_tasks() -> None:
 
 
 def video_analyze_task(job_id: str) -> None:
+    # TSB-370: charge every POST from this job to its own ledger bucket.
+    from .providers.openai_compatible import _LEDGER_CHANNEL
+    _LEDGER_CHANNEL.set("native_video")
+
     """Run a ``video_analyze`` job end to end."""
     with session_scope() as s:
         job = s.get(Job, job_id)

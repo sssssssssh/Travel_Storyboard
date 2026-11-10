@@ -17,8 +17,19 @@ from __future__ import annotations
 from typing import Callable, Protocol
 
 from .director_plan_input import PlanningInput
+from ..config import get_settings
 from .director_plan_rules import plan_offline
 from .director_plan_schema import PlanDraft, PlanningBrief, VariantDraft
+
+#: Imported lazily inside ``plan`` to avoid a module cycle; re-exported here so the
+#: prompt lives beside the parser that enforces it.
+SYSTEM_PROMPT_TEXT = (
+    "You are a video editing planner. You receive numbered shots with evidence "
+    "recorded by a vision model. Rules: only reference shots by their exact "
+    "segment_id; describe content only when citing that shot's evidence ids; the "
+    "user's theme is a creative constraint, never a fact about the footage; audio "
+    "was not analysed, so never mention music, beats or sound; output JSON only."
+)
 
 
 class PlannerProvider(Protocol):
@@ -76,19 +87,116 @@ class ModelCallNotAuthorized(Exception):
 
 
 class ExternalPlannerProvider:
-    """A placeholder that refuses. No client library is imported here.
+    """The real model planner, active only with an explicit per-request grant.
 
-    Deliberate: importing a provider SDK "just in case" would create a code path
-    that could accidentally make a call. When model planning is authorized, this
-    class is where the integration goes — behind the same validator, and with the
-    existing per-call authorization and budget checks applied.
+    Constructing it does nothing. It only reaches the network inside
+    :meth:`plan`, and only after the caller has presented an
+    :class:`AuthorizedModelContext` produced by ``authorize_upload`` — the same gate
+    every other outbound path uses. With no context it raises
+    :class:`ModelCallNotAuthorized` and touches nothing.
     """
 
     name = "model"
 
+    def __init__(self, *, authorized=None, provider=None) -> None:
+        self._authorized = authorized
+        self._provider = provider
+
     def propose(self, planning_input: PlanningInput,
                 brief: PlanningBrief) -> list[VariantDraft]:
-        raise ModelCallNotAuthorized()
+        return self.plan(planning_input, brief).variants
+
+    def plan(self, planning_input: PlanningInput, brief: PlanningBrief):
+        from .director_plan_model import (
+            ModelPlanError, build_evidence_text, extract_json, parse_model_plan,
+        )
+
+        if self._authorized is None:
+            raise ModelCallNotAuthorized()
+        if self._provider is None:
+            raise ModelCallNotAuthorized("模型端点未配置，无法发起策划请求。")
+
+        text, summary = build_evidence_text(planning_input, brief)
+
+        # Planning is its own budget bucket. Without this the POST would be booked
+        # to whatever channel the previous job left behind (or the default), which
+        # would let a planning call consume the vision allowance.
+        from .vision.providers.openai_compatible import ledger_channel
+
+        with ledger_channel("plan_text"):
+            return self._plan_locked(planning_input, brief, text, summary)
+
+    def _plan_locked(self, planning_input: PlanningInput, brief: PlanningBrief,
+                     text: str, summary: dict):
+        from .director_plan_model import (
+            ModelPlanError, extract_json, parse_model_plan,
+        )
+        from .vision.providers.openai_compatible import VisionRequest
+
+        request = VisionRequest(
+            prompt=text,
+            images=[],
+            system=SYSTEM_PROMPT_TEXT,
+            json_object=True,
+            max_tokens=get_settings().vision_max_tokens,
+            temperature=0.4,
+            authorization=self._authorized,
+            text_only=True,
+        )
+        from .vision.errors import ModelError
+
+        try:
+            response = self._provider.complete(request)
+        except ModelError:
+            raise
+        except Exception as exc:
+            raise ModelPlanError(getattr(exc, "code", "MODEL_CALL_FAILED"),
+                                 str(exc)[:300]) from exc
+
+        payload = extract_json(getattr(response, "text", "") or "")
+        plan = parse_model_plan(
+            payload, planning_input, brief,
+            model_id=get_settings().model_name or "?",
+            provider_name="openai_compatible",
+        )
+        return plan.model_copy(update={"request_summary": summary})
+
+    def _unused_legacy(self, planning_input, brief, text):
+
+        from .vision.providers.openai_compatible import VisionRequest
+
+        request = VisionRequest(
+            prompt=text,
+            images=[],                       # text-only: no frame ever leaves
+            system=SYSTEM_PROMPT_TEXT,
+            json_object=True,
+            # The endpoint is a reasoning model: a large budget is required or it
+            # spends everything on reasoning and returns null content.
+            max_tokens=get_settings().vision_max_tokens,
+            temperature=0.4,
+            authorization=self._authorized,  # the per-call grant token
+            text_only=True,                  # planning sends no imagery
+        )
+        from .vision.errors import ModelError
+
+        try:
+            response = self._provider.complete(request)
+        except ModelError:
+            # A transport/provider failure is NOT an invalid-output problem; let it
+            # keep its own code so the API can report it as 502.
+            raise
+        except Exception as exc:  # unexpected: surface, never swallow
+            raise ModelPlanError(
+                getattr(exc, "code", "MODEL_CALL_FAILED"),
+                str(exc)[:300]) from exc
+
+        payload = extract_json(getattr(response, "text", "") or "")
+        plan = parse_model_plan(
+            payload, planning_input, brief,
+            model_id=get_settings().model_name or "?",
+            provider_name="openai_compatible",
+        )
+        return plan.model_copy(update={'request_summary': summary})
 
 
 def provider_for(mode: str) -> PlannerProvider:

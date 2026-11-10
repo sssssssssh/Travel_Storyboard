@@ -62,6 +62,11 @@ class VisionRequest:
     #: The provider refuses a request without it, so no code path can reach the
     #: network by bypassing the business entry point.
     authorization: "AuthorizedModelContext | None" = None
+    #: TSB-370-D: this is a text-only call on purpose. Without it the provider's
+    #: "needs at least one image" rule (which is right for vision) would reject
+    #: planning requests permanently. Defaults to False, so nothing changes for
+    #: every existing caller.
+    text_only: bool = False
 
 
 @dataclass
