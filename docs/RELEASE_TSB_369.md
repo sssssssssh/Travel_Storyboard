@@ -5,7 +5,9 @@
 | 基线 | `a6a79076a26a46e698abf182fec8444d2b17fff4`（TSB-368-R2 文档终态） |
 | 证据目录 | [docs/validation/tsb369/](validation/tsb369/) |
 | **代码提交** | `f1ecc2ce083cb9b49b8f8915087f28ba870fede7` |
-| **CI** | run #128，**7/7 success** —— https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42737573260 |
+| **CI（首轮）** | run #128，**7/7 success** —— https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42737573260 |
+| **审计轮提交** | `47867c6d1038fbdc13debc654830363b1ba57b12` |
+| **CI（审计轮）** | run #130，**7/7 success** —— https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42751575930 |
 | 合同说明 | [PLAN_CONTRACT.md](validation/tsb369/PLAN_CONTRACT.md) |
 
 ---
@@ -411,3 +413,134 @@ after : {"storyboards":1,"versions":1,"jobs":23,"operations":0,"editPlan":0,"ann
 **本轮之后仍不得宣称**：
 - AI 已理解全部素材（89/99 无读数，原生视频 0）
 - AI 导演能力已验收（真实模型 BLOCKED）
+
+
+---
+
+## A-7 CI 执行结果（审计轮）
+
+| 项 | 值 |
+|---|---|
+| 审计轮 SHA | `47867c6d1038fbdc13debc654830363b1ba57b12` |
+| run | **#130** |
+| 链接 | https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42751575930 |
+| 结论 | **7/7 success** |
+
+| 作业 | 结论 |
+|---|---|
+| `Frontend` | ✅ |
+| `Required FFmpeg (windows-latest)` | ✅ |
+| `Required FFmpeg (ubuntu-latest)` | ✅ |
+| `Backend (Python 3.11)` ×2 | ✅ |
+| `Backend (Python 3.13)` ×2 | ✅ |
+
+两个提交的 CI 均通过：
+
+| 阶段 | SHA | run | 结论 |
+|---|---|---|---|
+| 首轮交付 | `f1ecc2c` | #128 | ✅ 7/7 |
+| 审计补漏 | `47867c6` | #130 | ✅ 7/7 |
+
+---
+
+## A-8 最终交付清单
+
+### 代码
+
+| 文件 | 行数级别 | 作用 |
+|---|---|---|
+| `backend/app/services/director_plan_input.py` | ~560 | 证据输入聚合 |
+| `backend/app/services/director_plan_schema.py` | ~180 | 草案合同 |
+| `backend/app/services/director_plan_validation.py` | ~430 | 校验器（23 类错误码） |
+| `backend/app/services/director_plan_rules.py` | ~430 | 离线编排器 |
+| `backend/app/services/director_plan_providers.py` | ~110 | 生成器接口 + 门禁 |
+| `backend/app/api/director.py` | +110 | 只读预览端点 |
+| `frontend/src/pages/DirectorPlans.tsx` | ~470 | 只读草案页 |
+
+### 测试
+
+| 文件 | 数量 |
+|---|---|
+| `test_tsb369_input.py` | 17 |
+| `test_tsb369_plan.py` | 32 |
+| `test_tsb369_api.py` | 24 |
+| `test_tsb369_audit.py` | 20 |
+| `DirectorPlans.test.tsx` | 14 |
+| **合计** | **107** |
+
+### 文档
+
+| 文件 | 内容 |
+|---|---|
+| `docs/RELEASE_TSB_369.md` | 发布记录（含审计轮附录） |
+| `docs/validation/tsb369/PLAN_CONTRACT.md` | 合同与错误码 |
+| `docs/validation/tsb369/REAL_LIBRARY_UAT.md` | 真实库 UAT |
+| `docs/validation/tsb369/PHASE_D_ACCEPTANCE.md` | 阶段 D 验收 |
+| `docs/validation/tsb369/README.md` | 证据索引 |
+| `docs/REGRESSION.md` | 用例映射 |
+
+---
+
+## A-9 特别要求逐条对照
+
+| # | 要求 | 落实 | 证据 |
+|---|---|---|---|
+| 1 | 不得把没分析过的镜头描述为已观察 | `Claim.kind` 四分类 + 证据强制 + `SEMANTIC_UPGRADE` + `AUDIO_CLAIM_WITHOUT_ANALYSIS` | 5 条音频用例 + 2 条语义升级用例 |
+| 2 | 不得把离线/Mock 冒充真实 AI | UI 标注 `offline_rules`；Mock 外部不可达；`model` 模式 403 | `test_mock_mode_is_not_selectable` 等 4 条 |
+| 3 | 不得自动保存 Storyboard 或改原片 | 不调 `get_current_version()`；6–8 表计数前后一致 | `test_preview_writes_nothing` + UAT #11 |
+| 4 | 不得未授权调用外部模型 | 三层门禁，零网络，无 SDK import | `test_model_mode_is_403_with_no_network` 等 3 条 |
+| 5 | 1000 镜头无 N+1 | 参数化 4/40/500/1000 + 趋势断言 | 5 条性能用例 |
+| 6 | RED→GREEN→反向验证 | 首轮 3 项 + 审计轮 2 项 | 见 §5.3 与 §A-1/A-2 |
+| 7 | 不降低断言/跳过/盲目重试 | 全程未删测试、未加 skip/xfail；`test_tsb368_candidates.py` 只增不改 | `git diff` 可查 |
+
+---
+
+## A-10 当前局限（诚实列出）
+
+| # | 局限 | 影响 |
+|---|---|---|
+| 1 | **真实模型策划 BLOCKED** | 只有离线规则，不是 AI 导演 |
+| 2 | **89/99 镜头无任何读数** | 草案大部分是结构占位 |
+| 3 | **原生视频读数 0** | 视频渠道对草案贡献为零 |
+| 4 | **逐帧人工观看未执行** | `MANUAL_REVIEW_PENDING`；无法验证模型描述与画面是否一致 |
+| 5 | **音频从未分析** | 所有节奏建议都不基于声音；已由守卫强制不得声称 |
+| 6 | **离线规则价值上限** | 给结构，不给叙事洞察 |
+| 7 | **未做 200GB 性能验收** | 1000 镜头是合成规模 |
+| 8 | **未实现"应用为正式版本"** | 任务书明确留待独立审批 |
+
+---
+
+## A-11 下一阶段建议
+
+### 建议 1（最高价值）：开启真实模型策划
+
+这是把"可信生成器"变成"AI 导演"的**唯一阻断项**。
+
+需你确认：端点/供应商、发送内容（仅文字 or 含影像）、段数与长度、地区、
+请求次数、**费用上限**、失败策略、敏感信息风险。
+
+届时模型输出仍要过同一套校验器——`SEMANTIC_UPGRADE` 与
+`AUDIO_CLAIM_WITHOUT_ANALYSIS` 会原样拦截。
+
+### 建议 2：提高真实库覆盖率
+
+89/99 无读数意味着草案信息量极低。补跑静帧/多帧分析（**不涉及外部模型**）
+能显著提升草案可用性。
+
+### 建议 3：人工逐帧观看验收
+
+取 3–5 段已读数的镜头，人工确认模型描述与画面是否一致。
+这是检验"静帧模型到底准不准"的唯一方法，与真实模型策划是**两件事**。
+
+### 建议 4（需单独审批）：草案应用到正式 Storyboard
+
+本轮明确未做。若要做，必须重新设计保存机制、冲突处理与回滚，
+并单独走发布门禁。
+
+### 不建议现在做
+
+- 自动渲染
+- 音乐推荐
+- 调色执行
+
+这些在证据覆盖率不足时做，只会放大错误。
