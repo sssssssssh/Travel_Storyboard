@@ -107,6 +107,23 @@ class _TextProvider:
         return _FakeResponse(self._text)
 
 
+@pytest.fixture(autouse=True)
+def _model_gate_open(monkeypatch):
+    """Open the global gate for these tests, with a placeholder endpoint.
+
+    CI runs with ``TRAVELSB_MODEL_MODE=off``; a test that needs to get past the
+    gate has to say so. No network is used: the provider is always a stub here.
+    """
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "model_mode", "on", raising=False)
+    monkeypatch.setattr(settings, "model_base_url", "https://example.invalid/v1",
+                        raising=False)
+    monkeypatch.setattr(settings, "model_api_key", "test-key-not-real", raising=False)
+    return settings
+
+
 def _ctx(pid: str):
     return authorize_upload(project_id=pid, upload_acknowledged=True,
                             purpose="director_plan")
