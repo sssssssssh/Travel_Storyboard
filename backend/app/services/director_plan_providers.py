@@ -161,43 +161,6 @@ class ExternalPlannerProvider:
         )
         return plan.model_copy(update={"request_summary": summary})
 
-    def _unused_legacy(self, planning_input, brief, text):
-
-        from .vision.providers.openai_compatible import VisionRequest
-
-        request = VisionRequest(
-            prompt=text,
-            images=[],                       # text-only: no frame ever leaves
-            system=SYSTEM_PROMPT_TEXT,
-            json_object=True,
-            # The endpoint is a reasoning model: a large budget is required or it
-            # spends everything on reasoning and returns null content.
-            max_tokens=get_settings().vision_max_tokens,
-            temperature=0.4,
-            authorization=self._authorized,  # the per-call grant token
-            text_only=True,                  # planning sends no imagery
-        )
-        from .vision.errors import ModelError
-
-        try:
-            response = self._provider.complete(request)
-        except ModelError:
-            # A transport/provider failure is NOT an invalid-output problem; let it
-            # keep its own code so the API can report it as 502.
-            raise
-        except Exception as exc:  # unexpected: surface, never swallow
-            raise ModelPlanError(
-                getattr(exc, "code", "MODEL_CALL_FAILED"),
-                str(exc)[:300]) from exc
-
-        payload = extract_json(getattr(response, "text", "") or "")
-        plan = parse_model_plan(
-            payload, planning_input, brief,
-            model_id=get_settings().model_name or "?",
-            provider_name="openai_compatible",
-        )
-        return plan.model_copy(update={'request_summary': summary})
-
 
 def provider_for(mode: str) -> PlannerProvider:
     """Map a request mode to a provider, refusing anything not enabled.
