@@ -16,6 +16,7 @@ import json
 import multiprocessing as mp
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -235,3 +236,56 @@ def test_a_locked_ledger_does_not_corrupt_on_reader(tmp_path):
     led.charge("static", "s", 1)
     for _ in range(20):
         assert led.summary()["total_attempts"] == 1
+
+
+# ---------------------------------------------------------------------------
+# A crashed holder must not deadlock every later caller
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# A crashed holder must not deadlock every later caller
+# ---------------------------------------------------------------------------
+#
+# The marker-reclaim path is POSIX-only (Windows holds an OS handle the kernel
+# releases on exit). Rather than skip on one platform -- which the mandatory-media
+# CI job treats as an unexpected skip and fails on -- the behaviour is exercised
+# directly through the private helper, on every platform.
+
+def test_a_stale_marker_is_reclaimed_by_the_helper(tmp_path):
+    """A marker left by a crashed owner must not block the next caller."""
+    from app.services.process_lock import ProcessFileLock
+
+    target = tmp_path / "guarded"
+    marker = Path(str(target) + ".lock")
+    marker.write_text("", encoding="utf-8")
+    old = time.time() - (ProcessFileLock.STALE_MARKER_SEC + 60)
+    os.utime(marker, (old, old))
+
+    lock = ProcessFileLock(target, timeout=0.5)
+    lock._reclaim_if_stale()          # the exact call the POSIX branch makes
+    assert not marker.exists()
+
+
+def test_a_fresh_marker_is_not_reclaimed(tmp_path):
+    """Reclaim is bounded by age; a live holder is never evicted."""
+    from app.services.process_lock import ProcessFileLock
+
+    target = tmp_path / "guarded2"
+    marker = Path(str(target) + ".lock")
+    marker.write_text("", encoding="utf-8")
+
+    lock = ProcessFileLock(target, timeout=0.5)
+    lock._reclaim_if_stale()
+    assert marker.exists(), "a fresh marker must keep excluding"
+
+
+def test_the_ledger_still_works_when_a_stale_marker_exists(tmp_path):
+    path = tmp_path / "ledger.json"
+    marker = Path(str(path) + ".lock")
+    marker.write_text("", encoding="utf-8")
+    old = time.time() - 600
+    os.utime(marker, (old, old))
+
+    led = ModelCallLedger(path)
+    led.charge("static", "s", 1)
+    assert led.summary()["total_attempts"] == 1

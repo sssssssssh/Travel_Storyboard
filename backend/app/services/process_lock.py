@@ -34,6 +34,11 @@ class ProcessFileLock:
     POSIX: ``open(path, O_CREAT | O_EXCL)`` — a second create fails with EEXIST.
     """
 
+    #: A POSIX marker older than this is treated as left behind by a crashed
+    #: process. Without it, one abnormal exit would make every later acquire time
+    #: out -- which is exactly the cascade CI showed on Linux.
+    STALE_MARKER_SEC = 120.0
+
     def __init__(self, target: Path, *, timeout: float = 30.0) -> None:
         self.path = Path(str(target) + ".lock")
         self.timeout = timeout
@@ -102,7 +107,7 @@ class ProcessFileLock:
                     self._fd = fd
                     return self
                 except FileExistsError:
-                    pass
+                    self._reclaim_if_stale()
 
             if time.monotonic() > deadline:
                 raise LockTimeout(f"lock timeout on {self.path.name}")
@@ -128,6 +133,21 @@ class ProcessFileLock:
                     self._fd = None
                 try:
                     os.unlink(self.path)        # O_EXCL marker is the lock itself
-                except FileNotFoundError:
+                except OSError:
+                    # A failed unlink leaves a marker; _reclaim_if_stale bounds the
+                    # damage instead of letting it block the next caller forever.
                     pass
         return None
+
+    def _reclaim_if_stale(self) -> None:
+        """Delete a marker left behind by a crashed process."""
+        try:
+            age = time.time() - self.path.stat().st_mtime
+        except OSError:
+            return
+        if age <= self.STALE_MARKER_SEC:
+            return
+        try:
+            self.path.unlink()
+        except OSError:
+            pass
