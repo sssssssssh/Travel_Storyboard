@@ -23,6 +23,15 @@ const CHANNEL_LABEL: Record<string, string> = {
   none: '未分析',
 }
 
+const READING_LABEL = [
+  { key: 'scene_tags', label: '场景标签' },
+  { key: 'subjects', label: '主体' },
+  { key: 'visible_actions', label: '动作' },
+  { key: 'lighting', label: '光线' },
+  { key: 'composition', label: '构图' },
+  { key: 'mood', label: '情绪' },
+]
+
 const STATE_LABEL: Record<string, { text: string; tone: string }> = {
   current: { text: '已验证', tone: 'green' },
   freshness_unverified: { text: '新鲜度未验证', tone: 'yellow' },
@@ -194,9 +203,31 @@ function FootageReviewInner() {
                 result_id {current.result_id?.slice(0, 8)} · 模型 {current.model.id || '未知'}
                 {' · '}prompt {current.model.prompt_version || '未知'}
               </div>
-              <div className="mt-2 text-sm text-slate-300" data-testid="claim-hint">
-                该镜头的具体断言可以在剪辑草案页展开查看。本页仅用于核对画面与来源。
-              </div>
+              {current.readings && Object.keys(current.readings).length > 0 ? (
+                <div className="mt-2 space-y-1 text-xs" data-testid="review-readings">
+                  {READING_LABEL.map(({ key, label }) => {
+                    const value = (current.readings as Record<string, unknown>)[key]
+                    if (!value) return null
+                    const values = Array.isArray(value) ? value : [value]
+                    return (
+                      <div key={key} className="flex gap-2">
+                        <span className="w-16 shrink-0 text-slate-500">{label}</span>
+                        <span className="text-slate-300">
+                          {values.map((v, i) => (
+                            <span key={i} className="mr-1 inline-block rounded bg-ink-800 px-1.5 py-0.5">
+                              {String(v)}
+                            </span>
+                          ))}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="mt-2 text-xs text-slate-500" data-testid="no-readings">
+                  这条读数没有可回放的文字描述。
+                </div>
+              )}
               <div className="mt-2">
                 <Button data-testid="seek-start"
                         onClick={() => seekToSourceSec(current.source_window.start_abs_sec)}>

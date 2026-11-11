@@ -305,3 +305,44 @@ test('no frame id means a plain notice, not a broken image', async () => {
   await screen.findByTestId('no-frame')
   expect(screen.queryByTestId('item-frame')).toBeNull()
 })
+
+
+test('the review page also shows the claims, not just the picture', async () => {
+  // Landing on the review page without the claims makes "check this" impossible;
+  // the old copy said "go look at another page", which is not an answer.
+  vi.mocked(api).mockImplementation(async (path: string) => {
+    if (path.includes('/clips')) {
+      return {
+        clip_id: 'c1', project_id: 'p1', segment_id: 'seg-1', asset_id: 'a1',
+        status: 'ready', source_window: { start_abs_sec: 0, end_abs_sec: 4 },
+        clip_start_abs_sec: 0, duration_sec: 4, audio_included: false,
+        audio_note: '静音', max_clip_seconds: 15, source_signature_changed: false,
+        segment_window_changed: false, created_at: 0, expires_in_sec: 100,
+        media_url: '/api/projects/p1/evaluation/clips/c1/media',
+      }
+    }
+    return {
+      project_id: 'p1', sampling_seed: 'd', sampling_rule_version: '1.0', limit: 5,
+      items: [{
+        item_id: 'i1', segment_id: 'seg-1', asset_id: 'a1', channel: 'static',
+        result_id: 'r1', evidence_state: 'current',
+        source_window: { start_abs_sec: 0, end_abs_sec: 4 },
+        source_available: true, source_status: 'AVAILABLE', eligibility: 'eligible',
+        eligible_for_planning: true, frame_ids: ['frame-1'],
+        model: { provider: 'x', id: 'm', prompt_version: 'p' },
+        readings: { scene_tags: ['lake'], subjects: ['boats'] },
+      }],
+      controls: [],
+      summary: {
+        library_segments: 1, analysed_segments: 1, distinct_segments: 1,
+        distinct_assets: 1, channel_counts: { static: 1 }, source_unavailable: 0,
+        freshness_unverified: 0, item_count: 1,
+      },
+      limitations: [],
+    }
+  })
+  wrap('/project/p1/evaluation/footage', <FootageReview />)
+  const box = await screen.findByTestId('review-readings')
+  expect(box.textContent).toContain('boats')
+  expect(document.body.textContent).not.toContain('可以在剪辑草案页展开查看')
+})

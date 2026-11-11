@@ -861,6 +861,11 @@ export interface EvalSampleItem {
   eligibility: string
   eligible_for_planning: boolean
   model: { provider: string; id: string; prompt_version: string }
+  //: Representative frames (a frame id, not a result id — the image route is keyed by frame).
+  frame_ids?: string[]
+  //: The model's own words, verbatim. Shown so the reviewer can judge a claim
+  //: instead of a picture in isolation.
+  readings?: Record<string, unknown>
 }
 
 export interface EvalControlItem {
