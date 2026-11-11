@@ -11,6 +11,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import FootageRating from './FootageRating'
+import FootageReview from './FootageReview'
 import StorylineAB from './StorylineAB'
 import EvaluationReport from './EvaluationReport'
 import { api } from '../lib/api'
@@ -28,6 +29,9 @@ vi.mock('../lib/api', () => ({
     evaluationReport: (id: string, s: string) => `/api/projects/${id}/evaluation/reports/${s}`,
     frameImage: (f: string) => `/api/frames/${f}/image`,
   },
+  withToken: (path: string) => `${path}?token=TEST-TOKEN`,
+  frameUrl: (frameId: string | null | undefined) =>
+    frameId ? `/api/frames/${frameId}/image?token=TEST-TOKEN` : '',
 }))
 
 afterEach(() => { cleanup(); vi.clearAllMocks() })
@@ -41,6 +45,7 @@ function wrap(path: string, el: React.ReactNode) {
           <Route path="/project/:id/evaluation/rating" element={el} />
           <Route path="/project/:id/evaluation/ab" element={el} />
           <Route path="/project/:id/evaluation/report" element={el} />
+          <Route path="/project/:id/evaluation/footage" element={el} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -218,4 +223,53 @@ test('the report exposes the blocked gates', async () => {
   await screen.findByTestId('gate-list')
   expect(screen.getByTestId('gate-list').textContent).toContain('G4_MODEL_PLAN')
   expect(screen.getByTestId('ab-status').textContent).toContain('AB_BLOCKED')
+})
+
+
+// ---------------------------------------------------------------------------
+// TSB-371 regression: a black player because the token never reached <video>
+// ---------------------------------------------------------------------------
+
+test('the clip video src carries the access token', async () => {
+  // The real bug: the page hand-rolled sessionStorage.getItem('tsb_token'), but the
+  // token lives under 'tsb.accessToken', so the src had an empty token and the
+  // browser got 401 -> black frame. Asserting the element exists was not enough.
+  vi.mocked(api).mockImplementation(async (path: string) => {
+    if (path.includes('/clips')) {
+      return {
+        clip_id: 'c1', project_id: 'p1', segment_id: 'seg-1', asset_id: 'a1',
+        status: 'ready', source_window: { start_abs_sec: 0, end_abs_sec: 4 },
+        clip_start_abs_sec: 0, duration_sec: 4, audio_included: false,
+        audio_note: '静音', max_clip_seconds: 15, source_signature_changed: false,
+        segment_window_changed: false, created_at: 0, expires_in_sec: 100,
+        media_url: '/api/projects/p1/evaluation/clips/c1/media',
+      }
+    }
+    if (path.includes('/eligible-samples')) {
+      return {
+        project_id: 'p1', sampling_seed: 'd', sampling_rule_version: '1.0', limit: 5,
+        items: [{
+          item_id: 'i1', segment_id: 'seg-1', asset_id: 'a1', channel: 'static',
+          result_id: 'r1', evidence_state: 'current',
+          source_window: { start_abs_sec: 0, end_abs_sec: 4 },
+          source_available: true, source_status: 'AVAILABLE', eligibility: 'eligible',
+          eligible_for_planning: true, frame_ids: ['frame-1'],
+          model: { provider: 'x', id: 'm', prompt_version: 'p' },
+        }],
+        controls: [],
+        summary: {
+          library_segments: 1, analysed_segments: 1, distinct_segments: 1,
+          distinct_assets: 1, channel_counts: { static: 1 }, source_unavailable: 0,
+          freshness_unverified: 0, item_count: 1,
+        },
+        limitations: [],
+      }
+    }
+    return {}
+  })
+  wrap('/project/p1/evaluation/footage', <FootageReview />)
+  const video = await screen.findByTestId('clip-video')
+  const src = video.getAttribute('src') ?? ''
+  expect(src).toContain('token=TEST-TOKEN')
+  expect(src).not.toContain('token=&')
 })

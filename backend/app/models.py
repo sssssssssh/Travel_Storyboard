@@ -775,6 +775,8 @@ class EvaluationItem(Base):
     #: channel, result) rather than array position.
     item_key: Mapped[str] = mapped_column(String(64), default="")
     position: Mapped[int] = mapped_column(Integer, default=0)
+    #: Representative frame ids to show while rating; a frame id, not a result id.
+    frame_ids: Mapped[list] = mapped_column(JSON, default=list)
 
 
 class EvaluationRating(Base):

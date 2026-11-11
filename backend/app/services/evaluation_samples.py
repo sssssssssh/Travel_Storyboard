@@ -65,6 +65,7 @@ class SampleItem:
     eligibility: str
     eligible_for_planning: bool
     model: dict[str, Any]
+    frame_ids: list[str] = field(default_factory=list)
     readings: dict[str, Any] = field(default_factory=dict)
 
 
@@ -92,6 +93,13 @@ def _source_status(asset: Asset | None) -> tuple[bool, str]:
     except OSError:
         return False, "SOURCE_UNAVAILABLE"
     return True, "AVAILABLE"
+
+
+def _frame_ids(row) -> list[str]:
+    """Representative frames recorded with the reading (may be empty)."""
+    evidence = getattr(row, "evidence_json", None) or {}
+    ids = evidence.get("frame_ids") if isinstance(evidence, dict) else None
+    return [str(x) for x in (ids or [])][:6]
 
 
 def _stable_item_id(*parts: str) -> str:
@@ -179,6 +187,9 @@ def collect_samples(
                     "id": getattr(row, "model_id", ""),
                     "prompt_version": getattr(row, "prompt_version", ""),
                 },
+                # The still a reviewer looks at. Frames, not the result id: the
+                # image route is keyed by frame.
+                frame_ids=_frame_ids(row),
             ))
 
     # Deterministic ordering, then a seeded shuffle that still prefers the mix.
@@ -248,6 +259,7 @@ def collect_samples(
                 "eligibility": i.eligibility,
                 "eligible_for_planning": i.eligible_for_planning,
                 "model": i.model,
+                "frame_ids": i.frame_ids,
             }
             for i in chosen
         ],

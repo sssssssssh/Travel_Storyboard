@@ -924,6 +924,7 @@ export interface EvalSessionItem {
   source_window: { start_abs_sec: number; end_abs_sec: number }
   source_available: boolean
   review_status: 'PENDING' | 'RATED' | 'STALE_EVIDENCE' | 'SOURCE_UNAVAILABLE' | 'UNJUDGED'
+  frame_ids?: string[]
   version: number
   ratings: {
     scene: number | null

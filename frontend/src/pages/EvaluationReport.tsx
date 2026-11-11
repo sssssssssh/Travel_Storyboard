@@ -6,7 +6,7 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { api, endpoints } from '../lib/api'
+import { api, endpoints, withToken } from '../lib/api'
 import { Badge, Button, Card, Spinner } from '../components/ui'
 
 interface ReportMetrics {
@@ -50,9 +50,10 @@ export default function EvaluationReport() {
   })
 
   const download = async (format: 'json' | 'csv' | 'md') => {
-    const token = sessionStorage.getItem('tsb_token') ?? ''
-    const url = `${endpoints.evaluationReport(id, sessionId)}?format=${format}&token=${encodeURIComponent(token)}`
-    const res = await fetch(url)
+    const url = new URL(withToken(endpoints.evaluationReport(id, sessionId)),
+                        window.location.origin)
+    url.searchParams.set('format', format)
+    const res = await fetch(url.toString())
     const text = await res.text()
     const blob = new Blob([text], {
       type: format === 'json' ? 'application/json' : format === 'csv' ? 'text/csv' : 'text/markdown',

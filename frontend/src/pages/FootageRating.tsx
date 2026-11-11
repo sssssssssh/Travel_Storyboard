@@ -9,7 +9,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, endpoints } from '../lib/api'
+import { api, endpoints, frameUrl } from '../lib/api'
 import type { EvalSessionDetail, EvalSessionItem } from '../lib/types'
 import { Badge, Button, Card, Field, Spinner, inputClass } from '../components/ui'
 
@@ -225,8 +225,7 @@ function FootageRatingInner() {
               <div className="mb-2 flex justify-center">
                 <img data-testid="item-frame" alt="待核对画面"
                      className="max-h-64 rounded border border-ink-700"
-                     src={`${endpoints.frameImage(current.result_id ?? '')}?token=${
-                       encodeURIComponent(sessionStorage.getItem('tsb_token') ?? '')}`}
+                     src={frameUrl(current.frame_ids?.[0])}
                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
               </div>
 

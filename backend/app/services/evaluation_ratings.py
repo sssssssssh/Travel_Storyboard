@@ -94,6 +94,7 @@ def create_session(
             item_key=_item_key(row.id, item["segment_id"], item["channel"],
                                item["result_id"] or ""),
             position=position,
+            frame_ids=list(item.get("frame_ids") or []),
         ))
     session.flush()
     return row
@@ -434,6 +435,7 @@ def session_detail(session: Session, project_id: str, session_id: str) -> dict[s
             "source_window": {"start_abs_sec": item.start_abs_sec,
                               "end_abs_sec": item.end_abs_sec},
             "source_available": item.source_available,
+            "frame_ids": list(item.frame_ids or []),
             "review_status": status,
             "version": rating.version if rating else 0,
             "ratings": {

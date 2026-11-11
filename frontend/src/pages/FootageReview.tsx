@@ -12,7 +12,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { api, endpoints } from '../lib/api'
+import { api, endpoints, withToken } from '../lib/api'
 import type { EvaluationSamples, EvalSampleItem, EvalClipStatus } from '../lib/types'
 import { Badge, Button, Card, Spinner } from '../components/ui'
 
@@ -176,8 +176,7 @@ function FootageReviewInner() {
                 <div>
                   <video ref={videoRef} data-testid="clip-video" controls preload="metadata"
                          className="w-full max-h-80 rounded bg-black"
-                         src={`${clip.data.media_url}?token=${encodeURIComponent(
-                           sessionStorage.getItem('tsb_token') ?? '')}`} />
+                         src={withToken(clip.data.media_url)} />
                   <div className="mt-1 text-xs text-slate-500" data-testid="clip-note">
                     静音片段（{clip.data.duration_sec.toFixed(1)}s）。
                     {clip.data.audio_note}
