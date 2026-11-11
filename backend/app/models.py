@@ -707,3 +707,109 @@ class StoryboardSourceRef(Base):
     #: Copied from the repository's existing source-identity mechanism when one
     #: exists; ``legacy`` when the old plan never had one (never fabricated).
     source_signature: Mapped[str] = mapped_column(String(128), default="")
+
+
+# ---------------------------------------------------------------------------
+# TSB-371 — human evaluation of model evidence and of draft plans
+# ---------------------------------------------------------------------------
+#
+# These tables are deliberately separate from ``UserAnnotation`` and from every
+# storyboard table. A reviewer's opinion of *a model's description* is not the
+# user's opinion of the footage, and must never be mistaken for one. Nothing here
+# is read by the planner, the exporter, or the candidate layer.
+
+
+class EvaluationSession(Base):
+    """A frozen list of items a human is asked to judge.
+
+    The item list is materialised at creation time (``EvaluationItem`` rows) so
+    that a page reload, a re-run of the model, or a change in the sample seed
+    cannot silently change what the reviewer is looking at.
+    """
+
+    __tablename__ = "evaluation_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    kind: Mapped[str] = mapped_column(String(16), default="footage")  # footage | ab
+    status: Mapped[str] = mapped_column(String(24), default="IN_PROGRESS")
+    sample_seed: Mapped[str] = mapped_column(String(64), default="")
+    sampling_rule_version: Mapped[str] = mapped_column(String(16), default="")
+    reviewer: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utcnow, onupdate=utcnow
+    )
+    #: Non-sensitive snapshot of what the session was built from.
+    context_json: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class EvaluationItem(Base):
+    """One piece of evidence a human is asked to rate.
+
+    Bound to a *specific result row*, not just a segment: if the model is re-run,
+    the old item keeps pointing at the old result and is marked stale rather than
+    silently acquiring the new answer.
+    """
+
+    __tablename__ = "evaluation_items"
+    __table_args__ = (
+        UniqueConstraint("session_id", "item_key", name="uq_evaluation_item_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    session_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("evaluation_sessions.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    segment_id: Mapped[str] = mapped_column(String(36), index=True)
+    asset_id: Mapped[str] = mapped_column(String(36), default="")
+    channel: Mapped[str] = mapped_column(String(16), default="static")
+    result_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+    source_signature: Mapped[str] = mapped_column(String(64), default="")
+    evidence_state: Mapped[str] = mapped_column(String(32), default="")
+    start_abs_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    end_abs_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    source_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: Stable identity used to deduplicate; derived from (session, segment,
+    #: channel, result) rather than array position.
+    item_key: Mapped[str] = mapped_column(String(64), default="")
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class EvaluationRating(Base):
+    """One human judgement of one item.
+
+    Scores follow the task book: 2 = accurate, 1 = partly, 0 = wrong,
+    ``NULL`` = cannot judge (excluded from every denominator). ``version`` makes
+    concurrent tabs fail loudly instead of overwriting each other.
+    """
+
+    __tablename__ = "evaluation_ratings"
+    __table_args__ = (
+        UniqueConstraint("item_id", name="uq_evaluation_rating_item"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    item_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("evaluation_items.id", ondelete="CASCADE"), index=True
+    )
+    session_id: Mapped[str] = mapped_column(String(36), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+
+    #: NULL means "cannot judge" and is *not* the same as 0.
+    scene: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    subject: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    action: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    timing: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    timing_error_sec: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: severe | mild | none | NULL (not judged)
+    hallucination: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    usability: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    reviewer: Mapped[str] = mapped_column(String(64), default="")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utcnow, onupdate=utcnow
+    )

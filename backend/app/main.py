@@ -26,6 +26,7 @@ from .api import (
     story,
     system,
     vision,
+    evaluation,
 )
 from .config import get_settings
 from .database import init_db
@@ -133,6 +134,7 @@ app.include_router(segments.router, prefix="/api")
 app.include_router(vision.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(media.router, prefix="/api")
+app.include_router(evaluation.router, prefix="/api")
 app.include_router(packages.router, prefix="/api")
 app.include_router(story.router, prefix="/api")
 app.include_router(export.router, prefix="/api")

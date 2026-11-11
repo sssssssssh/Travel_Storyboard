@@ -2374,3 +2374,91 @@ RED 5 failed → GREEN → 反向验证 5 failed。
 
 见 [REAL_MODEL_RUN_LEDGER.md](validation/tsb370/REAL_MODEL_RUN_LEDGER.md)。
 总 attempts **20/20**（上限），未超任何渠道上限。
+
+
+## TSB-371 人工验收与 A/B 盲评
+
+发布记录：[docs/RELEASE_TSB_371.md](RELEASE_TSB_371.md)
+对账表：[LEDGER_RECONCILIATION.md](validation/tsb371/LEDGER_RECONCILIATION.md)
+
+### 账本（`test_tsb371_ledger.py`，16 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_two_processes_cannot_both_spend_the_last_unit` | **真实子进程**抢最后 1 额度，恰好 1 个赢 |
+| `test_a_concurrent_storm_never_exceeds_the_cap` | 6 进程抢 3 额度，恰好 3 个赢 |
+| `test_a_new_grant_is_an_explicit_act_and_keeps_the_old_history` | 新额度不删历史 |
+| `test_a_grant_reopens_only_the_channels_it_names` | 不能借用其他渠道额度 |
+| `test_the_global_cap_still_applies_after_a_grant` | 全局上限仍生效 |
+| `test_a_corrupt_ledger_blocks_instead_of_resetting` | 损坏即阻断 |
+| `test_the_summary_exposes_the_reconciliation_gap` | 补记条目可识别 |
+| `test_every_charge_records_a_call_id_and_dispatch_flag` | 可对账 |
+
+### A/B 驱动（`test_tsb371_ab_driver.py`，8 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_every_request_uses_the_same_candidate_budget` | **digest 与请求同参数** |
+| `test_only_the_planner_differs_between_the_two_sides` | 除 planner 外完全一致 |
+| `test_every_preview_request_carries_the_digest` | 409 保护有效 |
+
+### G4 往返（`test_tsb371_g4_roundtrip.py`，16 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_a_real_shaped_reply_becomes_a_validated_plan` | 文本→解析→校验全链路 |
+| `test_a_null_response_text_is_an_invalid_output_failure` | **TSB-370 丢额度情形 1** |
+| `test_the_request_summary_is_populated_without_recomputing_the_prompt` | **TSB-370 丢额度情形 2（NameError）** |
+| `test_the_provider_is_called_exactly_once_per_plan` | 零重试 |
+| `test_a_failed_plan_never_falls_back_to_the_offline_result` | 不用离线冒充 |
+
+### 样本与播放器（`test_tsb371_samples.py`，18 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_a_traversing_clip_id_is_rejected[*]` | 路径穿越 4 种 |
+| `test_another_projects_clip_is_404` | 跨项目隔离 |
+| `test_the_clip_endpoint_never_returns_a_filesystem_path` | 不泄漏路径 |
+| `test_a_clip_can_be_generated_and_played_with_range` | 真实 FFmpeg + Range 206 |
+| `test_two_channels_on_one_shot_are_two_evidence_items` | 一项镜头两项证据 |
+| `test_a_missing_source_is_marked_and_never_counted_as_a_model_error` | 缺源不是模型错 |
+
+### 评分（`test_tsb371_ratings.py`，17 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_no_ratings_means_null_accuracy_never_one_hundred_percent` | **N/A 不是 100%** |
+| `test_two_one_zero_and_null_produce_the_documented_denominator` | 分母 3，严格 1/3 |
+| `test_cannot_judge_is_excluded_from_the_denominator` | **null 不进分母** |
+| `test_re_rating_recomputes_immediately` | 改分立即重算 |
+| `test_a_stale_version_cannot_overwrite_a_newer_rating` | 409 冲突 |
+| `test_a_changed_result_is_marked_stale_and_excluded_from_metrics` | 旧评分不用到新结果 |
+
+### A/B 盲评（`test_tsb371_ab.py`，14 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_a_mock_plan_dressed_as_model_is_refused` | **无真实回执即拒绝** |
+| `test_a_different_input_digest_is_refused` | digest 必须一致 |
+| `test_the_blind_view_contains_no_provenance` | 盲视图零泄漏 |
+| `test_reveal_is_refused_before_submission` | 提交前不解盲 |
+| `test_one_reviewer_is_reported_as_one_reviewer` | 不写胜率 |
+| `test_a_second_submission_is_refused` | 盲评不可篡改 |
+
+### 报告（`test_tsb371_report.py`，14 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_an_unrated_session_reports_na_not_a_percentage` | N/A 不是 0% |
+| `test_no_export_leaks_paths_tokens_or_notes[*]` | 三格式无泄漏 |
+| `test_ab_is_blocked_when_no_model_plan_exists` | BLOCKED 透传 |
+
+### 反向验证（5 组）
+
+| 注入缺陷 | 失败用例 |
+|---|---|
+| null 算作 0 | `test_cannot_judge_is_excluded_from_the_denominator` |
+| 盲视图泄漏 mapping | `test_the_blind_view_contains_no_provenance` |
+| 跳过 digest 检查 | `test_a_different_input_digest_is_refused` |
+| 去掉回执要求 | `test_a_mock_plan_dressed_as_model_is_refused` |
+| 绕过账本额度 | 4 个 ledger 用例 |

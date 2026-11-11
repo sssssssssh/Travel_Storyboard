@@ -14,6 +14,10 @@ implementations matter:
 
 from __future__ import annotations
 
+import time
+import uuid
+from datetime import datetime, timezone
+
 from typing import Callable, Protocol
 
 from .director_plan_input import PlanningInput
@@ -145,6 +149,7 @@ class ExternalPlannerProvider:
         )
         from .vision.errors import ModelError
 
+        started = time.monotonic()
         try:
             response = self._provider.complete(request)
         except ModelError:
@@ -159,7 +164,19 @@ class ExternalPlannerProvider:
             model_id=get_settings().model_name or "?",
             provider_name="openai_compatible",
         )
-        return plan.model_copy(update={"request_summary": summary})
+        # The receipt proves a real endpoint call produced this draft. It is what
+        # the A/B pairing checks, because `planning_mode == "model"` is a label any
+        # caller can set and TSB-370 shipped "model" drafts from a stub provider.
+        receipt = {
+            "model_id": get_settings().model_name or "",
+            "provider": "openai_compatible",
+            "call_id": getattr(response, "request_id", "") or uuid_hex(),
+            "elapsed_ms": int(round((time.monotonic() - started) * 1000)),
+            "attempts": int(getattr(response, "attempts", 1) or 1),
+            "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+        return plan.model_copy(update={
+            "request_summary": {**summary, "receipt": receipt}})
 
 
 def provider_for(mode: str) -> PlannerProvider:
@@ -173,3 +190,8 @@ def provider_for(mode: str) -> PlannerProvider:
     if mode == "model":
         return ExternalPlannerProvider()
     raise ValueError(f"unsupported planning mode {mode!r}")
+
+
+def uuid_hex() -> str:
+    """A short, non-sensitive id for a receipt."""
+    return uuid.uuid4().hex[:16]

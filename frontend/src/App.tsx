@@ -8,6 +8,10 @@ import Review from './pages/Review'
 import AIDirector from './pages/AIDirector'
 import DirectorCandidates from './pages/DirectorCandidates'
 import DirectorPlans from './pages/DirectorPlans'
+import FootageReview from './pages/FootageReview'
+import FootageRating from './pages/FootageRating'
+import StorylineAB from './pages/StorylineAB'
+import EvaluationReport from './pages/EvaluationReport'
 import Export from './pages/Export'
 import Settings from './pages/Settings'
 import { version } from '../package.json'
@@ -44,6 +48,10 @@ function Shell() {
           <Route path="/project/:id/export" element={<Export />} />
           <Route path="/project/:id/director" element={<DirectorCandidates />} />
           <Route path="/project/:id/director/plan" element={<DirectorPlans />} />
+          <Route path="/project/:id/evaluation/footage" element={<FootageReview />} />
+          <Route path="/project/:id/evaluation/rating" element={<FootageRating />} />
+          <Route path="/project/:id/evaluation/ab" element={<StorylineAB />} />
+          <Route path="/project/:id/evaluation/report" element={<EvaluationReport />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>

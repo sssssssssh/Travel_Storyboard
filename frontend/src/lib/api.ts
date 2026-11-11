@@ -235,6 +235,12 @@ export const endpoints = {
   directorContext: (id: string) => `/api/projects/${id}/director/context`,
   directorPlanPreview: (id: string) => `/api/projects/${id}/director/plans/preview`,
   directorPlanInputStatus: (id: string) => `/api/projects/${id}/director/plans/input-status`,
+  frameImage: (frameId: string) => `/api/frames/${frameId}/image`,
+  evaluationSamples: (id: string) => `/api/projects/${id}/evaluation/eligible-samples`,
+  evaluationClips: (id: string) => `/api/projects/${id}/evaluation/clips`,
+  evaluationSessions: (id: string) => `/api/projects/${id}/evaluation/sessions`,
+  evaluationAbSessions: (id: string) => `/api/projects/${id}/evaluation/ab-sessions`,
+  evaluationReport: (id: string, s: string) => `/api/projects/${id}/evaluation/reports/${s}`,
   // --- TSB-367 plan operations ---
   planOperations: (id: string, boardId: string) =>
     `/api/projects/${id}/storyboards/${boardId}/operations`,

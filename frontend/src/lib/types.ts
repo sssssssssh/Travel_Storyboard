@@ -844,3 +844,159 @@ export interface PlanInputStatus {
   locked_segments: number
   evidence_channels: { static: number; multiframe: number; video_native: number }
 }
+
+
+// TSB-371 — human evaluation
+export interface EvalSampleItem {
+  item_id: string
+  segment_id: string
+  asset_id: string
+  channel: 'static' | 'multiframe' | 'video_native'
+  result_id: string | null
+  evidence_state: string
+  source_window: { start_abs_sec: number; end_abs_sec: number }
+  source_available: boolean
+  source_status: string
+  eligibility: string
+  eligible_for_planning: boolean
+  model: { provider: string; id: string; prompt_version: string }
+}
+
+export interface EvalControlItem {
+  item_id: string
+  segment_id: string
+  asset_id: string
+  channel: 'none'
+  result_id: null
+  evidence_state: string
+  source_window: { start_abs_sec: number; end_abs_sec: number }
+  source_available: boolean
+  source_status: string
+}
+
+export interface EvaluationSamples {
+  project_id: string
+  sampling_seed: string
+  sampling_rule_version: string
+  limit: number
+  items: EvalSampleItem[]
+  controls: EvalControlItem[]
+  summary: {
+    library_segments: number
+    analysed_segments: number
+    distinct_segments: number
+    distinct_assets: number
+    channel_counts: Record<string, number>
+    source_unavailable: number
+    freshness_unverified: number
+    item_count: number
+  }
+  limitations: string[]
+}
+
+export interface EvalClipStatus {
+  clip_id: string
+  project_id: string
+  segment_id: string
+  asset_id: string
+  status: 'ready' | 'stale' | 'pending' | 'generating'
+  source_window: { start_abs_sec: number; end_abs_sec: number }
+  clip_start_abs_sec: number
+  duration_sec: number
+  audio_included: boolean
+  audio_note: string
+  max_clip_seconds: number
+  source_signature_changed: boolean
+  segment_window_changed: boolean
+  created_at: number
+  expires_in_sec: number
+  media_url: string
+}
+
+
+export interface EvalSessionItem {
+  item_id: string
+  segment_id: string
+  asset_id: string
+  channel: string
+  result_id: string | null
+  evidence_state: string
+  source_window: { start_abs_sec: number; end_abs_sec: number }
+  source_available: boolean
+  review_status: 'PENDING' | 'RATED' | 'STALE_EVIDENCE' | 'SOURCE_UNAVAILABLE' | 'UNJUDGED'
+  version: number
+  ratings: {
+    scene: number | null
+    subject: number | null
+    action: number | null
+    timing: number | null
+    hallucination: string | null
+    usability: string | null
+    timing_error_sec: number | null
+  }
+}
+
+export interface EvalSessionDetail {
+  session_id: string
+  project_id: string
+  status: string
+  sample_seed: string
+  sampling_rule_version: string
+  created_at: string | null
+  sample_count: number
+  rated_count: number
+  items: EvalSessionItem[]
+  context: Record<string, unknown>
+}
+
+export interface AbBlindView {
+  session_id: string
+  project_id: string
+  status: string
+  schema: string
+  A: AbSide
+  B: AbSide
+  target_duration_sec: number
+  revealed: false
+}
+
+export interface AbSide {
+  side: 'A' | 'B'
+  sections: { section_id: string; kind: string; title: string }[]
+  shots: {
+    order: number
+    segment_id: string
+    source_in_sec: number
+    source_out_sec: number
+    planned_duration_sec: number
+    timeline_start_sec: number
+    narrative_role: string
+    selection_reason: string
+    claims: string[]
+    needs_review: string[]
+    transition_hint: string
+    pacing_hint: string
+  }[]
+  total_duration_sec: number
+  target_duration_sec: number
+  duration_gap_sec: number
+  storyline: Record<string, number[]>
+}
+
+export interface AbRevealedView {
+  session_id: string
+  project_id: string
+  status: string
+  revealed: true
+  mapping: Record<'A' | 'B', 'model' | 'offline_rules'>
+  submission: {
+    preference: string
+    scores: Record<string, Record<string, number>>
+    note: string
+  }
+  winner_mode: string | null
+  reviewers: number
+  interpretation: string
+  A: AbSide
+  B: AbSide
+}
