@@ -4,6 +4,8 @@
 |---|---|
 | 基线 | `cca8e973f054fac5924483efa0cff54445c127d1`（与任务书一致） |
 | 证据目录 | [docs/validation/tsb371/](validation/tsb371/) |
+| **代码提交** | `29be3b1`（主体）→ `26f1ae1`（锁修复）→ `7b596f1`（Linux 修复） |
+| **CI** | run #139，**7/7 success** —— https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42962228117 |
 
 ---
 
@@ -305,3 +307,64 @@ TSB-366/367/368/369/370 的全部修复。
 
 > **本轮交付的是"可用的验收工具"，不是"AI 很准"的结论。**
 > 那个结论只有人看过画面之后才存在。
+
+
+---
+
+## 十二、CI 结果与三次红灯的真实原因
+
+| run | 结论 | 根因 |
+|---|---|---|
+| #136 | ❌ | G4 测试依赖本地 `.env`（MODEL_MODE=off 时被 `authorize_upload` 拒绝） |
+| #137 | ❌ | 锁文件在 POSIX 上泄漏；且我加的 `posix_only` skip 触发媒体作业的 skip 守卫 |
+| #138 | ❌ | **`KeyError: 'LOCALAPPDATA'`** —— 工具模块在导入时读 Windows 专有环境变量 |
+| **#139** | ✅ **7/7** | 全部修复 |
+
+链接：https://github.com/sssssssssh/Travel_Storyboard/actions/runs/42962228117
+
+| 作业 | 结论 |
+|---|---|
+| `Frontend` | ✅ |
+| `Required FFmpeg (windows-latest)` | ✅ |
+| `Required FFmpeg (ubuntu-latest)` | ✅ |
+| `Backend (Python 3.11)` ×2 | ✅ |
+| `Backend (Python 3.13)` ×2 | ✅ |
+
+### 这三次失败的共同点
+
+**都是"本地通过、CI 失败"**，且都是**测试依赖了本机环境**：
+
+1. 依赖开发者 `.env` 的 `TRAVELSB_MODEL_MODE`
+2. 依赖 Windows 的文件锁语义
+3. 依赖 Windows 专有的 `LOCALAPPDATA`
+
+第 1 条我在 TSB-370 已经犯过一次，这次又犯。**这说明我需要一个机制而不是靠记性**：
+凡是需要越过门禁的测试，必须显式声明；凡是被测试导入的模块，不得在导入期读
+平台专有变量。
+
+### 一个有价值的中途发现
+
+`posix_only` skip 会直接让媒体作业红——`conftest._EXPECTED_SKIP_REASONS`
+白名单不含该原因，而 `TSB_REQUIRE_FFMPEG=1` 下任何未登记 skip 都算失败。
+
+最终改为**直接测试回收助手函数**，三平台都执行、零 skip。
+
+---
+
+## 十三、最终状态
+
+| 项 | 值 |
+|---|---|
+| 最终 HEAD | `7b596f1` |
+| CI | #139 **7/7** |
+| 后端全量（严格 CI 条件） | **2106 collected / 0 failed / 0 errors / 6 skipped** |
+| 前端 | 175 passed，四项全绿 |
+
+**可宣称**：
+> TSB-371 的**工具**已就绪并通过验证：可播放核对、可评分、可恢复、可导出、
+> 可盲评（在有真实模型方案时），且全部不污染生产数据。
+
+**不可宣称**：
+> ❌ AI 识别准确率（无人打分）
+> ❌ 模型方案优于离线方案（无真实模型方案，A/B BLOCKED）
+> ❌ 可发布
