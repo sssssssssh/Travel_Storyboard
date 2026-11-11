@@ -55,6 +55,7 @@ function wrap(path: string, el: React.ReactNode) {
 const ITEM = {
   item_id: 'i1', segment_id: 'seg-aaaa', asset_id: 'asset-1', channel: 'static',
   result_id: 'res-1111', evidence_state: 'freshness_unverified',
+  frame_ids: ['frame-1'],
   source_window: { start_abs_sec: 1, end_abs_sec: 6 },
   source_available: true, review_status: 'PENDING' as const, version: 0,
   ratings: { scene: null, subject: null, action: null, timing: null,
@@ -272,4 +273,35 @@ test('the clip video src carries the access token', async () => {
   const src = video.getAttribute('src') ?? ''
   expect(src).toContain('token=TEST-TOKEN')
   expect(src).not.toContain('token=&')
+})
+
+
+test('a frame that fails once is not hidden forever', async () => {
+  // The real bug: onError set display:none permanently, so a frame that loaded
+  // fine on the next render stayed invisible -- the reviewer saw no picture.
+  vi.mocked(api).mockImplementation(async (path: string) => {
+    if (path.includes('/summary')) return SUMMARY_NONE
+    return SESSION
+  })
+  wrap('/project/p1/evaluation/rating?session=s1', <FootageRating />)
+  const img = await screen.findByTestId('item-frame')
+  fireEvent.error(img)
+  expect(img.style.visibility).toBe('hidden')
+  fireEvent.load(img)
+  expect(img.style.visibility).toBe('visible')
+  expect(img.style.display).not.toBe('none')
+})
+
+test('no frame id means a plain notice, not a broken image', async () => {
+  const noFrame = {
+    ...SESSION,
+    items: [{ ...ITEM, frame_ids: [] }],
+  }
+  vi.mocked(api).mockImplementation(async (path: string) => {
+    if (path.includes('/summary')) return SUMMARY_NONE
+    return noFrame
+  })
+  wrap('/project/p1/evaluation/rating?session=s1', <FootageRating />)
+  await screen.findByTestId('no-frame')
+  expect(screen.queryByTestId('item-frame')).toBeNull()
 })

@@ -777,6 +777,8 @@ class EvaluationItem(Base):
     position: Mapped[int] = mapped_column(Integer, default=0)
     #: Representative frame ids to show while rating; a frame id, not a result id.
     frame_ids: Mapped[list] = mapped_column(JSON, default=list)
+    #: The model's claims, frozen with the item so a review stays reproducible.
+    readings_json: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class EvaluationRating(Base):

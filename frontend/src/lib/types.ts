@@ -411,6 +411,7 @@ export interface VisionResultOut {
     state?: string
     observed_confidence?: number
     frame_ids?: string[]
+  readings?: Record<string, unknown>
     limitations?: string[]
     warnings?: string[]
     review?: { needs_motion_review?: boolean; reasons?: string[] }
@@ -925,6 +926,7 @@ export interface EvalSessionItem {
   source_available: boolean
   review_status: 'PENDING' | 'RATED' | 'STALE_EVIDENCE' | 'SOURCE_UNAVAILABLE' | 'UNJUDGED'
   frame_ids?: string[]
+  readings?: Record<string, unknown>
   version: number
   ratings: {
     scene: number | null

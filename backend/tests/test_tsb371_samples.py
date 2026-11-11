@@ -54,7 +54,8 @@ def source_video(tmp_path: Path) -> Path:
     return out
 
 
-def _seed(client, name="t371a", *, n_segments=3, analysed=2, with_source=None):
+def _seed(client, name="t371a", *, n_segments=3, analysed=2, with_source=None,
+          analysis=None):
     pid = client.post("/api/projects", json={"name": name}).json()["id"]
     with session_scope() as s:
         p = s.get(Project, pid)
@@ -94,7 +95,8 @@ def _seed(client, name="t371a", *, n_segments=3, analysed=2, with_source=None):
                     status="succeeded", model_provider="openai_compatible",
                     model_id="GLM-5.3-Flash", prompt_version="p", schema_version="1.0",
                     source_signature=_uid(), frame_manifest_hash="h",
-                    analysis_json={"scene_tags": ["lake"], "subjects": ["a pier"],
+                    analysis_json=analysis if analysis is not None else
+                    {"scene_tags": ["lake"], "subjects": ["a pier"],
                                    "visible_actions": ["walking"],
                                    "lighting": "daylight", "composition": "wide",
                                    "mood": ["calm"]},
@@ -328,3 +330,35 @@ def test_listing_samples_writes_nothing(client):
     client.get(SAMPLES.format(p=pid))
     client.get(SAMPLES.format(p=pid))
     assert counts() == before
+
+
+# ---------------------------------------------------------------------------
+# The reviewer must be able to see the claim being judged
+# ---------------------------------------------------------------------------
+
+def test_a_sample_carries_the_models_own_words(client):
+    """Asking "is this accurate?" without showing the claim is unanswerable."""
+    pid, ids = _seed(client, n_segments=1)
+    body = client.get(f"/api/projects/{pid}/evaluation/eligible-samples?limit=5").json()
+    item = body["items"][0]
+    assert item["readings"]["scene_tags"] == ["lake"]
+    assert item["readings"]["subjects"] == ["a pier"]
+    assert item["readings"]["lighting"] == "daylight"
+
+
+def test_readings_are_omitted_when_the_model_said_nothing(client):
+    """No invented text: an empty reading stays empty rather than being filled."""
+    pid, ids = _seed(client, n_segments=1, analysis={"scene_tags": [], "subjects": []})
+    body = client.get(f"/api/projects/{pid}/evaluation/eligible-samples?limit=5").json()
+    assert body["items"][0]["readings"] == {}
+
+
+def test_the_rating_session_freezes_the_readings(client):
+    """A review stays reproducible even if the model is re-run later."""
+    pid, ids = _seed(client, n_segments=1)
+    created = client.post(f"/api/projects/{pid}/evaluation/sessions",
+                          json={"limit": 5}).json()
+    sid = created["session_id"]
+    body = client.get(f"/api/projects/{pid}/evaluation/sessions/{sid}").json()
+    assert body["items"][0]["readings"]["scene_tags"] == ["lake"]
+    assert body["items"][0]["frame_ids"]

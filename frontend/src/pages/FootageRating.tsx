@@ -16,24 +16,38 @@ import { Badge, Button, Card, Field, Spinner, inputClass } from '../components/u
 type Score = 0 | 1 | 2 | null
 
 const SCORE_LABEL: Record<string, string> = { '2': '准确', '1': '部分准确', '0': '错误' }
-const DIMENSIONS: { key: 'scene' | 'subject' | 'action' | 'timing'; label: string }[] = [
-  { key: 'scene', label: '场景' },
-  { key: 'subject', label: '主体' },
-  { key: 'action', label: '动作/运动' },
-  { key: 'timing', label: '时序' },
+const DIMENSIONS: {
+  key: 'scene' | 'subject' | 'action' | 'timing'
+  label: string
+  hint: string
+}[] = [
+  { key: 'scene', label: '场景', hint: '画面类型、环境、光线对不对' },
+  { key: 'subject', label: '主体', hint: '看到的人和物对不对' },
+  { key: 'action', label: '动作/运动', hint: '在发生什么对不对（静帧看不到就选无法判断）' },
+  { key: 'timing', label: '时序', hint: '说的是不是这一段的画面' },
+]
+
+const READING_LABEL = [
+  { key: 'scene_tags', label: '场景标签' },
+  { key: 'subjects', label: '主体' },
+  { key: 'visible_actions', label: '动作' },
+  { key: 'lighting', label: '光线' },
+  { key: 'composition', label: '构图' },
+  { key: 'mood', label: '情绪' },
 ]
 
 function ScoreRow({
-  label, value, onPick, testId,
+  label, hint, value, onPick, testId,
 }: {
   label: string
+  hint: string
   value: Score | undefined
   onPick: (v: Score) => void
   testId: string
 }) {
   return (
     <div className="flex items-center gap-2 py-1" data-testid={`dim-${testId}`}>
-      <span className="w-20 text-xs text-slate-400">{label}</span>
+      <span className="w-20 shrink-0 text-xs text-slate-400" title={hint}>{label}</span>
       {(['2', '1', '0'] as const).map((v) => (
         <Button
           key={v}
@@ -108,6 +122,10 @@ function FootageRatingInner() {
 
   const items: EvalSessionItem[] = session.data?.items ?? []
   const current = items[index]
+  // Empty src is itself a request (to the current page), which 404s and used to
+  // poison the error handler. Only build a url when there is a frame id.
+  const frameId = current?.frame_ids?.[0]
+  const frameSrc = frameId ? frameUrl(frameId) : ''
 
   const summary = useQuery({
     queryKey: ['eval-summary', id, sessionId],
@@ -222,11 +240,30 @@ function FootageRatingInner() {
                 </span>
               </div>
 
-              <div className="mb-2 flex justify-center">
-                <img data-testid="item-frame" alt="待核对画面"
-                     className="max-h-64 rounded border border-ink-700"
-                     src={frameUrl(current.frame_ids?.[0])}
-                     onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              <div className="mb-2 flex min-h-[8rem] items-center justify-center">
+                {frameSrc ? (
+                  <img
+                    data-testid="item-frame"
+                    alt="待核对画面"
+                    className="max-h-64 rounded border border-ink-700"
+                    src={frameSrc}
+                    // Do NOT hide on error. A transient 404 (an empty src on first
+                    // render, a slow frame write) used to set display:none forever,
+                    // so a frame that later loaded fine stayed invisible.
+                    onError={(e) => {
+                      e.currentTarget.dataset.failed = '1'
+                      e.currentTarget.style.visibility = 'hidden'
+                    }}
+                    onLoad={(e) => {
+                      delete e.currentTarget.dataset.failed
+                      e.currentTarget.style.visibility = 'visible'
+                    }}
+                  />
+                ) : (
+                  <span className="text-xs text-slate-500" data-testid="no-frame">
+                    该读数没有可显示的代表帧
+                  </span>
+                )}
               </div>
 
               <div className="text-xs text-slate-500" data-testid="play-hint">
@@ -244,12 +281,39 @@ function FootageRatingInner() {
                 </div>
               </Card>
             )}
+            {current.readings && Object.keys(current.readings).length > 0 && (
+              <Card>
+                <div className="mb-2 text-xs text-slate-400">
+                  模型原话（未确认，逐条对照上方画面判断）
+                </div>
+                <div className="space-y-1 text-xs">
+                  {READING_LABEL.map(({ key, label }) => {
+                    const value = (current.readings as Record<string, unknown>)[key]
+                    if (!value) return null
+                    const items = Array.isArray(value) ? value : [value]
+                    return (
+                      <div key={key} className="flex gap-2" data-testid={`reading-${key}`}>
+                        <span className="w-16 shrink-0 text-slate-500">{label}</span>
+                        <span className="text-slate-300">
+                          {items.map((v, i) => (
+                            <span key={i} className="mr-1 inline-block rounded bg-ink-800 px-1.5 py-0.5">
+                              {String(v)}
+                            </span>
+                          ))}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </Card>
+            )}
+
             <Card className={current.source_available ? '' : 'opacity-40 pointer-events-none'}>
               <div className="mb-2 text-xs text-slate-400">
-                逐项判断模型描述是否与画面一致（2=准确 1=部分正确 0=错误）
+                看完画面后判断：模型说的对不对（2=准确 1=部分正确 0=错误）
               </div>
               {DIMENSIONS.map((d) => (
-                <ScoreRow key={d.key} label={d.label} testId={d.key}
+                <ScoreRow key={d.key} label={d.label} hint={d.hint} testId={d.key}
                           value={(current.ratings[d.key] as Score) ?? undefined}
                           onPick={(v) => {
                             if (!current.source_available) return

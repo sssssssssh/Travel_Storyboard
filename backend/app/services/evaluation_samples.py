@@ -95,6 +95,27 @@ def _source_status(asset: Asset | None) -> tuple[bool, str]:
     return True, "AVAILABLE"
 
 
+def _readings(row) -> dict[str, Any]:
+    """The model's own words, grouped for side-by-side review.
+
+    Presented verbatim and labelled as a claim: the reviewer decides whether each
+    phrase matches the picture, and nothing here is pre-judged.
+    """
+    analysis = getattr(row, "analysis_json", None) or {}
+    if not isinstance(analysis, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key in ("scene_tags", "subjects", "visible_actions", "mood"):
+        value = analysis.get(key)
+        if isinstance(value, list) and value:
+            out[key] = [str(x) for x in value]
+    for key in ("lighting", "composition"):
+        value = analysis.get(key)
+        if isinstance(value, str) and value.strip():
+            out[key] = value.strip()
+    return out
+
+
 def _frame_ids(row) -> list[str]:
     """Representative frames recorded with the reading (may be empty)."""
     evidence = getattr(row, "evidence_json", None) or {}
@@ -190,6 +211,9 @@ def collect_samples(
                 # The still a reviewer looks at. Frames, not the result id: the
                 # image route is keyed by frame.
                 frame_ids=_frame_ids(row),
+                # The claims being judged. Without them the reviewer is asked
+                # "is this right?" about something they cannot see.
+                readings=_readings(row),
             ))
 
     # Deterministic ordering, then a seeded shuffle that still prefers the mix.
@@ -260,6 +284,7 @@ def collect_samples(
                 "eligible_for_planning": i.eligible_for_planning,
                 "model": i.model,
                 "frame_ids": i.frame_ids,
+                "readings": i.readings,
             }
             for i in chosen
         ],

@@ -58,6 +58,7 @@ ADDITIVE_MIGRATIONS: list[tuple[str, str, str]] = [
     # TSB-371: representative frames for the rating page (a frame id, not a
     # result id -- the image route is keyed by frame).
     ("evaluation_items", "frame_ids", "JSON"),
+    ("evaluation_items", "readings_json", "JSON"),
     ("assets", "analyzed_fingerprint", "VARCHAR(128) DEFAULT ''"),
     ("assets", "analyzed_detect_config", "VARCHAR(255) DEFAULT ''"),
     ("assets", "analyzed_at", "DATETIME"),
