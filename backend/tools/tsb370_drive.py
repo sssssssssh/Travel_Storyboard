@@ -19,7 +19,8 @@ from pathlib import Path
 
 import httpx
 
-RUN = Path(os.environ["LOCALAPPDATA"]) / "Temp" / "tsb370-run"
+RUN = Path(os.environ.get("LOCALAPPDATA") or os.environ.get("TMPDIR")
+           or os.environ.get("TEMP") or "/tmp") / "tsb370-run"
 BASE = "http://127.0.0.1:9412"
 
 

@@ -14,7 +14,8 @@ from app.services.model_call_ledger import ModelCallLedger, BudgetExhausted
 from app.services.vision.providers import openai_compatible as oc
 import tools.tsb370_drive as drv
 
-RUN = Path(os.environ["LOCALAPPDATA"]) / "Temp" / "tsb370-run"
+RUN = Path(os.environ.get("LOCALAPPDATA") or os.environ.get("TMPDIR")
+           or os.environ.get("TEMP") or "/tmp") / "tsb370-run"
 ledger = ModelCallLedger(RUN / "ledger.json")
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 3

@@ -18,7 +18,8 @@ sys.path.insert(0, ".")
 
 import tools.tsb370_drive as drv  # noqa: E402
 
-RUN = Path(os.environ["LOCALAPPDATA"]) / "Temp" / "tsb370-run"
+RUN = Path(os.environ.get("LOCALAPPDATA") or os.environ.get("TMPDIR")
+           or os.environ.get("TEMP") or "/tmp") / "tsb370-run"
 
 
 def motion_targets(limit: int) -> list[str]:

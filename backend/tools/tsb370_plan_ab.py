@@ -22,7 +22,16 @@ sys.path.insert(0, ".")
 
 import tools.tsb370_drive as drv  # noqa: E402
 
-RUN = Path(os.environ["LOCALAPPDATA"]) / "Temp" / "tsb370-run"
+# Resolved lazily: this module is imported by tests on Linux CI, where
+# ``LOCALAPPDATA`` does not exist. Reading it at import time made an unrelated
+# platform variable into an import-time crash.
+def _run_dir() -> Path:
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("TMPDIR") \
+        or os.environ.get("TEMP") or "/tmp"
+    return Path(base) / "tsb370-run"
+
+
+RUN = _run_dir()
 
 #: The single source of truth for the comparison input. Changing any value here
 #: changes both sides at once, which is the point.

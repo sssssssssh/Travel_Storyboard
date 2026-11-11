@@ -24,7 +24,8 @@ import httpx  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.services.model_call_ledger import ModelCallLedger  # noqa: E402
 
-RUN = Path(os.environ["LOCALAPPDATA"]) / "Temp" / "tsb370-run"
+RUN = Path(os.environ.get("LOCALAPPDATA") or os.environ.get("TMPDIR")
+           or os.environ.get("TEMP") or "/tmp") / "tsb370-run"
 
 
 def _ffmpeg() -> str:
