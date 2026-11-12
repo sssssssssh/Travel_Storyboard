@@ -197,6 +197,20 @@ def save_rating(
         raise RatingError("EVAL_RATING_INVALID",
                           f"usability must be one of {VALID_USABILITY}", 422)
 
+    claim_verdicts = payload.get("claim_verdicts")
+    if claim_verdicts is not None:
+        if not isinstance(claim_verdicts, list):
+            raise RatingError("EVAL_RATING_INVALID", "claim_verdicts must be a list", 422)
+        cleaned = []
+        for entry in claim_verdicts[:200]:
+            if not isinstance(entry, dict):
+                continue
+            key = str(entry.get("key") or "")[:80]
+            verdict = str(entry.get("verdict") or "")
+            if key and verdict in ("right", "wrong", "unsure"):
+                cleaned.append({"key": key, "verdict": verdict})
+        claim_verdicts = cleaned
+
     timing_error = payload.get("timing_error_sec")
     if timing_error is not None:
         try:
@@ -222,6 +236,8 @@ def save_rating(
     existing.timing_error_sec = timing_error
     existing.hallucination = hallucination
     existing.usability = usability
+    if claim_verdicts is not None:
+        existing.claim_verdicts = claim_verdicts
     session.flush()
     return existing
 
@@ -330,12 +346,15 @@ def summarise(session: Session, project_id: str, session_id: str) -> dict[str, A
             },
         })
 
-    # The headline number uses the scene dimension, which every reading supports;
-    # the per-dimension block below is what a reader should actually look at.
+    # The headline pools every judgement the reviewer actually made, across all
+    # dimensions. Scoring only `scene` silently discarded a reviewer who judged
+    # "主体" but not "场景" -- their work vanished from the headline number and the
+    # session looked unrated. The per-dimension block below still separates them.
+    #
     # "Cannot judge" (None) is *not* a wrong answer: it leaves the denominator.
     # Computing n from the raw list would quietly count a skipped judgement as
     # evaluated, which is the exact overstatement this metric exists to avoid.
-    headline = [v for v in per_dim["scene"] if v is not None]
+    headline = [v for d in DIMENSIONS for v in per_dim[d] if v is not None]
     hallucination_judged = (hallucination_counts["severe"]
                             + hallucination_counts["mild"]
                             + hallucination_counts["none"])

@@ -56,6 +56,7 @@ const ITEM = {
   item_id: 'i1', segment_id: 'seg-aaaa', asset_id: 'asset-1', channel: 'static',
   result_id: 'res-1111', evidence_state: 'freshness_unverified',
   frame_ids: ['frame-1'],
+  readings: { subjects: ['lake with boats', 'wooden pier'], visible_actions: ['boats floating'] },
   source_window: { start_abs_sec: 1, end_abs_sec: 6 },
   source_available: true, review_status: 'PENDING' as const, version: 0,
   ratings: { scene: null, subject: null, action: null, timing: null,
@@ -90,19 +91,20 @@ test('the rating page shows N/A before any human rating', async () => {
   expect(s.textContent).not.toContain('100.0%')
 })
 
-test('"cannot judge" is a separate button from "wrong"', async () => {
+test('each claim can be judged separately, and "unsure" is not "wrong"', async () => {
   vi.mocked(api).mockImplementation(async (path: string) => {
     if (path.includes('/summary')) return SUMMARY_NONE
     return SESSION
   })
   wrap('/project/p1/evaluation/rating?session=s1', <FootageRating />)
-  await screen.findByTestId('dim-scene')
-  expect(screen.getByTestId('scene-score-null')).toBeTruthy()
-  expect(screen.getByTestId('scene-score-0')).toBeTruthy()
+  await screen.findByTestId('claim-subjects:0')
+  expect(screen.getByTestId('claim-subjects:0-right')).toBeTruthy()
+  expect(screen.getByTestId('claim-subjects:0-wrong')).toBeTruthy()
+  expect(screen.getByTestId('claim-subjects:0-unsure')).toBeTruthy()
 })
 
-test('clicking a score patches exactly one dimension', async () => {
-  const calls: { path: string; body: unknown }[] = []
+test('judging one claim sends its verdict and a derived dimension score', async () => {
+  const calls: { path: string; body: Record<string, unknown> }[] = []
   vi.mocked(api).mockImplementation(async (_path: string, init?: RequestInit) => {
     if (_path.includes('/summary')) return SUMMARY_NONE
     if (init?.method === 'PATCH') {
@@ -111,10 +113,15 @@ test('clicking a score patches exactly one dimension', async () => {
     return SESSION
   })
   wrap('/project/p1/evaluation/rating?session=s1', <FootageRating />)
-  await screen.findByTestId('scene-score-2')
-  fireEvent.click(screen.getByTestId('scene-score-2'))
+  await screen.findByTestId('claim-subjects:0-wrong')
+  fireEvent.click(screen.getByTestId('claim-subjects:0-wrong'))
   await waitFor(() => expect(calls).toHaveLength(1))
-  expect(calls[0].body).toMatchObject({ scene: 2 })
+  // The per-sentence verdict is what the reviewer expressed...
+  expect(calls[0].body.claim_verdicts).toEqual([
+    { key: 'subjects:0', verdict: 'wrong' },
+  ])
+  // ...and the dimension score is derived from it (all judged wrong -> 0).
+  expect(calls[0].body.subject).toBe(0)
 })
 
 test('the page states it does not modify annotations or the storyboard', async () => {
@@ -124,9 +131,9 @@ test('the page states it does not modify annotations or the storyboard', async (
     return {}
   })
   wrap('/project/p1/evaluation/rating?session=s1', <FootageRating />)
-  await screen.findByTestId('dim-scene')
+  await screen.findByTestId('claim-subjects:0')
   const body = document.body.textContent ?? ''
-  expect(body).toContain('不会修改镜头标注')
+  expect(body).toContain('不改动标注')
 })
 
 

@@ -811,6 +811,10 @@ class EvaluationRating(Base):
     hallucination: Mapped[str | None] = mapped_column(String(16), nullable=True)
     usability: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
+    #: Per-sentence verdicts, e.g. [{"key": "subjects:0", "verdict": "wrong"}].
+    #: Kept so the report can name the sentence that was wrong, not just the score.
+    claim_verdicts: Mapped[list] = mapped_column(JSON, default=list)
+
     reviewer: Mapped[str] = mapped_column(String(64), default="")
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=utcnow)

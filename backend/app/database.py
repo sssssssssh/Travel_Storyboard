@@ -59,6 +59,7 @@ ADDITIVE_MIGRATIONS: list[tuple[str, str, str]] = [
     # result id -- the image route is keyed by frame).
     ("evaluation_items", "frame_ids", "JSON"),
     ("evaluation_items", "readings_json", "JSON"),
+    ("evaluation_ratings", "claim_verdicts", "JSON"),
     ("assets", "analyzed_fingerprint", "VARCHAR(128) DEFAULT ''"),
     ("assets", "analyzed_detect_config", "VARCHAR(255) DEFAULT ''"),
     ("assets", "analyzed_at", "DATETIME"),

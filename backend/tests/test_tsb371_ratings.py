@@ -376,3 +376,72 @@ def test_the_session_records_what_it_measured_for_the_report(client):
     for item in body["items"]:
         assert item["source_window"]["start_abs_sec"] is not None
         assert item["channel"] in ("static", "multiframe", "video_native")
+
+
+# ---------------------------------------------------------------------------
+# Per-claim judgement: the reviewer must be able to point at a sentence
+# ---------------------------------------------------------------------------
+
+def test_a_single_claim_can_be_marked_wrong(client):
+    """One wrong sentence out of seven must be expressible."""
+    pid, _ = _seed(client, n=1)
+    created = _create_session(client, pid)
+    sid = created["session_id"]
+    item = created["items"][0]
+    r = _rate(client, pid, sid, item["item_id"],
+              subject=1,
+              claim_verdicts=[
+                  {"key": "subjects:0", "verdict": "right"},
+                  {"key": "subjects:1", "verdict": "wrong"},
+              ])
+    assert r.status_code == 200
+    stored = r.json()["items"][0]
+    assert stored["ratings"]["subject"] == 1
+
+
+def test_claim_verdicts_survive_a_reload(client):
+    pid, _ = _seed(client, n=1)
+    created = _create_session(client, pid)
+    sid = created["session_id"]
+    item = created["items"][0]
+    _rate(client, pid, sid, item["item_id"],
+          subject=0,
+          claim_verdicts=[{"key": "subjects:0", "verdict": "wrong"}])
+
+    with session_scope() as s:
+        from app.models import EvaluationRating
+        row = s.scalars(
+            select(EvaluationRating).where(EvaluationRating.item_id == item["item_id"])
+        ).first()
+        assert row.claim_verdicts == [{"key": "subjects:0", "verdict": "wrong"}]
+
+
+def test_an_unjudged_claim_is_not_a_wrong_claim(client):
+    """Leaving a sentence alone must not count as an error."""
+    pid, _ = _seed(client, n=2)
+    created = _create_session(client, pid)
+    sid = created["session_id"]
+    item = created["items"][0]
+    # Only one claim judged right; the rest untouched.
+    _rate(client, pid, sid, item["item_id"], subject=2,
+          claim_verdicts=[{"key": "subjects:0", "verdict": "right"}])
+    summary = client.get(f"{SESSIONS.format(p=pid)}/{sid}/summary").json()
+    assert summary["evaluated_claims"] == 1
+    assert summary["by_dimension"]["subject"]["strict_accuracy"] == pytest.approx(1.0)
+
+
+def test_an_invalid_verdict_is_ignored_not_stored(client):
+    pid, _ = _seed(client, n=1)
+    created = _create_session(client, pid)
+    sid = created["session_id"]
+    item = created["items"][0]
+    r = _rate(client, pid, sid, item["item_id"], subject=2,
+              claim_verdicts=[{"key": "subjects:0", "verdict": "banana"},
+                              {"key": "subjects:1", "verdict": "right"}])
+    assert r.status_code == 200
+    with session_scope() as s:
+        from app.models import EvaluationRating
+        row = s.scalars(
+            select(EvaluationRating).where(EvaluationRating.item_id == item["item_id"])
+        ).first()
+        assert row.claim_verdicts == [{"key": "subjects:1", "verdict": "right"}]
