@@ -13,7 +13,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import { api, endpoints } from '../lib/api'
-import { Badge, Card, Spinner } from '../components/ui'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Badge, Button, Card, Spinner } from '../components/ui'
 
 interface MissingEntry {
   asset_id: string
@@ -48,6 +49,18 @@ function when(iso: string | null): string {
 
 export default function MissingSources() {
   const { id = '' } = useParams()
+  const qc = useQueryClient()
+
+  // Retiring is a label, not a delete: the file's readings and history stay.
+  const retire = useMutation({
+    mutationFn: (assetId: string) =>
+      api<{ preserved: Record<string, number> }>(
+        endpoints.evaluationRetireAsset(id, assetId),
+        { method: 'POST', body: JSON.stringify({ note: '用户确认不再使用' }) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['missing-sources', id] })
+    },
+  })
   const report = useQuery({
     queryKey: ['missing-sources', id],
     queryFn: () => api<MissingOut>(endpoints.evaluationMissingSources(id)),
@@ -115,8 +128,26 @@ export default function MissingSources() {
                       <span className="text-red-300">涉及 {item.affected_segments} 个镜头</span>
                     )}
                   </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <Button data-testid={`retire-${item.display_name}`}
+                            disabled={retire.isPending}
+                            onClick={() => retire.mutate(item.asset_id)}>
+                      标记为不再使用
+                    </Button>
+                    <span className="text-xs text-slate-500">
+                      只做标记：不删除镜头、模型读数或标注，随时可撤销
+                    </span>
+                  </div>
                 </div>
               ))}
+            </div>
+          </Card>
+        )}
+
+        {retire.isSuccess && (
+          <Card>
+            <div className="text-sm text-emerald-300" data-testid="retire-done">
+              已标记。镜头的模型读数与历史全部保留，只是不再参与策划。
             </div>
           </Card>
         )}

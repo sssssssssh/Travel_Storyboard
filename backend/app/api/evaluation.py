@@ -19,6 +19,7 @@ from ..services import evaluation_clips as clips
 from ..services import evaluation_ab as ab
 from ..services import evaluation_missing as missing_sources
 from ..services import evaluation_report as report_mod
+from ..services import evaluation_retire as retire
 from ..services import evaluation_ratings as ratings
 from ..services import evaluation_samples as samples
 
@@ -267,3 +268,41 @@ def list_missing_sources(project_id: str, db: Session = Depends(get_db)):
     """
     _project_or_404(db, project_id)
     return missing_sources.missing_sources(db, project_id)
+
+
+# ---------------------------------------------------------------------------
+# Retire a source the user no longer has
+# ---------------------------------------------------------------------------
+
+@router.post("/projects/{project_id}/evaluation/assets/{asset_id}/retire")
+def retire_asset(project_id: str, asset_id: str, body: dict | None = None,
+                 db: Session = Depends(get_db)):
+    """Mark a source as gone for good.
+
+    Nothing is deleted: the asset, its segments, its model readings and any
+    annotation stay exactly as they are. Only the planning classification changes,
+    with the distinct reason ``source_retired_by_user`` — these shots were never
+    judged, the footage simply is not there.
+    """
+    _project_or_404(db, project_id)
+    try:
+        result = retire.retire_asset(db, project_id, asset_id,
+                                     note=str((body or {}).get("note") or ""))
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc))
+    db.commit()
+    return result
+
+
+@router.delete("/projects/{project_id}/evaluation/assets/{asset_id}/retire")
+def unretire_asset(project_id: str, asset_id: str, db: Session = Depends(get_db)):
+    """Undo a retirement, for when the file turns up again."""
+    _project_or_404(db, project_id)
+    try:
+        result = retire.unretire_asset(db, project_id, asset_id)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc))
+    db.commit()
+    return result

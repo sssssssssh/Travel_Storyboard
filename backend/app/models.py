@@ -96,6 +96,14 @@ class Asset(Base):
     analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # TSB-371: "active" or "retired". Retiring records that the user no longer has
+    # this file. It is a label on the row -- no asset, segment or reading is ever
+    # deleted, so a retire can be undone without loss.
+    source_state: Mapped[str] = mapped_column(String(16), default="active")
+    source_retired_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    source_retired_note: Mapped[str] = mapped_column(String(255), default="")
+
 
 class Segment(Base):
     __tablename__ = "segments"

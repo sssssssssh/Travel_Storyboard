@@ -602,7 +602,8 @@ def normalized_rating(segment: Segment, annotation: Any) -> tuple[str, str]:
     return "pending", "none"
 
 
-def _eligibility(segment: Segment, rating: str) -> tuple[str, list[str]]:
+def _eligibility(segment: Segment, rating: str, *,
+                 source_retired: bool = False) -> tuple[str, list[str]]:
     """Classify a shot for planning, from the *already normalized* rating.
 
     Takes the rating rather than re-deriving it: two independent precedence
@@ -610,6 +611,10 @@ def _eligibility(segment: Segment, rating: str) -> tuple[str, list[str]]:
     """
     reasons: list[str] = []
 
+    # TSB-371: the user no longer has this file. Distinct from "human_excluded" --
+    # nobody judged these shots, the footage simply is not there any more.
+    if source_retired:
+        reasons.append("source_retired_by_user")
     if rating in NEGATIVE_RATINGS:
         reasons.append("human_excluded")
     if segment.status in INVALID_SEGMENT_STATUSES:
@@ -624,7 +629,8 @@ def _eligibility(segment: Segment, rating: str) -> tuple[str, list[str]]:
     if not valid_window or not finite:
         reasons.append("invalid_time_window")
 
-    if "human_excluded" in reasons or "invalid_time_window" in reasons:
+    if ("human_excluded" in reasons or "invalid_time_window" in reasons
+            or "source_retired_by_user" in reasons):
         return EXCLUDED, reasons
     if reasons:
         # status-based: still visible, but not offered for automatic planning.
@@ -800,7 +806,10 @@ def collect_candidates(
         human = _human(seg, annotation)
         # Classify from the same normalized rating the DTO reports, so the two
         # can never contradict each other.
-        eligibility, exclusion_reasons = _eligibility(seg, human["rating"])
+        eligibility, exclusion_reasons = _eligibility(
+            seg, human["rating"],
+            source_retired=(getattr(asset, "source_state", "active") == "retired"),
+        )
 
         static = _static_channel(
             static_rows.get(seg.id, []), seg, asset, limitations,

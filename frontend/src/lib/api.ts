@@ -236,6 +236,7 @@ export const endpoints = {
   directorPlanPreview: (id: string) => `/api/projects/${id}/director/plans/preview`,
   directorPlanInputStatus: (id: string) => `/api/projects/${id}/director/plans/input-status`,
   frameImage: (frameId: string) => `/api/frames/${frameId}/image`,
+  evaluationRetireAsset: (id: string, assetId: string) => `/api/projects/${id}/evaluation/assets/${assetId}/retire`,
   evaluationMissingSources: (id: string) => `/api/projects/${id}/evaluation/missing-sources`,
   evaluationSamples: (id: string) => `/api/projects/${id}/evaluation/eligible-samples`,
   evaluationClips: (id: string) => `/api/projects/${id}/evaluation/clips`,
