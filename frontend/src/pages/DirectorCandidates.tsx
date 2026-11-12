@@ -112,6 +112,18 @@ function CandidateRow({ c }: { c: DirectorCandidate }) {
         )}
         {c.human.story_role && <Badge tone="blue">角色: {c.human.story_role}</Badge>}
         {c.editorial_hints.priority === 'preferred' && <Badge tone="green">优先</Badge>}
+        {/* TSB-371: a human judged this shot's reading wrong. Shown as a caution,
+            not an automatic exclusion — the decision stays with the user. */}
+        {c.review_state === 'wrong' && (
+          <span data-testid="review-wrong">
+            <Badge tone="red">人工判错</Badge>
+          </span>
+        )}
+        {c.review_state === 'trusted' && (
+          <span data-testid="review-trusted">
+            <Badge tone="green">人工核对通过</Badge>
+          </span>
+        )}
       </div>
 
       <div className="mb-1 flex flex-wrap gap-2">

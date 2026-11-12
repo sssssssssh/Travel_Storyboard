@@ -252,3 +252,23 @@ test('a load failure shows an error state rather than an empty list', async () =
   const err = await screen.findByTestId('director-error')
   expect(err.textContent).toContain('加载候选镜头失败')
 })
+
+test('a shot a human judged wrong is marked, and unreviewed stays silent', async () => {
+  // The review must be visible where the choice is made. "unreviewed" must not
+  // render anything: absence of judgement is not rejection.
+  const wrong = candidate({ segment_id: 'seg-wrong', review_state: 'wrong',
+                            review_reasons: ['review_judged_wrong'] })
+  const trusted = candidate({ segment_id: 'seg-trusted', review_state: 'trusted' })
+  const untouched = candidate({ segment_id: 'seg-none' })
+
+  setup(payload([wrong, trusted, untouched], {
+    total: 3,
+    limitations: ['some_shots_were_judged_wrong_by_a_human_reviewer'],
+  }))
+
+  const mark = await screen.findByTestId('review-wrong')
+  expect(mark.textContent).toContain('人工判错')
+  expect(screen.getByTestId('review-trusted').textContent).toContain('人工核对通过')
+  // Exactly one wrong marker for three shots.
+  expect(screen.getAllByTestId('review-wrong')).toHaveLength(1)
+})

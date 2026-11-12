@@ -71,6 +71,20 @@ def list_director_candidates(
     )
     cov = dc.coverage(candidates)
 
+    # Attach the human review verdict so a shot the reviewer marked wrong is
+    # visible here rather than silently reused as trusted evidence. Read-only:
+    # the verdict is computed from the review tables and never written back.
+    from ..services import evaluation_feedback as fb
+
+    verdicts = fb.verdicts_for_project(db, project_id, [c.segment_id for c in items])
+    item_dicts = []
+    for c in items:
+        row = c.as_dict()
+        verdict = verdicts.get(c.segment_id) or {}
+        row["review_state"] = verdict.get("state", fb.STATE_UNREVIEWED)
+        row["review_reasons"] = list(verdict.get("planning_reasons") or [])
+        item_dicts.append(row)
+
     limitations: list[str] = []
     if not cov["coverage_complete"]:
         limitations.append("partial_analysis_coverage")
@@ -80,6 +94,8 @@ def list_director_candidates(
         for ch in (c.static, c.multiframe, c.video_native)
     ):
         limitations.append("freshness_unverified_for_some_readings")
+    if any(r["review_state"] == fb.STATE_WRONG for r in item_dicts):
+        limitations.append("some_shots_were_judged_wrong_by_a_human_reviewer")
 
     return {
         "project_id": project_id,
@@ -87,7 +103,7 @@ def list_director_candidates(
         "total": total,
         "offset": offset,
         "limit": limit,
-        "items": [c.as_dict() for c in items],
+        "items": item_dicts,
         "coverage": cov,
         "limitations": limitations,
     }

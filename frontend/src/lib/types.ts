@@ -699,6 +699,10 @@ export interface DirectorCandidate {
   }[]
   limitations: string[]
   is_representative: boolean
+  //: TSB-371: a human reviewer's conclusion about this shot's reading.
+  //: "unreviewed" means nobody judged it — never that it was rejected.
+  review_state?: 'trusted' | 'wrong' | 'unreviewed'
+  review_reasons?: string[]
 }
 
 export interface DirectorCoverage {

@@ -83,6 +83,10 @@ class CandidateOut(BaseModel):
     evidence_refs: list[EvidenceRefOut] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     is_representative: bool = True
+    #: TSB-371: what a human reviewer concluded about this shot's reading.
+    #: "unreviewed" means nobody has judged it -- never that it was rejected.
+    review_state: str = "unreviewed"
+    review_reasons: list[str] = Field(default_factory=list)
 
 
 class CoverageOut(BaseModel):
