@@ -18,6 +18,7 @@ and neither being a mock.
 from __future__ import annotations
 
 import hashlib
+import json
 import secrets
 from dataclasses import dataclass
 from typing import Any
@@ -103,27 +104,107 @@ def _roles(variant, role: str) -> list[int]:
 RECEIPT_FIELDS = ("model_id", "provider", "call_id", "elapsed_ms")
 
 
-def has_model_receipt(plan: PlanDraft) -> bool:
-    """True only for a draft produced by an actual endpoint call.
+def has_model_receipt(plan: PlanDraft, *, session=None,
+                      project_id: str = "") -> bool:
+    """True only when the plan's receipt names a *server* record of a real call.
 
-    ``planning_mode == "model"`` alone is a label any caller can set, so pairing
-    relies on this instead. The adapter writes the receipt; a stub, a hand-built
-    PlanDraft or an offline plan cannot produce one.
+    TSB-371 asked whether four fields were non-empty, which a client satisfies by
+    typing them. A client-supplied receipt is therefore treated as **no evidence**:
+    the only thing that counts is a row in ``model_call_records`` written by the
+    trusted planner path, belonging to the same project, for a call that succeeded.
+
+    Without a ``session`` there is no way to check, so the answer is False. Pairing
+    must never fall back to trusting the document.
     """
+    if session is None:
+        return False
+
     summary = getattr(plan, "request_summary", None) or {}
     receipt = summary.get("receipt") if isinstance(summary, dict) else None
     if not isinstance(receipt, dict):
         return False
-    return all(receipt.get(f) not in (None, "") for f in RECEIPT_FIELDS)
+
+    call_id = receipt.get("call_id")
+    if not isinstance(call_id, str) or not call_id.strip():
+        return False
+
+    from ..models import ModelCallRecord
+
+    row = session.get(ModelCallRecord, call_id.strip())
+    if row is None or not row.succeeded:
+        return False
+    if not row.purpose or row.purpose != "director_plan":
+        return False
+    if project_id and row.project_id != project_id:
+        return False
+    # A call recorded for a different project is not evidence for this one.
+    if not project_id and row.project_id != plan.project_id:
+        return False
+    return True
 
 
-def _fingerprint(plan: PlanDraft) -> str:
-    """A stable signature of a plan's content, used for distinctness."""
-    raw = plan.model_dump_json(exclude={"warnings", "limitations", "request_summary"})
+def record_model_call(session, *, call_id: str, channel: str, project_id: str,
+                      purpose: str, succeeded: bool, model_id: str = "",
+                      result_digest: str = "", request_bytes: int = 0,
+                      response_bytes: int = 0, elapsed_ms: int = 0,
+                      error_code: str = "") -> None:
+    """Write the server-side proof. Called by the trusted planner path only."""
+    from ..models import ModelCallRecord
+
+    session.add(ModelCallRecord(
+        id=call_id, channel=channel, project_id=project_id, purpose=purpose,
+        result_digest=result_digest, succeeded=succeeded, model_id=model_id,
+        request_bytes=request_bytes, response_bytes=response_bytes,
+        elapsed_ms=elapsed_ms, error_code=error_code,
+    ))
+    session.flush()
+
+
+def content_fingerprint(plan: PlanDraft) -> str:
+    """What the plan actually *cuts* — and nothing else.
+
+    TSB-371 hashed the whole draft minus a few fields, so ``planning_mode`` and the
+    model metadata sat inside the hash. Two plans cutting the same shots from the
+    same windows therefore looked different, and an A/B between them was accepted
+    even though the reviewer was comparing a plan with itself.
+
+    Included: shot order, segment, source window, narrative role, section.
+    Excluded: planning_mode, model/provider/call ids, warnings, limitations,
+    selection_reason prose, titles, loglines. Two planners may explain the same cut
+    differently; that is not a different edit.
+    """
+    if not plan.variants:
+        return hashlib.sha256(b"empty").hexdigest()[:32]
+
+    variant = plan.variants[0]
+    shape = {
+        "total_duration_sec": round(float(variant.total_duration_sec), 3),
+        "target_duration_sec": round(float(variant.target_duration_sec), 3),
+        "sections": [s.section_id for s in variant.sections],
+        "shots": [
+            {
+                "order": index,
+                "segment_id": shot.segment_id,
+                "asset_id": shot.asset_id,
+                "source_in_sec": round(float(shot.source_in_sec), 3),
+                "source_out_sec": round(float(shot.source_out_sec), 3),
+                "narrative_role": shot.narrative_role,
+                "section_id": shot.section_id,
+            }
+            for index, shot in enumerate(variant.shots)
+        ],
+    }
+    raw = json.dumps(shape, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
-def check_pairing(offline: PlanDraft, model: PlanDraft, planning_input) -> list[dict]:
+def _fingerprint(plan: PlanDraft) -> str:
+    """Deprecated alias kept so older call sites keep working."""
+    return content_fingerprint(plan)
+
+
+def check_pairing(offline: PlanDraft, model: PlanDraft, planning_input,
+                  *, session=None, project_id: str = "") -> list[dict]:
     """Every reason this pair must NOT be presented as a fair A/B."""
     problems: list[dict] = []
 
@@ -143,7 +224,7 @@ def check_pairing(offline: PlanDraft, model: PlanDraft, planning_input) -> list[
     if model.planning_mode != "model":
         problems.append({"code": "AB_NO_REAL_MODEL_PLAN",
                          "message": "右侧不是真实模型方案（Mock 或离线），不能作为 B 侧"})
-    elif not has_model_receipt(model):
+    elif not has_model_receipt(model, session=session, project_id=project_id):
         # The label is not evidence. TSB-370 produced "model" drafts from a stub
         # provider; a plan may only stand as the model side if it carries the
         # receipt the real adapter writes when it actually called the endpoint.
@@ -160,12 +241,16 @@ def check_pairing(offline: PlanDraft, model: PlanDraft, planning_input) -> list[
         problems.append({"code": "AB_TARGET_MISMATCH",
                          "message": "目标时长不同，比较不公平"})
 
-    if _fingerprint(offline) == _fingerprint(model):
+    if content_fingerprint(offline) == content_fingerprint(model):
         problems.append({"code": "AB_NOT_DISTINCT",
                          "message": "两份方案内容完全相同，不能作为独立对比"})
 
-    # Both plans must still satisfy the shared validator.
+    # Both plans must still satisfy the shared validator. Without a planning input
+    # there is nothing to validate against; the caller that omits it is checking
+    # pairing rules only, so skip rather than crash.
     for label, plan in (("left", offline), ("right", model)):
+        if planning_input is None:
+            continue
         leftover = plan_validation.validate_plan(plan, planning_input)
         if leftover:
             problems.append({
@@ -181,11 +266,16 @@ def create_ab_session(
     planning_input, *, reviewer: str = "",
 ) -> AbPair:
     """Pair two plans and fix the blind mapping on the server."""
-    problems = check_pairing(offline, model, planning_input)
+    problems = check_pairing(offline, model, planning_input,
+                             session=session, project_id=project_id)
     if problems:
+        detail = "; ".join(
+            f"{p['code']}:{p.get('message','')}"
+            + (": " + str([q.get("code") for q in p.get("problems", [])]) if p.get("problems") else "")
+            for p in problems[:3])
         raise AbError(
             problems[0]["code"],
-            problems[0]["message"], 409 if problems[0]["code"] != "AB_NO_REAL_MODEL_PLAN" else 422)
+            detail, 409 if problems[0]["code"] != "AB_NO_REAL_MODEL_PLAN" else 422)
 
     # Cryptographically random, stored, and only revealed after submission.
     model_on_left = secrets.randbelow(2) == 0
@@ -243,6 +333,23 @@ def blind_view(pair_row: EvaluationSession) -> dict[str, Any]:
         # Deliberately absent: mapping, model_id, planning modes.
         "revealed": False,
     }
+
+
+def current_view(pair_row: EvaluationSession, *, wants_reveal: bool = False) -> dict[str, Any]:
+    """What the caller may see, decided by the stored state.
+
+    TSB-371's ``blind_view`` always said ``revealed: False``, so a refresh after
+    submitting dropped the reviewer back into the blind — the mapping was still in
+    the database, they simply could not see the answer they had earned.
+
+    ``wants_reveal`` is recorded but never overrides the truth in either direction:
+    a client cannot reveal early, and cannot hide a result it has already seen.
+    """
+    data = pair_row.context_json or {}
+    submitted = bool(data.get("submission"))
+    if submitted:
+        return revealed_view(pair_row)
+    return blind_view(pair_row)
 
 
 def submit_preference(pair_row: EvaluationSession, payload: dict) -> dict[str, Any]:

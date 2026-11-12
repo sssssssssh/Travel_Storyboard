@@ -14,6 +14,7 @@ implementations matter:
 
 from __future__ import annotations
 
+import hashlib
 import time
 import uuid
 from datetime import datetime, timezone
@@ -167,14 +168,31 @@ class ExternalPlannerProvider:
         # The receipt proves a real endpoint call produced this draft. It is what
         # the A/B pairing checks, because `planning_mode == "model"` is a label any
         # caller can set and TSB-370 shipped "model" drafts from a stub provider.
+        call_id = getattr(response, "request_id", "") or uuid_hex()
         receipt = {
             "model_id": get_settings().model_name or "",
             "provider": "openai_compatible",
-            "call_id": getattr(response, "request_id", "") or uuid_hex(),
+            "call_id": call_id,
             "elapsed_ms": int(round((time.monotonic() - started) * 1000)),
             "attempts": int(getattr(response, "attempts", 1) or 1),
             "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
+        session = getattr(self, "session", None)
+        if session is not None:
+            from .evaluation_ab import record_model_call
+
+            record_model_call(
+                session, call_id=call_id, channel="plan_text",
+                project_id=plan.project_id, purpose="director_plan",
+                succeeded=True, model_id=receipt["model_id"],
+                result_digest=hashlib.sha256(
+                    plan.model_dump_json(exclude={"request_summary"})
+                    .encode("utf-8")).hexdigest()[:32],
+                request_bytes=receipt["elapsed_ms"],
+                response_bytes=len(str(getattr(response, "text", ""))),
+                elapsed_ms=receipt["elapsed_ms"],
+            )
+
         return plan.model_copy(update={
             "request_summary": {**summary, "receipt": receipt}})
 

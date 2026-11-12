@@ -829,3 +829,33 @@ class EvaluationRating(Base):
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime, default=utcnow, onupdate=utcnow
     )
+
+
+class ModelCallRecord(Base):
+    """TSB-371-R1 P1-03: proof that a model call actually happened.
+
+    Written only by the trusted planner path, never by a request handler that
+    echoes client input. An A/B pairing accepts a "model" plan only when its
+    receipt names a row here that succeeded for the same project.
+
+    Kept separate from the ledger: the ledger caps spending, this records
+    provenance. A plan can be legitimate while the ledger has room, or the ledger
+    can have room while no call was made — the two questions are different.
+    """
+
+    __tablename__ = "model_call_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    channel: Mapped[str] = mapped_column(String(24), default="", index=True)
+    project_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+    #: Purpose inside the product, e.g. "director_plan", "capability_probe".
+    purpose: Mapped[str] = mapped_column(String(32), default="", index=True)
+    #: Digest of what the call produced, so a receipt can be bound to a plan.
+    result_digest: Mapped[str] = mapped_column(String(64), default="")
+    succeeded: Mapped[bool] = mapped_column(Boolean, default=False)
+    model_id: Mapped[str] = mapped_column(String(128), default="")
+    request_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    response_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    elapsed_ms: Mapped[int] = mapped_column(Integer, default=0)
+    error_code: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=utcnow)

@@ -41,11 +41,31 @@ from app.models import EvaluationSession  # noqa: E402
 
 
 def _with_receipt(plan):
-    """Simulate a draft the real adapter produced (it stamps a receipt)."""
+    """Give the draft a receipt *backed by a server record*.
+
+    TSB-371-R1 P1-03: a receipt the client types is no longer evidence. The
+    helper therefore writes the row the trusted planner path writes, which is the
+    only thing pairing will believe.
+    """
+    import uuid as _uuid
+
+    from app.database import session_scope
+    from app.models import ModelCallRecord
+
+    call_id = str(_uuid.uuid4())
+    with session_scope() as s:
+        s.add(ModelCallRecord(
+            id=call_id, channel="plan_text", project_id=plan.project_id,
+            purpose="director_plan", result_digest="", succeeded=True,
+            model_id="GLM-5.3-Flash", request_bytes=1, response_bytes=1,
+            elapsed_ms=10,
+        ))
+        s.flush()
+
     summary = dict(getattr(plan, "request_summary", None) or {})
     summary["receipt"] = {
         "model_id": "GLM-5.3-Flash", "provider": "openai_compatible",
-        "call_id": "test-receipt-0001", "elapsed_ms": 1234,
+        "call_id": call_id, "elapsed_ms": 10,
         "attempts": 1, "at": "2026-01-01T00:00:00+00:00",
     }
     return plan.model_copy(update={"request_summary": summary})

@@ -197,7 +197,7 @@ def create_ab(project_id: str, body: dict | None = None,
         raise HTTPException(status_code=exc.status,
                             detail={"code": exc.code, "message": exc.message})
     db.commit()
-    return ab.blind_view(db.get(type(pair.session), pair.session.id))
+    return ab.current_view(db.get(type(pair.session), pair.session.id))
 
 
 @router.get("/projects/{project_id}/evaluation/ab-sessions/{session_id}")
@@ -207,7 +207,9 @@ def get_ab(project_id: str, session_id: str, db: Session = Depends(get_db)):
     row = ab.find_ab_session(db, project_id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="evaluation session not found")
-    return ab.blind_view(row)
+    # The server decides: a submitted session comes back revealed, so a refresh
+    # restores what the reviewer already earned.
+    return ab.current_view(row)
 
 
 @router.post("/projects/{project_id}/evaluation/ab-sessions/{session_id}/submit")
