@@ -202,7 +202,9 @@ test('submitting reveals the mapping and states it is one reviewer', async () =>
 
 const REPORT = {
   session_id: 's1', project_code: 'p1abcd',
-  scope: { n: 0, note: '小样本；不能代表全库准确率。' },
+  metric_basis: 'sentences' as const,
+  scope: { n: 0, unit: '句', note: '小样本；不能代表全库准确率。' },
+  sentences: { right: 0, wrong: 0, unsure: 0, judged: 0 },
   human_metrics: {
     evaluated_claims: 0, strict_accuracy: null, partial_or_better_rate: null,
     by_dimension: { scene: { evaluated: 0, strict_accuracy: null, partial_or_better_rate: null } },
@@ -385,4 +387,22 @@ test('already-judged claims are redrawn after paging away and back', async () =>
   // The saved verdicts must reappear, not an empty form.
   const again = await screen.findByTestId('claim-subjects:0-wrong')
   expect(again.className).toContain('bg-accent')
+})
+
+
+test('the report says which unit the headline counts', async () => {
+  // 46 judged sentences must not be labelled the same as 46 shots.
+  vi.mocked(api).mockImplementation(async () => ({
+    ...REPORT,
+    scope: { n: 46, unit: '句', note: '小样本。' },
+    sentences: { right: 44, wrong: 0, unsure: 2, judged: 46 },
+  }))
+  wrap('/project/p1/evaluation/report?session=s1', <EvaluationReport />)
+  const scope = await screen.findByTestId('scope-line')
+  expect(scope.textContent).toContain('46')
+  expect(scope.textContent).toContain('句')
+  expect(scope.textContent).toContain('逐句统计')
+  const bd = screen.getByTestId('sentence-breakdown')
+  expect(bd.textContent).toContain('判对 44')
+  expect(bd.textContent).toContain('不确定 2')
 })

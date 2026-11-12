@@ -461,3 +461,72 @@ def test_saved_claim_verdicts_come_back_on_resume(client):
     row = next(i for i in resumed["items"] if i["item_id"] == item["item_id"])
     assert row["claim_verdicts"] == [{"key": "subjects:0", "verdict": "right"},
                                      {"key": "subjects:1", "verdict": "wrong"}]
+
+
+# ---------------------------------------------------------------------------
+# The headline unit must match what the page asks for
+# ---------------------------------------------------------------------------
+
+def test_the_headline_counts_sentences_not_dimensions(client):
+    """16 judged sentences must not be reported as "3 claims"."""
+    pid, _ = _seed(client, n=1)
+    created = _create_session(client, pid)
+    sid = created["session_id"]
+    item = created["items"][0]
+    _rate(client, pid, sid, item["item_id"], subject=2,
+          claim_verdicts=[
+              {"key": "subjects:0", "verdict": "right"},
+              {"key": "subjects:1", "verdict": "right"},
+              {"key": "subjects:2", "verdict": "right"},
+          ])
+    summary = client.get(f"{SESSIONS.format(p=pid)}/{sid}/summary").json()
+    assert summary["metric_basis"] == "sentences"
+    assert summary["evaluated_claims"] == 3
+    assert summary["sentences"]["right"] == 3
+    assert summary["strict_accuracy"] == pytest.approx(1.0)
+
+
+def test_unsure_leaves_the_denominator_but_is_reported(client):
+    """'unsure' is about the reviewer's confidence, not the model being wrong."""
+    pid, _ = _seed(client, n=1)
+    created = _create_session(client, pid)
+    sid = created["session_id"]
+    item = created["items"][0]
+    _rate(client, pid, sid, item["item_id"], subject=1,
+          claim_verdicts=[
+              {"key": "subjects:0", "verdict": "right"},
+              {"key": "subjects:1", "verdict": "wrong"},
+              {"key": "subjects:2", "verdict": "unsure"},
+          ])
+    summary = client.get(f"{SESSIONS.format(p=pid)}/{sid}/summary").json()
+    # 2 enter the denominator (right + wrong); unsure is excluded.
+    assert summary["evaluated_claims"] == 2
+    assert summary["strict_accuracy"] == pytest.approx(0.5)
+    assert summary["sentences"]["unsure"] == 1
+    assert summary["sentences"]["judged"] == 3
+
+
+def test_a_wrong_sentence_lowers_the_headline(client):
+    pid, _ = _seed(client, n=1)
+    created = _create_session(client, pid)
+    sid = created["session_id"]
+    item = created["items"][0]
+    _rate(client, pid, sid, item["item_id"], subject=1,
+          claim_verdicts=[
+              {"key": "subjects:0", "verdict": "right"},
+              {"key": "subjects:1", "verdict": "wrong"},
+          ])
+    summary = client.get(f"{SESSIONS.format(p=pid)}/{sid}/summary").json()
+    assert summary["strict_accuracy"] == pytest.approx(0.5)
+
+
+def test_a_session_without_sentences_falls_back_to_dimensions(client):
+    """Older ratings (dimension only) still produce a number, labelled as such."""
+    pid, _ = _seed(client, n=1)
+    created = _create_session(client, pid)
+    sid = created["session_id"]
+    item = created["items"][0]
+    _rate(client, pid, sid, item["item_id"], scene=2)   # no claim_verdicts
+    summary = client.get(f"{SESSIONS.format(p=pid)}/{sid}/summary").json()
+    assert summary["metric_basis"] == "dimensions"
+    assert summary["evaluated_claims"] == 1

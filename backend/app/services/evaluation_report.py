@@ -77,10 +77,13 @@ def build_report(session, project_id: str, session_id: str,
             "sample_seed": summary["sample_seed"],
             "sample_count": summary["sample_count"],
         },
+        "metric_basis": summary["metric_basis"],
         "scope": {
             "n": summary["evaluated_claims"],
+            "unit": ("句" if summary["metric_basis"] == "sentences" else "条目"),
             "note": "小样本；不能代表全库准确率。",
         },
+        "sentences": summary["sentences"],
         "human_metrics": {
             "evaluated_claims": summary["evaluated_claims"],
             "strict_accuracy": summary["strict_accuracy"],
@@ -121,7 +124,13 @@ def to_markdown(report: dict[str, Any]) -> str:
     lines.append("")
     lines.append("## 评价范围与限制")
     lines.append("")
-    lines.append(f"有效人工判断 n = **{report['scope']['n']}**。{report['scope']['note']}")
+    unit = report["scope"].get("unit", "条目")
+    lines.append(f"有效人工判断 n = **{report['scope']['n']}** {unit}。{report['scope']['note']}")
+    sent = report.get("sentences") or {}
+    if sent.get("judged"):
+        lines.append("")
+        lines.append(f"逐句判断：判对 {sent['right']} · 判错 {sent['wrong']} · "
+                     f"不确定 {sent['unsure']}（不确定不计入分母）")
     for lim in report["limitations"]:
         lines.append(f"- {lim}")
     lines.append("")
@@ -129,7 +138,7 @@ def to_markdown(report: dict[str, Any]) -> str:
     lines.append("")
     lines.append("| 指标 | 值 |")
     lines.append("|---|---|")
-    lines.append(f"| 有效断言数 | {m['evaluated_claims']} |")
+    lines.append(f"| 有效判断数 | {m['evaluated_claims']} {unit} |")
     lines.append(f"| 严格准确率 | {_fmt_rate(m['strict_accuracy'])} |")
     lines.append(f"| 部分及以上 | {_fmt_rate(m['partial_or_better_rate'])} |")
     lines.append(f"| 幻觉（严重） | {m['hallucination']['severe']} |")

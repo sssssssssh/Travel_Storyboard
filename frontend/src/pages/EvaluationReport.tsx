@@ -25,7 +25,9 @@ interface ReportMetrics {
 interface ReportBody {
   session_id: string
   project_code: string
-  scope: { n: number; note: string }
+  metric_basis: 'sentences' | 'dimensions'
+  scope: { n: number; unit?: string; note: string }
+  sentences?: { right: number; wrong: number; unsure: number; judged: number }
   human_metrics: ReportMetrics
   status: string
   gates: Record<string, { status?: string; reason?: string } | string>
@@ -103,16 +105,26 @@ export default function EvaluationReport() {
         <Card>
           <div className="text-xs text-slate-400" data-testid="scope-line">
             项目 {r.project_code} · 会话 {r.session_id.slice(0, 8)} ·
-            有效人工判断 n = <strong>{r.scope.n}</strong>
+            有效人工判断 n = <strong>{r.scope.n}</strong> {r.scope.unit ?? '条目'}
+            <span className="ml-2 text-slate-600">
+              （{r.metric_basis === 'sentences' ? '按逐句统计' : '按维度统计'}）
+            </span>
           </div>
           <div className="mt-1 text-xs text-slate-500">{r.scope.note}</div>
+          {r.sentences && r.sentences.judged > 0 && (
+            <div className="mt-2 text-xs text-slate-400" data-testid="sentence-breakdown">
+              逐句：判对 {r.sentences.right} · 判错 {r.sentences.wrong} ·
+              不确定 {r.sentences.unsure}
+              <span className="ml-1 text-slate-600">（不确定不计入分母）</span>
+            </div>
+          )}
         </Card>
 
         <Card>
           <div className="mb-2 text-xs text-slate-400">人工已核实结果</div>
           <table className="w-full text-xs">
             <tbody>
-              <tr><td className="py-0.5 text-slate-400">有效断言数</td>
+              <tr><td className="py-0.5 text-slate-400">有效判断数</td>
                   <td className="text-slate-200" data-testid="m-n">{m.evaluated_claims}</td></tr>
               <tr><td className="py-0.5 text-slate-400">严格准确率</td>
                   <td className="text-slate-200" data-testid="m-strict">{pct(m.strict_accuracy)}</td></tr>

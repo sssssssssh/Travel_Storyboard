@@ -286,6 +286,7 @@ def summarise(session: Session, project_id: str, session_id: str) -> dict[str, A
     per_dim: dict[str, list[int | None]] = {d: [] for d in DIMENSIONS}
     hallucination_counts = {"severe": 0, "mild": 0, "none": 0, "unjudged": 0}
     usability_counts = {"useful": 0, "partly_useful": 0, "useless": 0, "unjudged": 0}
+    claim_verdict_counts = {"right": 0, "wrong": 0, "unsure": 0}
     timing_errors: list[float] = []
     usable_denominator = 0
 
@@ -319,6 +320,15 @@ def summarise(session: Session, project_id: str, session_id: str) -> dict[str, A
             usable_denominator += 1
             for d in DIMENSIONS:
                 per_dim[d].append(getattr(rating, d))
+            # Per-sentence verdicts are the finest thing the reviewer produced.
+            # Counting only the derived dimension scores threw that detail away
+            # and reported "7 claims" for 46 judgements.
+            for entry in (rating.claim_verdicts or []):
+                if not isinstance(entry, dict):
+                    continue
+                verdict = entry.get("verdict")
+                if verdict in ("right", "wrong", "unsure"):
+                    claim_verdict_counts[verdict] += 1
             if rating.hallucination:
                 hallucination_counts[rating.hallucination] += 1
             else:
@@ -346,28 +356,48 @@ def summarise(session: Session, project_id: str, session_id: str) -> dict[str, A
             },
         })
 
-    # The headline pools every judgement the reviewer actually made, across all
-    # dimensions. Scoring only `scene` silently discarded a reviewer who judged
-    # "主体" but not "场景" -- their work vanished from the headline number and the
-    # session looked unrated. The per-dimension block below still separates them.
+    # The headline pools every judgement the reviewer actually made.
     #
-    # "Cannot judge" (None) is *not* a wrong answer: it leaves the denominator.
-    # Computing n from the raw list would quietly count a skipped judgement as
-    # evaluated, which is the exact overstatement this metric exists to avoid.
+    # Two granularities are reported, and the label says which is which:
+    #
+    #   sentences  -- one per claim the reviewer ticked. This is what the page
+    #                 actually asks for, so it is the headline when available.
+    #   dimensions -- the legacy per-dimension scores, kept for older sessions
+    #                 (and for a channel whose reading has no sentence list).
+    #
+    # A reviewer who judged 46 sentences must not be reported as "7 claims".
     headline = [v for d in DIMENSIONS for v in per_dim[d] if v is not None]
     hallucination_judged = (hallucination_counts["severe"]
                             + hallucination_counts["mild"]
                             + hallucination_counts["none"])
 
+    sentences_right = claim_verdict_counts["right"]
+    sentences_wrong = claim_verdict_counts["wrong"]
+    sentences_unsure = claim_verdict_counts["unsure"]
+    # "не sure" leaves the denominator: it is a judgement about the reviewer's
+    # confidence, not about the model being wrong.
+    sentence_denominator = sentences_right + sentences_wrong
+
     strict = sum(1 for v in headline if v == 2)
     partial = sum(1 for v in headline if v >= 1)
     n = len(headline)
+
+    if sentence_denominator > 0:
+        headline_basis = "sentences"
+        headline_n = sentence_denominator
+        headline_strict = sentences_right
+        headline_partial = sentences_right
+    else:
+        headline_basis = "dimensions"
+        headline_n = n
+        headline_strict = strict
+        headline_partial = partial
 
     # Complete means every item was judged *and* every one was actually viewable.
     # A session where the reviewer skipped everything, or where sources vanished,
     # is not complete however many rows exist.
     status_label = "MANUAL_REVIEW_PENDING"
-    if n > 0:
+    if headline_n > 0:
         if counts["pending"] or counts["unjudged"] or counts["stale_evidence"]:
             status_label = "IN_PROGRESS"
         else:
@@ -380,9 +410,19 @@ def summarise(session: Session, project_id: str, session_id: str) -> dict[str, A
         "sample_seed": row.sample_seed,
         "sampling_rule_version": row.sampling_rule_version,
         "sample_count": len(items),
-        "evaluated_claims": n,
-        "strict_accuracy": _rate(strict, n),
-        "partial_or_better_rate": _rate(partial, n),
+        # Which unit the headline counts, so a reader cannot mistake 46 sentences
+        # for 46 shots.
+        "metric_basis": headline_basis,
+        "evaluated_claims": headline_n,
+        "strict_accuracy": _rate(headline_strict, headline_n),
+        "partial_or_better_rate": _rate(headline_partial, headline_n),
+        "sentences": {
+            "right": sentences_right,
+            "wrong": sentences_wrong,
+            "unsure": sentences_unsure,
+            "judged": sentences_right + sentences_wrong + sentences_unsure,
+            "evaluated": sentence_denominator,
+        },
         "unjudged": counts["unjudged"],
         "counts": counts,
         "by_dimension": {d: _accuracy_block(per_dim[d]) for d in DIMENSIONS},
