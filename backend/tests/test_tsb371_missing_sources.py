@@ -110,15 +110,40 @@ def test_a_present_file_is_not_listed(client):
 
 
 def test_no_absolute_path_is_ever_returned(client):
-    """C5: the API must not publish where the user keeps their footage."""
+    """C5: the API must not publish where the user keeps their footage.
+
+    The folder *name* is deliberately included as a recognisable hint, so this
+    asserts on structure, not on substrings: no drive letter, no leading slash,
+    and no path separator inside any returned field. Asserting "the temp dir name
+    must not appear" was wrong -- on Linux that name *is* the folder hint, so the
+    check fired on behaviour the design calls for.
+    """
     pid = _seed(client, present=False)
-    text = client.get(
-        f"/api/projects/{pid}/evaluation/missing-sources").text
-    assert str(_tmp_root()) not in text
-    assert "F:\\" not in text
-    assert "C:\\" not in text
-    # The folder *name* may appear as a hint; a full path may not.
-    assert "/" + str(_tmp_root()) not in text
+    body = client.get(
+        f"/api/projects/{pid}/evaluation/missing-sources").json()
+
+    def fields(obj, path=""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                yield from fields(v, f"{path}.{k}")
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                yield from fields(v, f"{path}[{i}]")
+        else:
+            yield path, obj
+
+    for path, value in fields(body):
+        if not isinstance(value, str):
+            continue
+        assert not value.startswith("/"), f"{path} is an absolute POSIX path: {value}"
+        assert ":" not in value[:3], f"{path} carries a drive letter: {value}"
+        # A path separator means a path; a bare folder name means a hint.
+        assert "/" not in value and "\\" not in value, (
+            f"{path} contains a path separator: {value}")
+
+    # The hint is the parent folder's *name*, nothing more.
+    entry = body["items"][0]
+    assert entry["folder_hint"] == _tmp_root().name
 
 
 def test_the_entry_carries_a_recognisable_hint(client):
