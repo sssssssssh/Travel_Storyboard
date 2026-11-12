@@ -24,6 +24,10 @@ from . import evaluation_ratings as ratings
 
 REPORT_SCHEMA_VERSION = "1.0"
 
+#: Default project scope for gate evaluation. Tests override it to keep
+#: records from leaking between cases; production always passes one explicitly.
+_CURRENT_PROJECT = ""
+
 
 def _fmt_rate(value: float | None) -> str:
     """A rate with no denominator prints as N/A — never as 0% or 100%."""
@@ -36,20 +40,81 @@ def _num(value: Any) -> str:
     return "N/A" if value is None else str(value)
 
 
-def gate_status() -> dict[str, Any]:
-    """Read the real current status of the model-related gates."""
-    settings = get_settings()
+#: What each gate needs in order to be considered exercised.
+GATE_PURPOSES = {
+    "G4_MODEL_PLAN": ("director_plan", "plan_text"),
+    "G3_NATIVE_REAL": ("video_probe", "native_video"),
+}
+
+
+def _gate_from_records(session, project_id: str, purposes: tuple[str, str]
+                       ) -> dict[str, Any]:
+    """Decide one gate from recorded calls, never from a literal.
+
+    TSB-371 hard-coded ``BLOCKED`` with a sentence about "this round's budget".
+    True when written, and unchangeable afterwards — a report that cannot change
+    its mind is a decoration. Three outcomes, in order:
+
+    * ``PASS``    — a successful call of the gate's purpose for this project;
+    * ``BLOCKED`` — an attempt was made and failed; the reason is the error code;
+    * ``NOT_RUN`` — nothing was attempted. Never ``PASS``.
+    """
+    from ..models import ModelCallRecord
+
+    purpose, channel = purposes
+    rows = session.scalars(
+        select(ModelCallRecord).where(
+            ModelCallRecord.project_id == project_id,
+            ModelCallRecord.purpose == purpose,
+            ModelCallRecord.channel == channel,
+        ).order_by(ModelCallRecord.created_at.desc())
+    ).all()
+
+    if not rows:
+        return {
+            "status": "NOT_RUN",
+            "reason": "本轮未发起该类真实模型调用，无证据可判定",
+            "evidence": [],
+        }
+
+    succeeded = [r for r in rows if r.succeeded]
+    if succeeded:
+        first = succeeded[0]
+        return {
+            "status": "PASS",
+            "reason": "存在成功记录的真实模型调用",
+            "evidence": [r.id for r in succeeded[:3]],
+            "at": first.created_at.isoformat() if first.created_at else None,
+        }
+
+    latest = rows[0]
     return {
-        "G4_MODEL_PLAN": {
-            "status": "BLOCKED",
-            "reason": "本轮未获得新的真实模型策划额度；旧额度已用尽",
-        },
-        "G3_NATIVE_REAL": {
-            "status": "BLOCKED",
-            "reason": "上一次探测时端点不可用；能力仍无法判定",
-        },
-        "model_mode": settings.model_mode,
+        "status": "BLOCKED",
+        "reason": f"调用尝试失败：{latest.error_code or 'UNKNOWN'}",
+        "evidence": [latest.id],
+        "at": latest.created_at.isoformat() if latest.created_at else None,
     }
+
+
+def gate_status(session=None, project_id: str = "") -> dict[str, Any]:
+    """The real current status of the model-related gates, from evidence.
+
+    Without a session or project there is nothing to read, so every gate reports
+    ``NOT_RUN`` — the safe answer. It is never ``PASS`` by default.
+    """
+    settings = get_settings()
+    out: dict[str, Any] = {}
+    for gate, purposes in GATE_PURPOSES.items():
+        if session is None or not project_id:
+            out[gate] = {
+                "status": "NOT_RUN",
+                "reason": "无可用证据（未提供会话或项目）",
+                "evidence": [],
+            }
+        else:
+            out[gate] = _gate_from_records(session, project_id, purposes)
+    out["model_mode"] = settings.model_mode
+    return out
 
 
 def _claims_table(session, project_id: str, session_id: str) -> list[dict[str, Any]]:
@@ -146,7 +211,7 @@ def build_report(session, project_id: str, session_id: str,
         # Which sentence was wrong, in the model's own words.
         "claims": _claims_table(session, project_id, session_id),
         "ab": ab_block,
-        "gates": gate_status(),
+        "gates": gate_status(session=session, project_id=project_id),
         "status": summary["status"],
         "limitations": list(summary["limitations"]) + [
             "这不是成片质量评价",

@@ -190,7 +190,11 @@ def test_the_json_report_contains_the_required_sections(client):
                 "items", "gates", "limitations", "disclaimer", "status"):
         assert key in body, key
     assert "G4_MODEL_PLAN" in body["gates"]
-    assert body["gates"]["G4_MODEL_PLAN"]["status"] in ("PASS", "BLOCKED", "FAIL")
+    # P2-03: the status is computed from evidence; with no model call in this
+    # session it must be NOT_RUN -- never PASS, and never a hard-coded BLOCKED.
+    assert body["gates"]["G4_MODEL_PLAN"]["status"] in (
+        "NOT_RUN", "PASS", "BLOCKED")
+    assert body["gates"]["G4_MODEL_PLAN"]["status"] == "NOT_RUN"
 
 
 def test_the_csv_has_one_row_per_claim_and_na_for_unrated(client):

@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -243,12 +244,28 @@ def save_rating(
             raise RatingError("EVAL_RATING_INVALID", "timing_error_sec must be a number", 422)
 
     if existing is None:
-        existing = EvaluationRating(
+        # TSB-371-R1 P2-02: two concurrent first-saves both see "no row" and both
+        # INSERT, so the second hit UNIQUE(evaluation_ratings.item_id) and returned
+        # a 500. The insert is attempted through a savepoint; if a concurrent
+        # writer won the race, we adopt their row and update it instead.
+        candidate = EvaluationRating(
             id=new_id(), item_id=item_id, session_id=session_id,
             project_id=project_id, reviewer=reviewer or row.reviewer,
             version=1, created_at=_now(), updated_at=_now(),
         )
-        session.add(existing)
+        try:
+            with session.begin_nested():
+                session.add(candidate)
+        except IntegrityError:
+            existing = session.scalars(
+                select(EvaluationRating).where(EvaluationRating.item_id == item_id)
+            ).first()
+            if existing is None:
+                raise
+            existing.version = int(existing.version) + 1
+            existing.updated_at = _now()
+        else:
+            existing = candidate
     else:
         existing.version = int(existing.version) + 1
         existing.updated_at = _now()

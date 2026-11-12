@@ -30,7 +30,7 @@ interface ReportBody {
   sentences?: { right: number; wrong: number; unsure: number; judged: number }
   human_metrics: ReportMetrics
   status: string
-  gates: Record<string, { status?: string; reason?: string } | string>
+  gates: Record<string, { status?: string; reason?: string; evidence?: string[] } | string>
   ab: { status: string; reason: string } | null
   limitations: string[]
   disclaimer: string
@@ -180,7 +180,13 @@ export default function EvaluationReport() {
                 {' : '}
                 {typeof info === 'string'
                   ? info
-                  : <span className={info.status === 'BLOCKED' ? 'text-amber-300' : 'text-slate-300'}>
+                  : <span
+                      data-testid={`gate-${gate}`}
+                      className={
+                        info.status === 'PASS' ? 'text-emerald-300'
+                        : info.status === 'BLOCKED' ? 'text-amber-300'
+                        : 'text-slate-500'
+                      }>
                       {info.status} — {info.reason}
                     </span>}
               </li>

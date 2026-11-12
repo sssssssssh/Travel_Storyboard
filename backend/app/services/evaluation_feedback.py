@@ -66,15 +66,10 @@ def review_verdict(session: Session, project_id: str, segment_id: str) -> dict[s
 
     Never writes. Returns ``unreviewed`` when there is nothing to say, so callers
     cannot mistake absence of judgement for a judgement.
-    """
-    empty = {
-        "state": STATE_UNREVIEWED,
-        "right": 0, "wrong": 0, "unsure": 0, "judged": 0,
-        "planning_reasons": [],
-        "session_id": "",
-        "item_id": "",
-    }
 
+    Kept for single lookups; whole pages should use :func:`verdicts_for_project`,
+    which answers in a constant number of queries.
+    """
     items = session.scalars(
         select(EvaluationItem).where(
             EvaluationItem.project_id == project_id,
@@ -82,18 +77,95 @@ def review_verdict(session: Session, project_id: str, segment_id: str) -> dict[s
         ).order_by(EvaluationItem.position.desc())
     ).all()
     if not items:
-        return empty
+        return _empty_verdict()
 
-    right = wrong = unsure = 0
-    judged_item = None
+    pairs: list[tuple[EvaluationItem, EvaluationRating | None]] = []
     for item in items:
-        # A judgement about a reading that has since been replaced does not grade
-        # the new reading; skip it rather than transfer the opinion.
         if not _current_result_id(session, item):
             continue
         rating = session.scalars(
             select(EvaluationRating).where(EvaluationRating.item_id == item.id)
         ).first()
+        if rating is None:
+            continue
+        pairs.append((item, rating))
+    return _summarise_verdicts(pairs)
+
+
+def verdicts_for_project(session: Session, project_id: str,
+                         segment_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """Every shot's verdict in a constant number of queries.
+
+    TSB-371-R1 P2-01: the per-shot form issued three queries per shot (items,
+    currency check, rating), so a 100-shot page cost 300 and a 1000-shot library
+    cost 3000. This loads the three tables once and groups in memory.
+
+    The per-shot :func:`review_verdict` remains for single lookups; both share
+    :func:`_summarise_verdicts`, so they cannot disagree.
+    """
+    if not segment_ids:
+        return {}
+
+    wanted = set(segment_ids)
+    items = session.scalars(
+        select(EvaluationItem).where(
+            EvaluationItem.project_id == project_id,
+            EvaluationItem.segment_id.in_(wanted),
+        ).order_by(EvaluationItem.position.desc())
+    ).all()
+    if not items:
+        return {sid: _empty_verdict() for sid in segment_ids}
+
+    # Which of these readings are still current? One query for all three channels.
+    current: set[str] = set()
+    by_channel: dict[str, list[str]] = {}
+    for item in items:
+        if item.result_id:
+            by_channel.setdefault(item.channel, []).append(item.result_id)
+    for channel, ids in by_channel.items():
+        model = _CHANNEL_MODEL.get(channel)
+        if model is None:
+            continue
+        rows = session.scalars(
+            select(model.id).where(model.id.in_(ids),
+                                   model.is_current.is_(True))
+        ).all()
+        current.update(rows)
+
+    item_ids = [item.id for item in items]
+    ratings = {
+        r.item_id: r for r in session.scalars(
+            select(EvaluationRating).where(EvaluationRating.item_id.in_(item_ids))
+        ).all()
+    }
+
+    grouped: dict[str, list[tuple[EvaluationItem, EvaluationRating | None]]] = {}
+    for item in items:
+        rating = ratings.get(item.id)
+        is_current = bool(item.result_id) and item.result_id in current
+        grouped.setdefault(item.segment_id, []).append(
+            (item, rating if is_current else None))
+
+    out: dict[str, dict[str, Any]] = {}
+    for seg_id in segment_ids:
+        out[seg_id] = _summarise_verdicts(grouped.get(seg_id, []))
+    return out
+
+
+def _empty_verdict() -> dict[str, Any]:
+    return {
+        "state": STATE_UNREVIEWED,
+        "right": 0, "wrong": 0, "unsure": 0, "judged": 0,
+        "planning_reasons": [], "session_id": "", "item_id": "",
+    }
+
+
+def _summarise_verdicts(pairs: list[tuple[EvaluationItem, EvaluationRating | None]]
+                        ) -> dict[str, Any]:
+    """Count verdicts for one shot. Shared by the single and batch paths."""
+    right = wrong = unsure = 0
+    judged_item: EvaluationItem | None = None
+    for item, rating in pairs:
         if rating is None:
             continue
         for entry in (rating.claim_verdicts or []):
@@ -107,20 +179,19 @@ def review_verdict(session: Session, project_id: str, segment_id: str) -> dict[s
             elif verdict == "unsure":
                 unsure += 1
         if right or wrong or unsure:
-            judged_item = (item, rating)
+            judged_item = item
 
     judged = right + wrong + unsure
     if judged == 0:
-        return empty
+        return _empty_verdict()
 
     # "Not sure" about every sentence says nothing about the model, so the shot
     # stays unreviewed. Only an explicit right/wrong expresses a judgement.
     if right == 0 and wrong == 0:
-        return {**empty, "unsure": unsure, "judged": judged}
+        return {**_empty_verdict(), "unsure": unsure, "judged": judged}
 
     state = STATE_WRONG if wrong > 0 else STATE_TRUSTED
     reasons = [REASON_JUDGED_WRONG] if state == STATE_WRONG else []
-    item, _rating = judged_item  # type: ignore[misc]
     return {
         "state": state,
         "right": right,
@@ -128,15 +199,9 @@ def review_verdict(session: Session, project_id: str, segment_id: str) -> dict[s
         "unsure": unsure,
         "judged": judged,
         "planning_reasons": reasons,
-        "session_id": item.session_id,
-        "item_id": item.id,
+        "session_id": judged_item.session_id if judged_item else "",
+        "item_id": judged_item.id if judged_item else "",
     }
-
-
-def verdicts_for_project(session: Session, project_id: str,
-                         segment_ids: list[str]) -> dict[str, dict[str, Any]]:
-    """Batch form, so the candidate list does not issue one query per shot."""
-    return {sid: review_verdict(session, project_id, sid) for sid in segment_ids}
 
 
 # ---------------------------------------------------------------------------

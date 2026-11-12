@@ -194,7 +194,9 @@ function FootageReviewInner() {
               ) : clipError ? (
                 <div className="rounded border border-amber-800 p-3 text-sm text-amber-300"
                      data-testid="clip-error">
-                  片段生成失败：{clipError.detail?.code ?? `HTTP_${clipError.status}`}
+                  {clipError.detail?.code === 'EVAL_CLIP_STALE'
+                    ? '源文件已变化，此片段不再对应当前素材。请重新生成后再核对。'
+                    : `片段生成失败：${clipError.detail?.code ?? `HTTP_${clipError.status}`}`}
                 </div>
               ) : clip.data ? (
                 <div>
