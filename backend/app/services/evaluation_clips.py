@@ -52,9 +52,12 @@ ERROR_SOURCE_CHANGED = "EVAL_CLIP_SOURCE_CHANGED"
 class ClipError(Exception):
     """A visible, coded failure — never a silent blank player."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, *, status: int = 400) -> None:
         self.code = code
         self.message = message
+        #: HTTP status the route should use. A stale clip is a conflict, not a
+        #: malformed request: the caller's request was fine, the world moved on.
+        self.status = status
         super().__init__(f"{code}: {message}")
 
 
@@ -134,11 +137,33 @@ def find_clip(project_id: str, clip_id: str) -> ClipRecord | None:
         return None
 
 
-def clip_media_path(project_id: str, clip_id: str) -> Path:
-    """Resolve a clip's file, refusing anything outside the project cache."""
+def clip_media_path(project_id: str, clip_id: str, *,
+                    session: Session | None = None) -> Path:
+    """Resolve a clip's file, refusing anything outside the project cache.
+
+    TSB-371-R1 P1-06: when a ``session`` is given, the clip must still describe the
+    current source and the current shot window. Staleness used to be detectable
+    (``clip_status``) but the media route never asked, so a replaced source kept
+    streaming its old clip — the reviewer compared the model's words against
+    footage that no longer matched them, which is worse than showing nothing.
+
+    The freshness decision is delegated to :func:`staleness` rather than
+    re-implemented, so the page and the player can never disagree.
+    """
     record = find_clip(project_id, clip_id)
     if record is None:
         raise ClipError("EVAL_CLIP_NOT_FOUND", "no such clip in this project")
+
+    if session is not None:
+        stale, reasons = staleness(session, project_id, record)
+        if stale:
+            raise ClipError(
+                "EVAL_CLIP_STALE",
+                "the clip no longer matches the current source; regenerate it "
+                f"({', '.join(reasons)})",
+                status=409,
+            )
+
     directory = clip_cache_dir(project_id).resolve()
     candidate = (directory / record.file_name).resolve()
     # Containment is checked on the *resolved* path, so a symlink planted in the
@@ -148,6 +173,34 @@ def clip_media_path(project_id: str, clip_id: str) -> Path:
     if not candidate.is_file():
         raise ClipError("EVAL_CLIP_NOT_GENERATED", "the clip file is gone")
     return candidate
+
+
+def staleness(session: Session, project_id: str,
+              record: ClipRecord) -> tuple[bool, list[str]]:
+    """Is this clip still a faithful view of the current source and window?
+
+    One implementation for both the status endpoint and the media route: two
+    copies of this rule is exactly how "the page said ready" and "the player
+    refused" would drift apart.
+    """
+    segment = session.get(Segment, record.segment_id)
+    asset = session.get(Asset, record.asset_id) if segment else None
+    from .vision.verdicts import source_identity
+
+    reasons: list[str] = []
+    current_signature = (source_identity(asset) or "") if asset else ""
+    if current_signature != record.source_signature:
+        reasons.append("source_signature_changed")
+
+    if segment is not None:
+        start_now = float(segment.start_sec)
+        end_now = float(segment.end_sec)
+        if abs(start_now - record.start_abs_sec) > 1e-6:
+            reasons.append("segment_window_changed")
+        elif abs(min(end_now, start_now + MAX_CLIP_SECONDS)
+                 - record.end_abs_sec) > 1e-6:
+            reasons.append("segment_window_changed")
+    return bool(reasons), reasons
 
 
 def _probe_source(path: Path) -> tuple[float, int, int]:
@@ -266,24 +319,17 @@ def clip_status(session: Session, project_id: str, clip_id: str) -> dict[str, An
     if record is None:
         raise ClipError("EVAL_CLIP_NOT_FOUND", "no such clip in this project")
 
-    segment = session.get(Segment, record.segment_id)
-    asset = session.get(Asset, record.asset_id) if segment else None
-    from .vision.verdicts import source_identity
-
-    current_signature = (source_identity(asset) or "") if asset else ""
-    stale = current_signature != record.source_signature
-
-    start_now = float(segment.start_sec) if segment else record.start_abs_sec
-    end_now = float(segment.end_sec) if segment else record.end_abs_sec
-    window_changed = (abs(start_now - record.start_abs_sec) > 1e-6
-                      or abs(min(end_now, start_now + MAX_CLIP_SECONDS) - record.end_abs_sec) > 1e-6)
+    is_stale, stale_reasons = staleness(session, project_id, record)
+    stale = "source_signature_changed" in stale_reasons
+    window_changed = "segment_window_changed" in stale_reasons
 
     return {
         "clip_id": record.clip_id,
         "project_id": project_id,
         "segment_id": record.segment_id,
         "asset_id": record.asset_id,
-        "status": "stale" if (stale or window_changed) else "ready",
+        "status": "stale" if is_stale else "ready",
+        "stale_reasons": stale_reasons,
         "source_window": {
             "start_abs_sec": record.start_abs_sec,
             "end_abs_sec": record.end_abs_sec,

@@ -34,13 +34,18 @@ def _project_or_404(db: Session, project_id: str) -> Project:
 
 
 def _clip_error(exc: "clips.ClipError") -> HTTPException:
-    status = 404
+    # The error carries its own status where the mapping is known at the source;
+    # the table below stays as the fallback for the legacy codes.
+    status = getattr(exc, "status", 400)
     if exc.code in (clips.ERROR_NO_FFMPEG,):
         status = 503
     elif exc.code in (clips.ERROR_NO_SOURCE, clips.ERROR_TOO_SHORT):
         status = 409
     elif exc.code in (clips.ERROR_COMMAND_FAILED, clips.ERROR_OUTPUT_NOT_CREATED):
         status = 500
+    elif exc.code in ("EVAL_CLIP_NOT_FOUND", "EVAL_CLIP_NOT_GENERATED",
+                      "EVAL_CLIP_ESCAPE", "EVAL_CLIP_BAD_ID"):
+        status = 404
     return HTTPException(status_code=status,
                          detail={"code": exc.code, "message": exc.message})
 
@@ -98,7 +103,9 @@ def clip_media(project_id: str, clip_id: str, request: Request,
     """Stream the derived clip. Range is supported so the timeline is scrubbable."""
     _project_or_404(db, project_id)
     try:
-        path = clips.clip_media_path(project_id, clip_id)
+        # Pass the session: the media route enforces freshness, not just
+        # containment. A clip whose source changed must not stream as if current.
+        path = clips.clip_media_path(project_id, clip_id, session=db)
     except clips.ClipError as exc:
         raise _clip_error(exc)
 
