@@ -129,7 +129,7 @@ def test_a_shot_judged_right_is_not_downgraded(client):
     _review(client, pid, [{"subject": 2,
                            "claim_verdicts": [
                                {"key": "subjects:0", "verdict": "right"},
-                               {"key": "subjects:1", "verdict": "right"},
+                               {"key": "scene_tags:0", "verdict": "right"},
                            ]}])
     with session_scope() as s:
         verdict = fb.review_verdict(s, pid, seg_id)

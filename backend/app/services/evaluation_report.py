@@ -17,6 +17,8 @@ import io
 import json
 from typing import Any
 
+from sqlalchemy import select
+
 from ..config import get_settings
 from . import evaluation_ratings as ratings
 
@@ -48,6 +50,52 @@ def gate_status() -> dict[str, Any]:
         },
         "model_mode": settings.model_mode,
     }
+
+
+def _claims_table(session, project_id: str, session_id: str) -> list[dict[str, Any]]:
+    """One row per claim the reviewer was shown, judged or not.
+
+    A total accuracy is not actionable; the sentence is. This is what lets a
+    reader quote the model's exact words and see how a human judged them.
+    """
+    from ..models import EvaluationItem, EvaluationRating
+    from ..services.evaluation_feedback import claim_catalogue
+
+    rows: list[dict[str, Any]] = []
+    items = session.scalars(
+        select(EvaluationItem)
+        .where(EvaluationItem.session_id == session_id)
+        .order_by(EvaluationItem.position)
+    ).all()
+    ratings_by_item = {
+        r.item_id: r for r in session.scalars(
+            select(EvaluationRating).where(EvaluationRating.session_id == session_id)
+        ).all()
+    }
+    for item in items:
+        catalogue = claim_catalogue(item.readings_json or {})
+        rating = ratings_by_item.get(item.id)
+        verdicts = {}
+        if rating is not None:
+            for entry in (rating.claim_verdicts or []):
+                if isinstance(entry, dict) and entry.get("key"):
+                    verdicts[entry["key"]] = entry.get("verdict")
+        for key, text in catalogue.items():
+            verdict = verdicts.get(key)
+            # "not sure" is a statement about the reviewer's confidence, not the
+            # model being wrong, so it never enters the error rate.
+            counted = verdict in ("right", "wrong")
+            rows.append({
+                "item_id": item.id[:8],
+                "segment_id": item.segment_id[:8],
+                "channel": item.channel,
+                "result_id": (item.result_id or "")[:8],
+                "claim_key": key,
+                "text": text,
+                "verdict": verdict,
+                "counted": counted,
+            })
+    return rows
 
 
 def build_report(session, project_id: str, session_id: str,
@@ -95,6 +143,8 @@ def build_report(session, project_id: str, session_id: str,
             "counts": summary["counts"],
         },
         "items": summary["items"],
+        # Which sentence was wrong, in the model's own words.
+        "claims": _claims_table(session, project_id, session_id),
         "ab": ab_block,
         "gates": gate_status(),
         "status": summary["status"],
@@ -155,6 +205,18 @@ def to_markdown(report: dict[str, Any]) -> str:
                      f"{_fmt_rate(block['strict_accuracy'])} | "
                      f"{_fmt_rate(block['partial_or_better_rate'])} |")
     lines.append("")
+    claims = report.get("claims") or []
+    wrong = [c for c in claims if c["verdict"] == "wrong"]
+    if wrong:
+        lines.append("### 判错的句子")
+        lines.append("")
+        lines.append("| 渠道 | 断言 | 模型原话 |")
+        lines.append("|---|---|---|")
+        for c in wrong[:40]:
+            text = str(c["text"]).replace("|", "\\|")[:120]
+            lines.append(f"| {c['channel']} | `{c['claim_key']}` | {text} |")
+        lines.append("")
+
     lines.append("## 故事线 A/B")
     lines.append("")
     if report["ab"]:
@@ -178,25 +240,19 @@ def to_markdown(report: dict[str, Any]) -> str:
 
 
 def to_csv(report: dict[str, Any]) -> str:
-    """One row per item, with the aggregate repeated so a row is self-contained."""
+    """One row per claim: the sentence is the unit a reader acts on."""
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow([
         "session_id", "item_id", "segment_id", "channel", "result_id",
-        "evidence_state", "source_available", "start_abs_sec", "end_abs_sec",
-        "review_status", "scene", "subject", "action", "timing",
+        "claim_key", "text", "verdict", "counted",
     ])
-    for item in report["items"]:
-        r = item["ratings"]
+    for claim in report.get("claims") or []:
         writer.writerow([
-            report["session_id"][:8], item["item_id"], item["segment_id"],
-            item["channel"], (item["result_id"] or "")[:8],
-            item["evidence_state"], item["source_available"],
-            item["source_window"]["start_abs_sec"],
-            item["source_window"]["end_abs_sec"],
-            item["review_status"],
-            _num(r.get("scene")), _num(r.get("subject")),
-            _num(r.get("action")), _num(r.get("timing")),
+            report["session_id"][:8], claim["item_id"], claim["segment_id"],
+            claim["channel"], claim["result_id"], claim["claim_key"],
+            claim["text"], _num(claim["verdict"]),
+            "yes" if claim["counted"] else "no",
         ])
     return buffer.getvalue()
 

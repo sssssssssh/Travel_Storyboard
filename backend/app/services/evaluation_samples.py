@@ -67,6 +67,8 @@ class SampleItem:
     model: dict[str, Any]
     frame_ids: list[str] = field(default_factory=list)
     readings: dict[str, Any] = field(default_factory=dict)
+    #: Source-absolute windows for timed claims (native video events).
+    event_windows: list[dict[str, float]] = field(default_factory=list)
 
 
 def _result_state(row, segment: Segment, *, channel: str) -> str:
@@ -109,12 +111,22 @@ def _missing_names(session, project_id: str) -> list[str]:
         return []
 
 
-def _readings(row) -> dict[str, Any]:
+def _readings(row, channel: str = "static") -> dict[str, Any]:
     """The model's own words, grouped for side-by-side review.
+
+    TSB-371-R1 P1-02: the three channels persist different shapes, so each is read
+    from its own stored fields. Nothing is derived or invented: a field the model
+    did not output produces no claim, and the key set differs per channel (a
+    verdict on ``motion_type:0`` can only ever mean the multiframe reading).
 
     Presented verbatim and labelled as a claim: the reviewer decides whether each
     phrase matches the picture, and nothing here is pre-judged.
     """
+    if channel == "multiframe":
+        return _motion_readings(row)
+    if channel == "video_native":
+        return _video_readings(row)
+
     analysis = getattr(row, "analysis_json", None) or {}
     if not isinstance(analysis, dict):
         return {}
@@ -128,6 +140,91 @@ def _readings(row) -> dict[str, Any]:
         if isinstance(value, str) and value.strip():
             out[key] = value.strip()
     return out
+
+
+def _motion_readings(row) -> dict[str, Any]:
+    """Multiframe claims, from the fields SegmentMotionReview actually stores."""
+    analysis = getattr(row, "analysis_json", None) or {}
+    out: dict[str, Any] = {}
+    if isinstance(analysis, dict):
+        for key in ("motion_type", "stability_risk", "action_summary"):
+            value = analysis.get(key)
+            if isinstance(value, str) and value.strip():
+                out[key] = [value.strip()]
+    # Fall back to the dedicated columns if the blob is missing a field.
+    for key, attr in (("motion_type", "motion_type"),
+                      ("stability_risk", "stability_risk"),
+                      ("action_summary", "action_summary")):
+        if key in out:
+            continue
+        value = getattr(row, attr, "")
+        if isinstance(value, str) and value.strip():
+            out[key] = [value.strip()]
+
+    # The frames the model looked at, in source-absolute seconds.
+    evidence = getattr(row, "evidence_json", None) or {}
+    times: list[float] = []
+    for frame in (evidence.get("frames") or []) if isinstance(evidence, dict) else []:
+        if not isinstance(frame, dict):
+            continue
+        try:
+            times.append(round(float(frame.get("time_sec")), 3))
+        except (TypeError, ValueError):
+            continue
+    if times:
+        out["evidence_times_sec"] = times
+    return out
+
+
+def _video_readings(row) -> dict[str, Any]:
+    """Native-video claims, from analysis_json.summary and events_json."""
+    out: dict[str, Any] = {}
+    analysis = getattr(row, "analysis_json", None) or {}
+    if isinstance(analysis, dict):
+        summary = analysis.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            out["summary"] = [summary.strip()]
+
+    events: list[str] = []
+    for event in (getattr(row, "events_json", None) or []):
+        if not isinstance(event, dict):
+            continue
+        description = event.get("description")
+        if isinstance(description, str) and description.strip():
+            events.append(description.strip())
+        else:
+            # No prose: the event type is still a claim about what happens.
+            event_type = event.get("event_type")
+            if isinstance(event_type, str) and event_type.strip():
+                events.append(event_type.strip())
+    if events:
+        out["events"] = events
+
+    # Explicitly declared limitations travel with the reading, and are reviewable.
+    evidence = getattr(row, "analysis_json", None) or {}
+    if isinstance(evidence, dict):
+        declared = evidence.get("limitations")
+        if isinstance(declared, list) and declared:
+            out["limitations"] = [str(x) for x in declared]
+    return out
+
+
+def _event_windows(row, channel: str) -> list[dict[str, float]]:
+    """Source-absolute windows for timed claims, so the page can seek to them."""
+    if channel != "video_native":
+        return []
+    windows: list[dict[str, float]] = []
+    for event in (getattr(row, "events_json", None) or []):
+        if not isinstance(event, dict):
+            continue
+        try:
+            windows.append({
+                "start_abs_sec": round(float(event.get("start_abs_sec")), 3),
+                "end_abs_sec": round(float(event.get("end_abs_sec")), 3),
+            })
+        except (TypeError, ValueError):
+            continue
+    return windows
 
 
 def _frame_ids(row) -> list[str]:
@@ -227,7 +324,8 @@ def collect_samples(
                 frame_ids=_frame_ids(row),
                 # The claims being judged. Without them the reviewer is asked
                 # "is this right?" about something they cannot see.
-                readings=_readings(row),
+                readings=_readings(row, channel),
+                event_windows=_event_windows(row, channel),
             ))
 
     # Deterministic ordering, then a seeded shuffle that still prefers the mix.
@@ -299,6 +397,7 @@ def collect_samples(
                 "model": i.model,
                 "frame_ids": i.frame_ids,
                 "readings": i.readings,
+                "event_windows": i.event_windows,
             }
             for i in chosen
         ],

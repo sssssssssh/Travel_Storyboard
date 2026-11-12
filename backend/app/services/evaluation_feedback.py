@@ -137,3 +137,167 @@ def verdicts_for_project(session: Session, project_id: str,
                          segment_ids: list[str]) -> dict[str, dict[str, Any]]:
     """Batch form, so the candidate list does not issue one query per shot."""
     return {sid: review_verdict(session, project_id, sid) for sid in segment_ids}
+
+
+# ---------------------------------------------------------------------------
+# TSB-371-R1 P1-01 — feed the judgement into the planner, per claim
+# ---------------------------------------------------------------------------
+#
+# The candidate-list flag was not enough: ``build_planning_input`` never read the
+# ratings, so a sentence marked wrong still reached the plan.
+#
+# The unit here is the *claim*, not the shot. A wrong description does not make
+# the footage worthless (task book §2), so this never excludes a shot and never
+# narrows its usable time window. It withholds the specific claims a human marked
+# wrong, keeps the ones marked right, ignores "not sure", and reports what it did.
+
+#: Claim groups that can be withheld, keyed by the readings group name.
+WITHHOLDABLE_GROUPS = ("scene_tags", "subjects", "visible_actions", "mood")
+
+#: Single-value claims: a wrong verdict blanks the field.
+SCALAR_CLAIMS = ("lighting", "composition", "action_summary",
+                 "motion_type", "stability_risk")
+
+REASON_WITHHELD = "human_review_withheld_claims"
+REASON_CLAIMS_RIGHT = "human_review_claims_confirmed"
+
+
+def _claim_key(group: str, index: int) -> str:
+    return f"{group}:{index}"
+
+
+def claim_verdicts_for_result(session: Session, project_id: str,
+                              result_id: str) -> dict[str, str]:
+    """Verdicts keyed by claim, for *one* result row, if it is still current.
+
+    Returns ``{}`` when the row is not current: an opinion about a superseded
+    reading must not grade the new one.
+    """
+    if not result_id:
+        return {}
+    items = session.scalars(
+        select(EvaluationItem).where(
+            EvaluationItem.project_id == project_id,
+            EvaluationItem.result_id == result_id,
+        )
+    ).all()
+    out: dict[str, str] = {}
+    for item in items:
+        if not _current_result_id(session, item):
+            continue
+        rating = session.scalars(
+            select(EvaluationRating).where(EvaluationRating.item_id == item.id)
+        ).first()
+        if rating is None:
+            continue
+        for entry in (rating.claim_verdicts or []):
+            if not isinstance(entry, dict):
+                continue
+            key, verdict = entry.get("key"), entry.get("verdict")
+            if isinstance(key, str) and verdict in ("right", "wrong", "unsure"):
+                out[key] = verdict
+    return out
+
+
+def filter_visual(visual: dict[str, Any],
+                  verdicts: dict[str, str]) -> tuple[dict[str, Any], list[str]]:
+    """Withhold the claims a human marked wrong.
+
+    Returns the filtered payload and the reasons to disclose. Order is preserved:
+    a reviewer's verdict removes an item, it does not reshuffle the reading.
+    """
+    if not verdicts:
+        return visual, []
+
+    filtered = dict(visual)
+    withheld = 0
+    confirmed = 0
+
+    for group in WITHHOLDABLE_GROUPS:
+        values = visual.get(group)
+        if not isinstance(values, list) or not values:
+            continue
+        kept = []
+        for index, value in enumerate(values):
+            verdict = verdicts.get(_claim_key(group, index))
+            if verdict == "wrong":
+                withheld += 1
+                continue
+            if verdict == "right":
+                confirmed += 1
+            kept.append(value)
+        filtered[group] = kept
+
+    # Scalar claims live in the caller's payload; blank them even when the key is
+    # absent from the list groups. "in filtered" would skip action_summary, which
+    # the motion reading adds to the same dict.
+    for name in SCALAR_CLAIMS:
+        verdict = verdicts.get(name)
+        if verdict is None:
+            verdict = verdicts.get(f"{name}:0")
+        if verdict == "wrong":
+            filtered[name] = ""
+            withheld += 1
+        elif verdict == "right":
+            confirmed += 1
+
+    reasons: list[str] = []
+    if withheld:
+        reasons.append(REASON_WITHHELD)
+    if confirmed and not withheld:
+        reasons.append(REASON_CLAIMS_RIGHT)
+    elif confirmed:
+        reasons.append(REASON_CLAIMS_RIGHT)
+    return filtered, reasons
+
+
+def review_signature(session: Session, project_id: str,
+                     result_ids: list[str]) -> str:
+    """A stable digest of the review facts that affected a planning input.
+
+    Included in the planning digest so a plan built from filtered evidence can
+    never be confused with one built from untouched evidence.
+    """
+    import hashlib
+
+    parts: list[str] = []
+    for result_id in result_ids:
+        verdicts = claim_verdicts_for_result(session, project_id, result_id or "")
+        if not verdicts:
+            continue
+        joined = ";".join(f"{k}={verdicts[k]}" for k in sorted(verdicts))
+        parts.append(f"{result_id}:{joined}")
+    if not parts:
+        return ""
+    return hashlib.sha256("|".join(sorted(parts)).encode("utf-8")).hexdigest()[:32]
+
+
+# ---------------------------------------------------------------------------
+# TSB-371-R1 P1-04 — the claim catalogue of a frozen item
+# ---------------------------------------------------------------------------
+
+#: Groups whose values are lists: claim key is "<group>:<index>".
+LIST_GROUPS = ("scene_tags", "subjects", "visible_actions", "mood",
+               "events", "limitations", "evidence_times_sec")
+
+#: Single-value groups: claim key is "<group>:0".
+SCALAR_GROUPS = ("lighting", "composition", "action_summary", "motion_type",
+                 "stability_risk", "summary")
+
+
+def claim_catalogue(readings: dict[str, Any] | None) -> dict[str, str]:
+    """Every claim a frozen item supports, mapped to the text being judged.
+
+    Built from ``EvaluationItem.readings_json`` — the snapshot taken when the
+    session was created — so a session stays internally consistent even if the
+    model is re-run afterwards. Callers use this to reject verdicts for claims
+    that were never offered, and to render the report.
+    """
+    catalogue: dict[str, str] = {}
+    for group, value in (readings or {}).items():
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                catalogue[f"{group}:{index}"] = str(item)
+        elif isinstance(value, str) and value.strip():
+            catalogue[f"{group}:0"] = value.strip()
+    return catalogue

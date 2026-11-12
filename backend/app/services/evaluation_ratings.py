@@ -34,6 +34,7 @@ from ..models import (
     SegmentVideoObservation,
 )
 from . import evaluation_samples as samples
+from .evaluation_feedback import claim_catalogue
 from .vision.verdicts import source_identity
 
 DIMENSIONS = ("scene", "subject", "action", "timing")
@@ -156,6 +157,39 @@ def _validate_score(name: str, value: Any) -> int | None:
     return value
 
 
+
+def _validate_claim_verdicts(item: EvaluationItem, raw: Any) -> list[dict[str, str]]:
+    """Accept only verdicts for claims this item actually offered.
+
+    The authority is the item's frozen ``readings_json``, not a live re-read of the
+    model row: a session must stay internally consistent even if the model is
+    re-run. A key that was never offered is refused rather than stored, because
+    the review table is what a report cites and an invented key would inflate the
+    denominator.
+
+    Duplicates collapse to their **last** verdict — one sentence counts once, and
+    a client that sends the same key twice is making a correction, not a second
+    judgement.
+    """
+    if not isinstance(raw, list):
+        raise RatingError("EVAL_RATING_INVALID", "claim_verdicts must be a list", 422)
+
+    catalogue = claim_catalogue(item.readings_json or {})
+    resolved: dict[str, str] = {}
+    for entry in raw[:500]:
+        if not isinstance(entry, dict):
+            continue
+        key = str(entry.get("key") or "").strip()[:80]
+        verdict = str(entry.get("verdict") or "")
+        if verdict not in ("right", "wrong", "unsure"):
+            continue
+        if key not in catalogue:
+            raise RatingError(
+                "EVAL_CLAIM_UNKNOWN",
+                f"claim {key!r} is not part of this item's frozen reading", 422)
+        resolved[key] = verdict
+    return [{"key": k, "verdict": v} for k, v in resolved.items()]
+
 def save_rating(
     session: Session, project_id: str, session_id: str, item_id: str,
     payload: dict, *, reviewer: str = "",
@@ -199,17 +233,7 @@ def save_rating(
 
     claim_verdicts = payload.get("claim_verdicts")
     if claim_verdicts is not None:
-        if not isinstance(claim_verdicts, list):
-            raise RatingError("EVAL_RATING_INVALID", "claim_verdicts must be a list", 422)
-        cleaned = []
-        for entry in claim_verdicts[:200]:
-            if not isinstance(entry, dict):
-                continue
-            key = str(entry.get("key") or "")[:80]
-            verdict = str(entry.get("verdict") or "")
-            if key and verdict in ("right", "wrong", "unsure"):
-                cleaned.append({"key": key, "verdict": verdict})
-        claim_verdicts = cleaned
+        claim_verdicts = _validate_claim_verdicts(item, claim_verdicts)
 
     timing_error = payload.get("timing_error_sec")
     if timing_error is not None:

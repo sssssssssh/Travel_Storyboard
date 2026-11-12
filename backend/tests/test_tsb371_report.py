@@ -193,13 +193,16 @@ def test_the_json_report_contains_the_required_sections(client):
     assert body["gates"]["G4_MODEL_PLAN"]["status"] in ("PASS", "BLOCKED", "FAIL")
 
 
-def test_the_csv_has_one_row_per_item_and_na_for_unrated(client):
+def test_the_csv_has_one_row_per_claim_and_na_for_unrated(client):
+    """TSB-371-R1 P1-04: the unit a reader acts on is the sentence."""
     pid, _ = _seed(client, n=2)
     sid = _session(client, pid)["session_id"]
     csv_text = _report(client, pid, sid, "csv").text
     lines = [ln for ln in csv_text.strip().splitlines() if ln]
-    assert len(lines) == 3            # header + 2 items
-    assert "N/A" in csv_text          # unrated scores are not zeros
+    header = lines[0].split(",")
+    assert "claim_key" in header and "verdict" in header
+    assert len(lines) > 3             # one row per claim, across 2 items
+    assert "N/A" in csv_text          # unjudged claims are not counted as right
 
 
 def test_the_report_states_the_sample_is_small(client):

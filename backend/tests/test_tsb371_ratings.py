@@ -392,7 +392,7 @@ def test_a_single_claim_can_be_marked_wrong(client):
               subject=1,
               claim_verdicts=[
                   {"key": "subjects:0", "verdict": "right"},
-                  {"key": "subjects:1", "verdict": "wrong"},
+                  {"key": "scene_tags:0", "verdict": "wrong"},
               ])
     assert r.status_code == 200
     stored = r.json()["items"][0]
@@ -437,14 +437,14 @@ def test_an_invalid_verdict_is_ignored_not_stored(client):
     item = created["items"][0]
     r = _rate(client, pid, sid, item["item_id"], subject=2,
               claim_verdicts=[{"key": "subjects:0", "verdict": "banana"},
-                              {"key": "subjects:1", "verdict": "right"}])
+                              {"key": "scene_tags:0", "verdict": "right"}])
     assert r.status_code == 200
     with session_scope() as s:
         from app.models import EvaluationRating
         row = s.scalars(
             select(EvaluationRating).where(EvaluationRating.item_id == item["item_id"])
         ).first()
-        assert row.claim_verdicts == [{"key": "subjects:1", "verdict": "right"}]
+        assert row.claim_verdicts == [{"key": "scene_tags:0", "verdict": "right"}]
 
 
 def test_saved_claim_verdicts_come_back_on_resume(client):
@@ -455,12 +455,12 @@ def test_saved_claim_verdicts_come_back_on_resume(client):
     item = created["items"][0]
     _rate(client, pid, sid, item["item_id"], subject=1,
           claim_verdicts=[{"key": "subjects:0", "verdict": "right"},
-                          {"key": "subjects:1", "verdict": "wrong"}])
+                          {"key": "scene_tags:0", "verdict": "wrong"}])
 
     resumed = client.get(f"{SESSIONS.format(p=pid)}/{sid}").json()
     row = next(i for i in resumed["items"] if i["item_id"] == item["item_id"])
     assert row["claim_verdicts"] == [{"key": "subjects:0", "verdict": "right"},
-                                     {"key": "subjects:1", "verdict": "wrong"}]
+                                     {"key": "scene_tags:0", "verdict": "wrong"}]
 
 
 # ---------------------------------------------------------------------------
@@ -476,8 +476,8 @@ def test_the_headline_counts_sentences_not_dimensions(client):
     _rate(client, pid, sid, item["item_id"], subject=2,
           claim_verdicts=[
               {"key": "subjects:0", "verdict": "right"},
-              {"key": "subjects:1", "verdict": "right"},
-              {"key": "subjects:2", "verdict": "right"},
+              {"key": "scene_tags:0", "verdict": "right"},
+              {"key": "visible_actions:0", "verdict": "right"},
           ])
     summary = client.get(f"{SESSIONS.format(p=pid)}/{sid}/summary").json()
     assert summary["metric_basis"] == "sentences"
@@ -495,8 +495,8 @@ def test_unsure_leaves_the_denominator_but_is_reported(client):
     _rate(client, pid, sid, item["item_id"], subject=1,
           claim_verdicts=[
               {"key": "subjects:0", "verdict": "right"},
-              {"key": "subjects:1", "verdict": "wrong"},
-              {"key": "subjects:2", "verdict": "unsure"},
+              {"key": "scene_tags:0", "verdict": "wrong"},
+              {"key": "visible_actions:0", "verdict": "unsure"},
           ])
     summary = client.get(f"{SESSIONS.format(p=pid)}/{sid}/summary").json()
     # 2 enter the denominator (right + wrong); unsure is excluded.
@@ -514,7 +514,7 @@ def test_a_wrong_sentence_lowers_the_headline(client):
     _rate(client, pid, sid, item["item_id"], subject=1,
           claim_verdicts=[
               {"key": "subjects:0", "verdict": "right"},
-              {"key": "subjects:1", "verdict": "wrong"},
+              {"key": "scene_tags:0", "verdict": "wrong"},
           ])
     summary = client.get(f"{SESSIONS.format(p=pid)}/{sid}/summary").json()
     assert summary["strict_accuracy"] == pytest.approx(0.5)

@@ -26,7 +26,7 @@ Design rules, each of which is enforced by a test:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from sqlalchemy import select
@@ -289,6 +289,80 @@ def _bounded_list(values: Any, limit: int, max_len: int) -> list[str]:
     return out
 
 
+
+def _apply_review(evidence, verdicts: dict[str, dict[str, str]],
+                  limitations: list[str]):
+    """Withhold claims a human marked wrong from one evidence block.
+
+    Returns a new evidence object; the stored reading is not touched. Disclosure
+    is per-block *and* per-shot so a reader of the input cannot miss it.
+    """
+    from . import evaluation_feedback as fb
+
+    result_id = getattr(evidence, "result_id", None)
+    if not result_id:
+        return evidence
+    judged = verdicts.get(result_id) or {}
+    if not judged:
+        return evidence
+
+    if isinstance(evidence, StaticEvidence):
+        filtered, reasons = fb.filter_visual(evidence.visual, judged)
+        if not reasons:
+            return evidence
+        limitations.extend(reasons)
+        return replace(evidence, visual=filtered,
+                       limitations=list(evidence.limitations) + reasons)
+
+    if isinstance(evidence, MotionEvidence):
+        # filter_visual works on the readings shape (values are lists), because the
+        # claim keys come from that projection -- not from these scalar fields.
+        visual = {
+            "action_summary": [evidence.action_summary] if evidence.action_summary else [],
+            "motion_type": [evidence.motion_type] if evidence.motion_type else [],
+            "stability_risk": ([evidence.stability_risk]
+                               if evidence.stability_risk else []),
+        }
+        filtered, reasons = fb.filter_visual(visual, judged)
+        if not reasons:
+            return evidence
+        limitations.extend(reasons)
+
+        def _one(name: str, original: str) -> str:
+            values = filtered.get(name)
+            if values == [original]:
+                return original
+            return (values[0] if values else "")
+
+        return replace(
+            evidence,
+            action_summary=_one("action_summary", evidence.action_summary),
+            motion_type=_one("motion_type", evidence.motion_type),
+            stability_risk=_one("stability_risk", evidence.stability_risk),
+            limitations=list(evidence.limitations) + reasons,
+        )
+
+    if isinstance(evidence, VideoEvidence):
+        # Events are individual claims: a wrong one is dropped, not the summary.
+        kept_events = []
+        withheld = 0
+        for index, event in enumerate(evidence.events):
+            verdict = judged.get(f"events:{index}")
+            if verdict == "wrong":
+                withheld += 1
+                continue
+            kept_events.append(event)
+        reasons: list[str] = []
+        if withheld:
+            reasons.append(fb.REASON_WITHHELD)
+            limitations.extend(reasons)
+        if not reasons:
+            return evidence
+        return replace(evidence, events=kept_events,
+                       limitations=list(evidence.limitations) + reasons)
+
+    return evidence
+
 def _static_evidence(rows: list, limitations: list[str]) -> StaticEvidence:
     if not rows:
         limitations.append("static_not_analyzed")
@@ -467,6 +541,20 @@ def _build(session: Session, project_id: str, limit: int) -> PlanningInput:
     motion_rows = _load_current(session, SegmentMotionReview, wanted, project_id)
     video_rows = _load_current(session, SegmentVideoObservation, wanted, project_id)
 
+    # TSB-371-R1 P1-01: the human's per-claim verdicts for every reading that will
+    # feed this plan, read in ONE batch (P2-01: no per-shot query).
+    from . import evaluation_feedback as fb
+
+    review_verdicts: dict[str, dict[str, str]] = {}
+    for rows_by_segment in (static_rows, motion_rows, video_rows):
+        for rows in rows_by_segment.values():
+            for row in rows:
+                if getattr(row, "is_current", False):
+                    review_verdicts[row.id] = fb.claim_verdicts_for_result(
+                        session, project_id, row.id)
+    review_digest = fb.review_signature(
+        session, project_id, sorted(review_verdicts))
+
     from ..models import UserAnnotation
 
     annotations = {
@@ -492,6 +580,12 @@ def _build(session: Session, project_id: str, limit: int) -> PlanningInput:
         static = _static_evidence(static_rows.get(seg_id, []), limitations)
         multiframe = _motion_evidence(motion_rows.get(seg_id, []), limitations)
         video_native = _video_evidence(video_rows.get(seg_id, []), seg, limitations)
+
+        # Withhold only the claims a human marked wrong. The shot keeps its place
+        # and its window: a wrong description is not a worthless shot (§2).
+        static = _apply_review(static, review_verdicts, limitations)
+        multiframe = _apply_review(multiframe, review_verdicts, limitations)
+        video_native = _apply_review(video_native, review_verdicts, limitations)
 
         annotation = annotations.get(seg_id)
         rating, source = dc.normalized_rating(seg, annotation)
@@ -534,9 +628,17 @@ def _build(session: Session, project_id: str, limit: int) -> PlanningInput:
             object.__setattr__(entry, "locked_in_base", True)
             entry.limitations.append("locked_in_base_storyboard_version")
 
+    # Fold the review facts into the digest: a plan built from filtered evidence
+    # must never be indistinguishable from one built from untouched evidence.
+    digest = ctx["input_digest"]
+    if review_digest:
+        import hashlib
+
+        digest = hashlib.sha256(f"{digest}|review:{review_digest}".encode("utf-8")
+                                ).hexdigest()
     return PlanningInput(
         project_id=project_id,
-        source_input_digest=ctx["input_digest"],
+        source_input_digest=digest,
         coverage=ctx["coverage"],
         withheld=dict(ctx.get("withheld") or {}),
         limitations=list(ctx.get("limitations") or []),
