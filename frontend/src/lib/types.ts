@@ -898,6 +898,8 @@ export interface EvaluationSamples {
     distinct_assets: number
     channel_counts: Record<string, number>
     source_unavailable: number
+    //: Names of the files behind unavailable sources (never full paths).
+    missing_sources?: string[]
     freshness_unverified: number
     item_count: number
   }

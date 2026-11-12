@@ -95,6 +95,20 @@ def _source_status(asset: Asset | None) -> tuple[bool, str]:
     return True, "AVAILABLE"
 
 
+def _missing_names(session, project_id: str) -> list[str]:
+    """The files behind unavailable sources, named but not located.
+
+    Wrapped: a naming aid is a courtesy, and must never break sampling if the
+    filesystem probe fails on an odd mount.
+    """
+    from . import evaluation_missing
+
+    try:
+        return evaluation_missing.missing_names(session, project_id)
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _readings(row) -> dict[str, Any]:
     """The model's own words, grouped for side-by-side review.
 
@@ -296,6 +310,8 @@ def collect_samples(
             "distinct_assets": len({i.asset_id for i in chosen}),
             "channel_counts": channel_counts,
             "source_unavailable": sum(1 for i in chosen if not i.source_available),
+            # Names, so "2 unavailable" is not a dead end for the reader.
+            "missing_sources": _missing_names(session, project_id),
             "freshness_unverified": refresh_unverified,
             "item_count": len(chosen),
         },

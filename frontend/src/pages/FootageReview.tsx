@@ -119,8 +119,23 @@ function FootageReviewInner() {
             </div>
           )}
           {summary && summary.source_unavailable > 0 && (
-            <div className="mt-1 text-xs text-red-300" data-testid="source-warning">
-              {summary.source_unavailable} 项的原片当前不可访问，无法核对画面。
+            <div className="mt-2 rounded border border-red-900 bg-red-950/30 p-2 text-xs text-red-300"
+                 data-testid="source-warning">
+              <div>
+                {summary.source_unavailable} 项的原片当前不可访问，无法核对画面（不计入准确率）。
+              </div>
+              {(summary.missing_sources?.length ?? 0) > 0 && (
+                <div className="mt-1">
+                  <span className="text-red-400">找不到的文件：</span>
+                  {(summary.missing_sources ?? []).map((n: string) => (
+                    <code key={n} className="mr-1 rounded bg-ink-900 px-1 py-0.5 text-slate-300"
+                          data-testid="missing-file-name">{n}</code>
+                  ))}
+                </div>
+              )}
+              <Link className="mt-1 inline-block underline" to={`/project/${id}/evaluation/missing`}>
+                查看详情（大小、记录时间、涉及的镜头）
+              </Link>
             </div>
           )}
         </Card>

@@ -17,6 +17,7 @@ from .deps import get_db
 from ..models import Project
 from ..services import evaluation_clips as clips
 from ..services import evaluation_ab as ab
+from ..services import evaluation_missing as missing_sources
 from ..services import evaluation_report as report_mod
 from ..services import evaluation_ratings as ratings
 from ..services import evaluation_samples as samples
@@ -250,3 +251,19 @@ def export_report(project_id: str, session_id: str,
         return PlainTextResponse(report_mod.to_csv(report),
                                  media_type="text/csv; charset=utf-8")
     return report
+
+
+# ---------------------------------------------------------------------------
+# Which source files are no longer where we recorded them
+# ---------------------------------------------------------------------------
+
+@router.get("/projects/{project_id}/evaluation/missing-sources")
+def list_missing_sources(project_id: str, db: Session = Depends(get_db)):
+    """Name the footage that is not at its recorded location.
+
+    Says "not found at the recorded location", not "deleted": a rename or an
+    unmounted drive looks the same from here. Returns folder names only, never a
+    full path.
+    """
+    _project_or_404(db, project_id)
+    return missing_sources.missing_sources(db, project_id)
