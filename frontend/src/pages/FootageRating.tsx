@@ -126,7 +126,6 @@ function FootageRatingInner() {
   const sessionId = params.get('session') ?? ''
   const [index, setIndex] = useState(0)
   // claim key -> verdict, for the item currently on screen
-  const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({})
   const qc = useQueryClient()
 
   const createSession = useMutation({
@@ -165,9 +164,33 @@ function FootageRatingInner() {
   const frameSrc = frameId ? frameUrl(frameId) : ''
   const claims = useMemo(() => toClaims(current?.readings), [current])
 
+  /**
+   * Verdicts shown on screen are derived from what the server stored, not from a
+   * local-only copy.
+   *
+   * The first version kept them in component state that was reset on page change,
+   * so navigating away and back showed every claim unjudged even though the
+   * server still had the answers. Re-picking a few then *replaced* the saved set
+   * with only those few -- silently destroying real judgements. A reviewer must
+   * never be able to overwrite their own work by paging.
+   */
+  const savedVerdicts = useMemo(() => {
+    const out: Record<string, Verdict> = {}
+    for (const entry of current?.claim_verdicts ?? []) {
+      if (entry.verdict === 'right' || entry.verdict === 'wrong' || entry.verdict === 'unsure') {
+        out[entry.key] = entry.verdict
+      }
+    }
+    return out
+  }, [current])
+
+  // Local state is only for the brief window between a click and the refetch.
+  const [draft, setDraft] = useState<Record<string, Verdict> | null>(null)
+  const verdicts = draft ?? savedVerdicts
+
   /** Persist the current item: derive dimension scores from the claim verdicts. */
   const save = (next: Record<string, Verdict>) => {
-    setVerdicts(next)
+    setDraft(next)
     if (!current) return
     const byDim: Record<string, Verdict[]> = { scene: [], subject: [], action: [] }
     for (const claim of claims) {
@@ -182,7 +205,7 @@ function FootageRatingInner() {
         scene: dimensionScore(byDim.scene),
         subject: dimensionScore(byDim.subject),
         action: dimensionScore(byDim.action),
-        // Per-claim detail, so the report can point at the sentence that was wrong.
+        // Per-claim detail, so the report can name the sentence that was wrong.
         claim_verdicts: Object.entries(next).map(([key, verdict]) => ({ key, verdict })),
         expected_version: live.version,
       },
@@ -219,7 +242,8 @@ function FootageRatingInner() {
 
   const goTo = (next: number) => {
     setIndex(Math.max(0, Math.min(items.length - 1, next)))
-    setVerdicts({})
+    // Drop only the optimistic draft; the saved verdicts come back from the server.
+    setDraft(null)
   }
 
   if (!sessionId) {

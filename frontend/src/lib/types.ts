@@ -942,6 +942,8 @@ export interface EvalSessionItem {
     usability: string | null
     timing_error_sec: number | null
   }
+  //: Per-sentence verdicts stored with this rating.
+  claim_verdicts?: { key: string; verdict: 'right' | 'wrong' | 'unsure' }[]
 }
 
 export interface EvalSessionDetail {

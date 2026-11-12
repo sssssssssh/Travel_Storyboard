@@ -445,3 +445,19 @@ def test_an_invalid_verdict_is_ignored_not_stored(client):
             select(EvaluationRating).where(EvaluationRating.item_id == item["item_id"])
         ).first()
         assert row.claim_verdicts == [{"key": "subjects:1", "verdict": "right"}]
+
+
+def test_saved_claim_verdicts_come_back_on_resume(client):
+    """Paging away and back must redraw what was already judged, not an empty form."""
+    pid, _ = _seed(client, n=2)
+    created = _create_session(client, pid)
+    sid = created["session_id"]
+    item = created["items"][0]
+    _rate(client, pid, sid, item["item_id"], subject=1,
+          claim_verdicts=[{"key": "subjects:0", "verdict": "right"},
+                          {"key": "subjects:1", "verdict": "wrong"}])
+
+    resumed = client.get(f"{SESSIONS.format(p=pid)}/{sid}").json()
+    row = next(i for i in resumed["items"] if i["item_id"] == item["item_id"])
+    assert row["claim_verdicts"] == [{"key": "subjects:0", "verdict": "right"},
+                                     {"key": "subjects:1", "verdict": "wrong"}]

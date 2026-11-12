@@ -353,3 +353,36 @@ test('the review page also shows the claims, not just the picture', async () => 
   expect(box.textContent).toContain('boats')
   expect(document.body.textContent).not.toContain('可以在剪辑草案页展开查看')
 })
+
+
+test('already-judged claims are redrawn after paging away and back', async () => {
+  // The destructive bug: verdicts lived only in component state and were cleared
+  // on page change, so the form looked empty, and re-picking a couple of claims
+  // replaced the whole saved set -- silently destroying real judgements.
+  const judged = {
+    ...SESSION,
+    items: [
+      { ...ITEM, item_id: 'i1', claim_verdicts: [
+        { key: 'subjects:0', verdict: 'wrong' as const },
+        { key: 'subjects:1', verdict: 'right' as const },
+      ] },
+      { ...ITEM, item_id: 'i2', readings: { subjects: ['second shot'] } },
+    ],
+  }
+  vi.mocked(api).mockImplementation(async (path: string) => {
+    if (path.includes('/summary')) return SUMMARY_NONE
+    return judged
+  })
+  wrap('/project/p1/evaluation/rating?session=s1', <FootageRating />)
+  await screen.findByTestId('claim-subjects:0-wrong')
+  // Go to the next item and back.
+  fireEvent.click(screen.getByTestId('next-item'))
+  await screen.findByTestId('claim-subjects:0')
+  // Item 2 was never judged: its "wrong" button must not be selected.
+  await waitFor(() =>
+    expect(screen.getByTestId('claim-subjects:0-wrong').className).not.toContain('bg-accent'))
+  fireEvent.click(screen.getByTestId('prev-item'))
+  // The saved verdicts must reappear, not an empty form.
+  const again = await screen.findByTestId('claim-subjects:0-wrong')
+  expect(again.className).toContain('bg-accent')
+})

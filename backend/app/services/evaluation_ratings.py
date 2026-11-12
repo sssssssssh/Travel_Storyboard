@@ -468,6 +468,10 @@ def session_detail(session: Session, project_id: str, session_id: str) -> dict[s
                 "usability": rating.usability if rating else None,
                 "timing_error_sec": rating.timing_error_sec if rating else None,
             },
+            # Returned so the page can redraw the boxes the reviewer already ticked.
+            # Without it, paging away and back showed an empty form and re-picking
+            # a few silently replaced the saved set.
+            "claim_verdicts": (list(rating.claim_verdicts or []) if rating else []),
         })
 
     rated = sum(1 for i in out_items if i["review_status"] == "RATED")
