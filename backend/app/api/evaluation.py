@@ -74,14 +74,28 @@ def eligible_samples(
 def create_clip(project_id: str, body: dict, db: Session = Depends(get_db)):
     """Generate (or reuse) a short silent preview clip for one shot.
 
-    Returns identifiers and the time mapping — never a filesystem path.
+    An optional ``start_sec``/``end_sec`` selects a sub-window — an A/B plan cuts
+    pieces of a shot, and reviewing those from timecodes alone means judging the
+    prose instead of the cut. Returns identifiers and the time mapping, never a
+    filesystem path.
     """
     _project_or_404(db, project_id)
     segment_id = str(body.get("segment_id") or "")
     if not segment_id:
         raise HTTPException(status_code=422, detail="segment_id is required")
+
+    start = body.get("start_sec")
+    end = body.get("end_sec")
     try:
-        record = clips.ensure_clip(db, project_id, segment_id)
+        record = clips.ensure_clip(
+            db, project_id, segment_id,
+            start_sec=None if start is None else float(start),
+            end_sec=None if end is None else float(end),
+        )
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail={
+            "code": "EVAL_CLIP_BAD_WINDOW",
+            "message": "start_sec/end_sec must be numbers"})
     except clips.ClipError as exc:
         raise _clip_error(exc)
     return clips.clip_status(db, project_id, record.clip_id)

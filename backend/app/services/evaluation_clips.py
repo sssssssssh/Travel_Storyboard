@@ -215,8 +215,18 @@ def _probe_source(path: Path) -> tuple[float, int, int]:
     return 0.0, 0, 0
 
 
-def ensure_clip(session: Session, project_id: str, segment_id: str) -> ClipRecord:
+def ensure_clip(session: Session, project_id: str, segment_id: str, *,
+                start_sec: float | None = None,
+                end_sec: float | None = None) -> ClipRecord:
     """Generate (or reuse) the preview clip for one shot.
+
+    ``start_sec``/``end_sec`` select a sub-window of the shot. An A/B plan cuts
+    pieces of a shot (4.0-11.0 out of a 0-30s segment), and reviewing those from
+    timecodes alone means judging the prose rather than the cut — so the same
+    derived-clip machinery serves an explicit window.
+
+    The window is validated, never clamped: a request for 29.9-999 would otherwise
+    yield a clip that ends in nothing and looks like a tool failure.
 
     Raises :class:`ClipError` with a specific code for every failure mode the
     player must be able to explain.
@@ -237,8 +247,31 @@ def ensure_clip(session: Session, project_id: str, segment_id: str) -> ClipRecor
     if not safe_is_file(asset.source_path):
         raise ClipError(ERROR_NO_SOURCE, "the source file is not available")
 
-    start = float(segment.start_sec)
-    end = min(float(segment.end_sec), start + MAX_CLIP_SECONDS)
+    seg_start = float(segment.start_sec)
+    seg_end = float(segment.end_sec)
+
+    if start_sec is None and end_sec is None:
+        start = seg_start
+        end = min(seg_end, start + MAX_CLIP_SECONDS)
+    else:
+        start = seg_start if start_sec is None else float(start_sec)
+        end = seg_end if end_sec is None else float(end_sec)
+        if start < 0:
+            raise ClipError(ERROR_TOO_SHORT,
+                            "the requested window starts before the source")
+        if not start < end:
+            raise ClipError(ERROR_TOO_SHORT,
+                            "the requested window is empty")
+        # Refuse a window that reaches past the shot rather than silently cutting
+        # it short: the caller asked for something that does not exist.
+        if start < seg_start - 1e-6 or end > seg_end + 1e-6:
+            raise ClipError(
+                "EVAL_CLIP_WINDOW_OUTSIDE_SOURCE",
+                "the requested window is outside the shot's own window",
+                status=422,
+            )
+        end = min(end, start + MAX_CLIP_SECONDS)
+
     duration = end - start
     if duration <= 0.05:
         raise ClipError(ERROR_TOO_SHORT, "the shot is too short to preview")

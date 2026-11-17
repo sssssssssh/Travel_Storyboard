@@ -60,7 +60,11 @@ that shot. If a shot has no evidence, you may propose it for structural reasons 
 3. The user's theme is a creative constraint, NOT a fact about the footage. Never \
 claim the footage contains something merely because the theme mentions it.
 4. Audio was NOT analysed. Never describe music, beats, narration or ambient sound.
-5. Output JSON only, matching the schema. No prose outside the JSON."""
+5. Output JSON only, matching the schema. No prose outside the JSON. \
+6. A shot window is a real cut: source_out_sec MUST be greater than \
+source_in_sec, and both MUST lie inside that shot's listed window. Never \
+output an empty window. \
+7. Use only the segment_id values listed below. Never invent a segment id."""
 
 SCHEMA_HINT = """Respond with:
 {"variants":[{"title":str,"narrative_angle":"chronological|highlights_first|atmospheric",
@@ -70,7 +74,10 @@ SCHEMA_HINT = """Respond with:
 "selection_reason":str,
 "claims":[{"text":str,"kind":"observed_signal|human_supplied|editorial_suggestion|unknown",
 "evidence_refs":[{"channel":"static|multiframe|video_native","result_id":str}]}],
-"evidence_refs":[{"channel":str,"result_id":str}]}]}]}"""
+"evidence_refs":[{"channel":str,"result_id":str}]}]}]}
+
+Constraint recap for shots: source_out_sec must be greater than source_in_sec,
+and both must lie within that shot's own listed window."""
 
 
 class ModelPlanError(Exception):
@@ -248,6 +255,11 @@ def parse_model_plan(
     *, model_id: str, provider_name: str,
 ) -> PlanDraft:
     """Turn a model payload into a validated-able PlanDraft with server authority."""
+
+    # TSB-371-R1: collect model mistakes instead of coercing them into a
+    # shape the validator later rejects with a generic message.
+    invented: list[str] = []
+    empty_windows: list[tuple[str, float, float]] = []
     variants_raw = payload.get("variants")
     if not isinstance(variants_raw, list) or not variants_raw:
         raise ModelPlanError("MODEL_INVALID_OUTPUT",
@@ -284,12 +296,19 @@ def parse_model_plan(
             seg_id = str(sraw.get("segment_id") or "")
             entry = entries.get(seg_id)
             if entry is None:
-                # Surface it: the validator must be the one that says no.
+                # TSB-371-R1: a shot the model invented must fail by name, early.
+                # Handing it to the validator produced a generic error far from the
+                # cause; the model needs to know which id was not in its list.
+                invented.append(seg_id)
+                # Emit a placeholder so the shared validator reaches its own
+                # UNKNOWN_SEGMENT verdict: two independent defences, and the
+                # validator's coverage stays exercised.
                 shots.append(ShotDraft(
                     shot_id=f"{vid}-s{si:02d}", segment_id=seg_id,
                     asset_id=str(sraw.get("asset_id") or ""),
                     section_id=sections[0].section_id,
-                    source_in_sec=0.0, source_out_sec=0.0, planned_duration_sec=0.0,
+                    source_in_sec=0.0, source_out_sec=0.0,
+                    planned_duration_sec=0.0,
                     timeline_start_sec=timeline, narrative_role="development",
                     selection_reason="model referenced an unknown shot",
                 ))
@@ -300,6 +319,15 @@ def parse_model_plan(
                 out_sec = float(sraw.get("source_out_sec", entry.source_out_sec))
             except (TypeError, ValueError):
                 in_sec, out_sec = entry.source_in_sec, entry.source_out_sec
+
+            # A window that is empty *as the model sent it* is not a rounding
+            # problem to be clamped away -- it means the model described no cut.
+            # Clamping used to preserve it (32.0-32.0 stays 32.0-32.0) and the
+            # failure surfaced much later as a generic validation error.
+            if not in_sec < out_sec:
+                empty_windows.append(
+                    (seg_id, round(in_sec, 3), round(out_sec, 3)))
+
             # Clamp into the shot's current interval, then keep ordering sane.
             in_sec = max(entry.source_in_sec, min(in_sec, entry.source_out_sec))
             out_sec = max(in_sec, min(out_sec, entry.source_out_sec))
@@ -369,7 +397,39 @@ def parse_model_plan(
         raise ModelPlanError("MODEL_INVALID_OUTPUT",
                              "no usable variant could be parsed from the reply")
 
-    cov = planning_input.coverage or {}
+    # A model that invented a shot, or described an empty cut, has produced an
+    # unusable plan. Report it precisely, with the ids, so the operator knows
+    # exactly what the model got wrong -- but do NOT stop the plan from reaching
+    # the shared validator.
+    #
+    # Defence in depth: the validator has its own UNKNOWN_SEGMENT / window checks
+    # and must keep catching these independently. Swallowing the plan here would
+    # remove a second line of defence and make the validator's own coverage
+    # untestable (test_tsb371_g4_roundtrip relies on seeing that path).
+    model_problems: list[dict] = []
+    if invented:
+        model_problems.append({
+            "code": "MODEL_UNKNOWN_SEGMENT",
+            "detail": "模型引用了不在输入中的镜头：" + ", ".join(sorted(set(invented))[:5]),
+            "segment_ids": sorted(set(invented))[:20],
+        })
+    if empty_windows:
+        sample = ", ".join(f"{s}={a}-{b}" for s, a, b in empty_windows[:3])
+        model_problems.append({
+            "code": "MODEL_EMPTY_SHOT_WINDOW",
+            "detail": f"模型给出了空镜头窗口（起始必须小于结束）：{sample}",
+            "windows": [list(w) for w in empty_windows[:20]],
+        })
+
+    # ``coverage`` is a CoverageSummary on a real PlanningInput but a plain dict in
+    # some tests; read it either way rather than assuming one shape and crashing.
+    cov = planning_input.coverage
+
+    def _cov(name: str) -> int:
+        if isinstance(cov, dict):
+            return int(cov.get(name) or 0)
+        return int(getattr(cov, name, 0) or 0)
+
     return PlanDraft(
         project_id=planning_input.project_id,
         planning_mode="model",
@@ -377,16 +437,16 @@ def parse_model_plan(
         source_input_digest=planning_input.source_input_digest,
         base_storyboard_version_id=planning_input.base_storyboard_version_id,
         coverage=CoverageSummary(
-            library_segments=int(cov.get("library_segments") or 0),
-            segments_with_any_valid_reading=int(
-                cov.get("segments_with_any_valid_reading") or 0),
-            no_valid_model_reading=int(cov.get("no_valid_model_reading") or 0),
-            video_native_valid=int(cov.get("video_native_valid") or 0),
+            library_segments=_cov("library_segments"),
+            segments_with_any_valid_reading=_cov("segments_with_any_valid_reading"),
+            no_valid_model_reading=_cov("no_valid_model_reading"),
+            video_native_valid=_cov("video_native_valid"),
         ),
         limitations=list(planning_input.limitations) + ["model_planned"],
         variants=variants,
         withheld=planning_input.withheld,
-        needs_more_analysis=bool(cov.get("no_valid_model_reading")),
+        needs_more_analysis=bool(_cov("no_valid_model_reading")),
         warnings=[f"由真实模型 {model_id} 生成（provider={provider_name}）；"
-                  "结论未经人工观看验证。"],
+                  "结论未经人工观看验证。"]
+                 + [f"{q['code']}: {q['detail']}" for q in model_problems],
     )

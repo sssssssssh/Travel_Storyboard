@@ -406,3 +406,127 @@ test('the report says which unit the headline counts', async () => {
   expect(bd.textContent).toContain('判对 44')
   expect(bd.textContent).toContain('不确定 2')
 })
+
+
+test('an A/B shot offers its own picture, not just a timecode', async () => {
+  // A blind review of prose is not a review of the cut: each shot must be
+  // previewable, with the clip built for that exact window.
+  const shot = {
+    order: 1, segment_id: 'seg-aaaa', source_in_sec: 4, source_out_sec: 11,
+    planned_duration_sec: 7, timeline_start_sec: 0, narrative_role: 'development',
+    selection_reason: 'r', claims: [], needs_review: [], transition_hint: '',
+    pacing_hint: '',
+  }
+  const side = {
+    side: 'A' as const, sections: [], shots: [shot], total_duration_sec: 7,
+    target_duration_sec: 7, duration_gap_sec: 0, storyline: {},
+  }
+  vi.mocked(api).mockImplementation(async (path: string) => {
+    if (path.includes('/clips')) {
+      return {
+        clip_id: 'c1', project_id: 'p1', segment_id: 'seg-aaaa', asset_id: 'a1',
+        status: 'ready', source_window: { start_abs_sec: 4, end_abs_sec: 11 },
+        clip_start_abs_sec: 4, duration_sec: 7, audio_included: false,
+        audio_note: '静音', max_clip_seconds: 15, source_signature_changed: false,
+        segment_window_changed: false, created_at: 0, expires_in_sec: 100,
+        media_url: '/api/projects/p1/evaluation/clips/c1/media',
+      }
+    }
+    return {
+      session_id: 'ab1', project_id: 'p1', status: 'IN_PROGRESS', schema: '1.0',
+      A: side, B: { ...side, side: 'B' as const }, target_duration_sec: 7,
+      revealed: false,
+    }
+  })
+  wrap('/project/p1/evaluation/ab?session=ab1', <StorylineAB />)
+  const load = await screen.findByTestId('clip-A-1-load')
+  fireEvent.click(load)
+  const video = await screen.findByTestId('clip-A-1')
+  expect(video.getAttribute('src')).toContain('token=TEST-TOKEN')
+  // The window it asked for is the shot's, not the whole segment.
+  const call = vi.mocked(api).mock.calls.find(([p]) => String(p).includes('/clips'))
+  expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+    segment_id: 'seg-aaaa', start_sec: 4, end_sec: 11,
+  })
+})
+
+
+test('dimension scores are included in the submit payload', async () => {
+  // The gap that let a real submission arrive with empty scores: the old test
+  // only clicked a preference, never a dimension button, so "does clicking a
+  // score actually reach the server" was never verified.
+  const shot = {
+    order: 1, segment_id: 'seg-a', source_in_sec: 0, source_out_sec: 4,
+    planned_duration_sec: 4, timeline_start_sec: 0, narrative_role: 'development',
+    selection_reason: 'r', claims: [], needs_review: [], transition_hint: '',
+    pacing_hint: '',
+  }
+  const side = {
+    side: 'A' as const, sections: [], shots: [shot], total_duration_sec: 4,
+    target_duration_sec: 4, duration_gap_sec: 0, storyline: {},
+  }
+  let submitBody: Record<string, unknown> | null = null
+  vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
+    if (init?.method === 'POST' && String(path).includes('/submit')) {
+      submitBody = JSON.parse(String(init.body))
+      return {
+        session_id: 'ab1', project_id: 'p1', status: 'SUBMITTED', revealed: true,
+        mapping: { A: 'offline_rules', B: 'model' },
+        submission: submitBody, winner_mode: 'model', reviewers: 1,
+        interpretation: '仅有 1 位评价者。', A: side, B: { ...side, side: 'B' as const },
+      }
+    }
+    return {
+      session_id: 'ab1', project_id: 'p1', status: 'IN_PROGRESS', schema: '1.0',
+      A: side, B: { ...side, side: 'B' as const }, target_duration_sec: 4,
+      revealed: false,
+    }
+  })
+  wrap('/project/p1/evaluation/ab?session=ab1', <StorylineAB />)
+  await screen.findByTestId('side-A')
+
+  // Score both sides on two dimensions each.
+  fireEvent.click(screen.getByTestId('score-A-coherence-4'))
+  fireEvent.click(screen.getByTestId('score-A-pacing-3'))
+  fireEvent.click(screen.getByTestId('score-B-coherence-2'))
+  fireEvent.click(screen.getByTestId('score-B-pacing-1'))
+  fireEvent.click(screen.getByTestId('pref-B'))
+  fireEvent.click(screen.getByTestId('submit-ab'))
+
+  await waitFor(() => expect(submitBody).not.toBeNull())
+  expect(submitBody!.preference).toBe('B')
+  expect(submitBody!.a_scores).toMatchObject({ coherence: 4, pacing: 3 })
+  expect(submitBody!.b_scores).toMatchObject({ coherence: 2, pacing: 1 })
+})
+
+
+test('a second submit explains itself instead of saying "failed"', async () => {
+  // The reviewer saw "提交失败：请重试" for something that had already succeeded
+  // and can never succeed again. A 409 must read as "already submitted".
+  const side = {
+    side: 'A' as const, sections: [], shots: [], total_duration_sec: 4,
+    target_duration_sec: 4, duration_gap_sec: 0, storyline: {},
+  }
+  vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
+    if (init?.method === 'POST' && String(path).includes('/submit')) {
+      throw Object.assign(new Error('409'), {
+        status: 409, detail: { code: 'AB_ALREADY_SUBMITTED', message: 'immutable' },
+      })
+    }
+    return {
+      session_id: 'ab1', project_id: 'p1', status: 'IN_PROGRESS', schema: '1.0',
+      A: side, B: { ...side, side: 'B' as const }, target_duration_sec: 4,
+      revealed: false,
+    }
+  })
+  wrap('/project/p1/evaluation/ab?session=ab1', <StorylineAB />)
+  await screen.findByTestId('side-A')
+  fireEvent.click(screen.getByTestId('pref-B'))
+  fireEvent.click(screen.getByTestId('submit-ab'))
+
+  const note = await screen.findByTestId('already-submitted')
+  expect(note.textContent).toContain('已经提交过')
+  // And it must NOT look like a retryable failure.
+  expect(screen.queryByTestId('submit-error')).toBeNull()
+  expect(note.textContent).not.toContain('请重试')
+})

@@ -2462,3 +2462,109 @@ RED 5 failed → GREEN → 反向验证 5 failed。
 | 跳过 digest 检查 | `test_a_different_input_digest_is_refused` |
 | 去掉回执要求 | `test_a_mock_plan_dressed_as_model_is_refused` |
 | 绕过账本额度 | 4 个 ledger 用例 |
+
+
+## TSB-371-R1 整改
+
+任务书：[docs/tasks/TSB-371-R1.md](tasks/TSB-371-R1.md)
+验收：[docs/acceptance/TSB-371-R1-ACCEPTANCE.md](acceptance/TSB-371-R1-ACCEPTANCE.md)
+真实调用：[docs/acceptance/TSB-371-R1-REAL-MODEL.md](acceptance/TSB-371-R1-REAL-MODEL.md)
+
+### 人工评价进入策划（P1-01，14 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_a_wrong_claim_is_withheld_from_the_planner` | 判错断言从 PlanningInput 移除 |
+| `test_partial_correctness_keeps_the_right_claims` | **部分判错只隔离错误断言** |
+| `test_unsure_is_not_treated_as_wrong` | 不确定不是错误 |
+| `test_an_unreviewed_shot_is_unchanged` | 未评价沿用原行为 |
+| `test_filtering_changes_the_input_digest` | 过滤后方案与未过滤**不可能同指纹** |
+| `test_a_wrong_claim_does_not_exclude_the_shot` | 不因描述错误丢弃镜头 |
+| `test_the_model_reading_is_never_modified` | 原始读数逐字节不变 |
+| `test_a_judgement_of_an_old_reading_does_not_filter_the_new_one` | 旧评价不迁移 |
+
+### 三渠道逐句（P1-02，9 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_all_three_channels_produce_review_items` | 静帧/多帧/视频各有评价项 |
+| `test_the_multiframe_claims_cover_the_stored_fields` | motion_type/stability_risk/action_summary/帧时间 |
+| `test_the_video_claims_cover_summary_and_events` | summary + events + 事件窗口 |
+| `test_a_field_the_model_did_not_output_yields_no_claim` | 不编造断言 |
+
+### claim 完整性（P1-04，12 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_an_unknown_claim_key_is_refused` | 422 EVAL_CLAIM_UNKNOWN |
+| `test_a_verdict_from_another_projects_item_is_refused` | 跨项目 404 |
+| `test_a_duplicate_claim_key_counts_once` | 重复去重 |
+| `test_a_rejected_key_leaves_the_stored_rating_untouched` | 不半写入 |
+| `test_the_report_names_the_sentence_that_was_wrong` | 报告定位到具体句子 |
+
+### A/B 可信度（P1-03，15 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_metadata_does_not_change_the_fingerprint` | 指纹只含剪辑内容 |
+| `test_identical_content_is_refused_as_an_ab_pair` | 内容相同拒绝 |
+| `test_a_client_supplied_receipt_is_rejected` | **客户端伪造回执不算证据** |
+| `test_a_recorded_failed_call_is_not_evidence` | 失败调用不算证据 |
+| `test_a_call_from_another_project_is_not_evidence` | 跨项目记录不算证据 |
+
+### A/B 恢复（P1-05，10 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_a_submitted_session_returns_the_revealed_view` | 刷新后恢复揭示 |
+| `test_a_client_asking_to_reveal_early_gets_the_blind_view` | 不能提前揭示 |
+| `test_a_submitted_session_cannot_be_resubmitted` | 409 不可重提 |
+
+### 媒体时效（P1-06，12 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_a_clip_whose_source_changed_is_refused` | 源变化 → 409 STALE |
+| `test_a_clip_whose_segment_window_changed_is_refused` | 窗口变化 → 409 |
+| `test_a_fresh_clip_supports_range` | Range 206 保留 |
+| `test_a_traversing_clip_id_never_serves_files` | 路径穿越拦截 |
+
+### 性能（P2-01，6 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_100_shots_cost_a_bounded_number_of_queries` | 300 → ≤12 |
+| `test_the_query_count_does_not_grow_with_the_library` | 50 与 500 镜头查询数相等 |
+| `test_the_batch_matches_the_per_shot_result` | 批量与单条结果一致 |
+
+### 并发（P2-02，7 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_concurrent_saves_never_half_apply` | 并发插入撞 UNIQUE 已修 |
+| `test_an_older_request_arriving_late_cannot_erase_a_newer_one` | 乱序不覆盖 |
+| `test_rapid_saves_accumulate_without_loss` | 快速连点不丢判断 |
+
+### 门禁状态（P2-03，11 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_no_call_means_not_run_not_pass` | 无证据 → NOT_RUN，绝不 PASS |
+| `test_an_ab_session_alone_does_not_pass_g4` | 页面存在 ≠ A/B 发生过 |
+| `test_a_call_from_another_project_does_not_pass` | 跨项目不算 |
+
+### 模型窗口约束（真实调用发现，7 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_the_prompt_states_the_window_rules` | 提示词声明窗口必须非空且在区间内 |
+| `test_an_empty_window_is_named_in_the_plan_warnings` | 空窗口被点名 |
+| `test_an_unknown_segment_is_named_and_still_reaches_the_validator` | **两层防御都保留** |
+
+### A/B 区间片段（真实操作发现，10 项）
+
+| 用例 | 守护行为 |
+|---|---|
+| `test_a_sub_window_of_a_segment_can_be_clipped` | 支持任意区间 |
+| `test_an_empty_window_is_refused` | 空区间拒绝 |
+| `test_a_window_beyond_the_source_is_refused` | 越界拒绝而非钳制 |

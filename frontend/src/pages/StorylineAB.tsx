@@ -14,8 +14,8 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { api, endpoints } from '../lib/api'
-import type { AbBlindView, AbRevealedView, AbSide } from '../lib/types'
+import { api, endpoints, withToken } from '../lib/api'
+import type { AbBlindView, AbRevealedView, AbSide, EvalClipStatus } from '../lib/types'
 import { Badge, Button, Card, Spinner } from '../components/ui'
 
 const ROLE_LABEL: Record<string, string> = {
@@ -30,13 +30,73 @@ const DIMENSIONS = [
   { key: 'operability', label: '剪辑可操作性' },
 ] as const
 
+
+/**
+ * One plan shot's preview.
+ *
+ * Clips are expensive (FFmpeg), so they are generated on demand rather than for
+ * every shot on load. The button is the point of the page: without it the blind
+ * review is a comparison of prose.
+ */
+function ShotClip({
+  projectId, segmentId, startSec, endSec, testId,
+}: {
+  projectId: string
+  segmentId: string
+  startSec: number
+  endSec: number
+  testId: string
+}) {
+  const [wanted, setWanted] = useState(false)
+  const clip = useQuery({
+    queryKey: ['ab-clip', projectId, segmentId, startSec, endSec],
+    queryFn: () => api<EvalClipStatus>(endpoints.evaluationClips(projectId), {
+      method: 'POST',
+      body: JSON.stringify({ segment_id: segmentId, start_sec: startSec, end_sec: endSec }),
+    }),
+    enabled: wanted && Boolean(projectId && segmentId),
+    retry: false,
+    staleTime: Infinity,
+  })
+
+  const err = clip.error as { status?: number; detail?: { code?: string } } | null
+
+  if (!wanted) {
+    return (
+      <div className="mt-1">
+        <Button variant="ghost" data-testid={`${testId}-load`}
+                onClick={() => setWanted(true)}>
+          查看这段画面
+        </Button>
+      </div>
+    )
+  }
+  if (clip.isLoading) return <div className="mt-1 text-slate-500">生成片段中…</div>
+  if (err) {
+    const code = err.detail?.code ?? `HTTP_${err.status}`
+    const text = code === 'EVAL_CLIP_SOURCE_UNAVAILABLE'
+      ? '该镜头源文件不可访问，无法预览画面'
+      : code === 'EVAL_CLIP_SEGMENT_TOO_SHORT'
+        ? '该区间太短，无法生成预览'
+        : `片段不可用（${code}）`
+    return <div className="mt-1 text-amber-400" data-testid={`${testId}-error`}>{text}</div>
+  }
+  if (!clip.data) return null
+  return (
+    <video data-testid={testId} controls preload="metadata"
+           className="mt-1 w-full max-h-40 rounded bg-black"
+           src={withToken(clip.data.media_url)} />
+  )
+}
+
 function SidePanel({
-  side, scores, onScore, disabled,
+  side, scores, onScore, disabled, projectId,
 }: {
   side: AbSide
   scores: Record<string, number>
   onScore: (dim: string, value: number) => void
   disabled: boolean
+  projectId: string
 }) {
   return (
     <Card>
@@ -47,6 +107,21 @@ function SidePanel({
         <span className="text-xs text-slate-500">
           {side.shots.length} 个镜头 · 合计 {side.total_duration_sec.toFixed(1)}s
         </span>
+      </div>
+      <div className="mb-2 rounded border border-ink-700 p-2">
+        {DIMENSIONS.map((d) => (
+          <div key={d.key} className="flex items-center gap-1 py-0.5 text-xs">
+            <span className="w-28 text-slate-400">{d.label}</span>
+            {[0, 1, 2, 3, 4].map((v) => (
+              <Button key={v} variant={scores[d.key] === v ? 'primary' : 'ghost'}
+                      disabled={disabled}
+                      data-testid={`score-${side.side}-${d.key}-${v}`}
+                      onClick={() => onScore(d.key, v)}>
+                {v}
+              </Button>
+            ))}
+          </div>
+        ))}
       </div>
 
       <div className="mb-2 flex flex-wrap gap-1 text-xs text-slate-400" data-testid={`structure-${side.side}`}>
@@ -77,22 +152,15 @@ function SidePanel({
                 {shot.claims.map((c, i) => <li key={i}>{c}</li>)}
               </ul>
             )}
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-3 border-t border-ink-800 pt-2">
-        {DIMENSIONS.map((d) => (
-          <div key={d.key} className="flex items-center gap-1 py-0.5 text-xs">
-            <span className="w-28 text-slate-400">{d.label}</span>
-            {[0, 1, 2, 3, 4].map((v) => (
-              <Button key={v} variant={scores[d.key] === v ? 'primary' : 'ghost'}
-                      disabled={disabled}
-                      data-testid={`score-${side.side}-${d.key}-${v}`}
-                      onClick={() => onScore(d.key, v)}>
-                {v}
-              </Button>
-            ))}
+            {/* Pictures, not just timecodes: a blind review of prose is not a
+                review of the cut. The clip is derived and silent. */}
+            <ShotClip
+              projectId={projectId}
+              segmentId={shot.segment_id}
+              startSec={shot.source_in_sec}
+              endSec={shot.source_out_sec}
+              testId={`clip-${side.side}-${shot.order}`}
+            />
           </div>
         ))}
       </div>
@@ -197,11 +265,11 @@ export default function StorylineAB() {
 
         <div className="grid gap-3 md:grid-cols-2">
           {data && (
-            <SidePanel side={data.A} scores={a} disabled={Boolean(revealed)}
+            <SidePanel side={data.A} scores={a} disabled={Boolean(revealed)} projectId={id}
                        onScore={(dim, v) => setA((s) => ({ ...s, [dim]: v }))} />
           )}
           {data && (
-            <SidePanel side={data.B} scores={b} disabled={Boolean(revealed)}
+            <SidePanel side={data.B} scores={b} disabled={Boolean(revealed)} projectId={id}
                        onScore={(dim, v) => setB((s) => ({ ...s, [dim]: v }))} />
           )}
         </div>
@@ -225,11 +293,36 @@ export default function StorylineAB() {
                 提交盲评并揭示来源
               </Button>
             </div>
-            {submit.isError && (
-              <div className="mt-2 text-xs text-red-400" data-testid="submit-error">
-                提交失败：{(submit.error as { detail?: { code?: string } })?.detail?.code ?? '请重试'}
-              </div>
-            )}
+            {submit.isError && (() => {
+              const err = submit.error as {
+                status?: number
+                detail?: { code?: string }
+              }
+              const code = err?.detail?.code
+              // A second submit is not a failure: the first one already counted and
+              // the record is immutable. Say so, and push the reviewer to the
+              // revealed result instead of asking them to retry something that can
+              // never succeed.
+              if (code === 'AB_ALREADY_SUBMITTED') {
+                return (
+                  <div className="mt-2 text-xs text-amber-300" data-testid="already-submitted">
+                    这次盲评已经提交过了，结果不可修改。
+                    <button
+                      className="ml-2 underline"
+                      data-testid="reload-reveal"
+                      onClick={() => blind.refetch()}>
+                      查看已提交的结果
+                    </button>
+                  </div>
+                )
+              }
+              return (
+                <div className="mt-2 text-xs text-red-400" data-testid="submit-error">
+                  提交失败：{code ?? `HTTP_${err?.status ?? '?'}`}
+                  {err?.status && err.status >= 500 ? '，请稍后重试' : ''}
+                </div>
+              )
+            })()}
           </Card>
         )}
 

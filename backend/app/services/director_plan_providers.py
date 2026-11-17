@@ -103,9 +103,14 @@ class ExternalPlannerProvider:
 
     name = "model"
 
-    def __init__(self, *, authorized=None, provider=None) -> None:
+    def __init__(self, *, authorized=None, provider=None, session=None) -> None:
         self._authorized = authorized
         self._provider = provider
+        # TSB-371-R1 P1-03: the database session used to write the call record that
+        # makes this plan's receipt verifiable. Without it the plan is still
+        # produced, but pairing will (correctly) refuse to treat it as a real model
+        # side -- a receipt with no server record is not evidence.
+        self.session = session
 
     def propose(self, planning_input: PlanningInput,
                 brief: PlanningBrief) -> list[VariantDraft]:
