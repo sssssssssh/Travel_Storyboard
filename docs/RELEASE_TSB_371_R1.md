@@ -6,8 +6,8 @@
 | 前置 HEAD | `46f8f36fc7012515ae8cc145320ec604790a53c5` |
 | 任务书 | [docs/tasks/TSB-371-R1.md](tasks/TSB-371-R1.md) |
 | 验收记录 | [docs/acceptance/TSB-371-R1-ACCEPTANCE.md](acceptance/TSB-371-R1-ACCEPTANCE.md) |
-| 最终 HEAD | `e62bb71` |
-| CI | run #154，**7/7 success** — https://github.com/sssssssssh/Travel_Storyboard/actions/runs/43180317552 |
+| 最终 HEAD | `c369234` |
+| CI | run #156，**7/7 success** — https://github.com/sssssssssh/Travel_Storyboard/actions/runs/44063742693 |
 
 ---
 
@@ -187,7 +187,7 @@ TSB-371 做完了评价界面，但**评价结果没有真正影响任何决策*
 
 | 项 | 值 |
 |---|---|
-| 最终 HEAD | `e62bb71` |
+| 最终 HEAD | `c369234` |
 | CI | run #154 **7/7** |
 | 后端全量 | **2241 collected / 0 failed / 0 errors / 6 skipped** |
 | 前端 | **182 passed**，typecheck / lint / build 全绿 |
