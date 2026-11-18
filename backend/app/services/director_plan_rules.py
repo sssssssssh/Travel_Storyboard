@@ -92,6 +92,25 @@ def _evidence_refs(entry: PlanningEntry) -> list[EvidenceRef]:
     return refs
 
 
+def _whole(text: str, limit: int) -> str:
+    """Keep the text whole, or cut it at a word boundary and say so.
+
+    Slicing at a fixed offset cut English mid-word and made a complete reading
+    look defective. A reviewer must never penalise a plan for a display artefact,
+    so an over-long text is marked as truncated instead of silently chopped.
+    """
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    # Prefer the last word boundary so the visible text stays readable.
+    for sep in (" ", "，", "、", "；", "."):
+        pos = cut.rfind(sep)
+        if pos > limit * 0.6:
+            return cut[:pos].rstrip() + "…（原文过长，已截断）"
+    return cut + "…（原文过长，已截断）"
+
+
 def _claims_for(entry: PlanningEntry, refs: list[EvidenceRef]) -> list[Claim]:
     """Only claims the evidence can carry — and never an upgrade.
 
@@ -120,8 +139,13 @@ def _claims_for(entry: PlanningEntry, refs: list[EvidenceRef]) -> list[Claim]:
 
     if "multiframe" in by_channel and entry.multiframe.action_summary:
         # Worded as what the model reported, not as an established fact.
+        #
+        # The summary is kept whole. It used to be sliced at 160 characters, which
+        # cut English mid-word ("...panned left ") and made a complete reading look
+        # like a defective one — a reviewer comparing plans would penalise this
+        # side for a display artefact that had nothing to do with the plan.
         claims.append(Claim(
-            text=f"多帧模型报告：{entry.multiframe.action_summary[:160]}",
+            text=f"多帧模型报告：{_whole(entry.multiframe.action_summary, 600)}",
             kind="observed_signal",
             evidence_refs=[by_channel["multiframe"]],
         ))
@@ -129,7 +153,7 @@ def _claims_for(entry: PlanningEntry, refs: list[EvidenceRef]) -> list[Claim]:
     if "video_native" in by_channel:
         for ev in entry.video_native.events[:3]:
             claims.append(Claim(
-                text=f"视频事件（源片 {ev.start_sec:.1f}–{ev.end_sec:.1f}s）：{ev.description[:120]}",
+                text=f"视频事件（源片 {ev.start_sec:.1f}–{ev.end_sec:.1f}s）：{_whole(ev.description, 400)}",
                 kind="observed_signal",
                 evidence_refs=[EvidenceRef(
                     channel="video_native", result_id=entry.video_native.result_id or "",
