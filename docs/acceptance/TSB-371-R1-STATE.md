@@ -1,6 +1,9 @@
 # TSB-371-R1 当前整体状态记录
 
 记录时间：2026-11-18
+最终 HEAD：`0491582`
+CI：run #158，**7/7 success** — https://github.com/sssssssssh/Travel_Storyboard/actions/runs/44272684696
+后端 2263 collected / 0 failed / 0 errors / 6 skipped；前端 185 passed
 项目：`21fcc0dc…`（真实素材库 `M5-real-acceptance`）
 
 ---
