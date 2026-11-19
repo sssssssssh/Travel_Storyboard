@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -44,10 +45,10 @@ from .director_plan_schema import (
 
 #: Hard bounds on what one request may contain. These keep the outbound text small
 #: and give the ledger a predictable size.
-PROMPT_VERSION = "tsb372.2"
+PROMPT_VERSION = "tsb372.4"
 MAX_PROMPT_BYTES = 512 * 1024
 MAX_EVENTS_PER_SHOT = 4
-MAX_TAGS_PER_SHOT = 6
+MAX_DETAIL_SHOTS = 12
 MAX_NOTE_CHARS = 0  # user free-text notes are never sent (privacy)
 
 SYSTEM_PROMPT = """You are a video editing planner. You receive a list of numbered \
@@ -63,9 +64,9 @@ that shot. If a shot has no evidence, you may propose it for structural reasons 
 claim the footage contains something merely because the theme mentions it.
 4. Audio was NOT analysed. Never describe music, beats, narration or ambient sound.
 5. Output JSON only, matching the schema. No prose outside the JSON. \
-6. A shot window is a real cut: source_out_sec MUST be greater than \
-source_in_sec, and both MUST lie inside that shot's listed window. Never \
-output an empty window. \
+6. For each real cut, choose a duration greater than zero and an anchor (start,
+   middle or end) inside the listed shot. The server computes source_in_sec and
+   source_out_sec. \
 7. Use only the segment_id values listed below. Never invent a segment id.
 8. Each variant should have a concrete narrative angle, opening, development,
    climax if supported, and closing. Use the requested duration, and explain
@@ -76,7 +77,7 @@ output an empty window. \
 SCHEMA_HINT = """Respond with:
 {"variants":[{"title":str,"narrative_angle":"chronological|highlights_first|atmospheric",
 "logline":str,"sections":[{"section_id":str,"kind":"opening|body|closing|custom","title":str}],
-"shots":[{"segment_id":str,"source_in_sec":num,"source_out_sec":num,
+"shots":[{"segment_id":str,"cut":{"anchor":"start|middle|end","duration_sec":num},
 "section_id":str,"narrative_role":"opening|development|turning_point|climax|closing",
 "selection_reason":str,
 "transition_hint":str,"pacing_hint":str,
@@ -84,8 +85,7 @@ SCHEMA_HINT = """Respond with:
 "evidence_refs":[{"channel":"static|multiframe|video_native","result_id":str}]}],
 "evidence_refs":[{"channel":str,"result_id":str}]}]}]}
 
-Constraint recap for shots: source_out_sec must be greater than source_in_sec,
-and both must lie within that shot's own listed window."""
+Choose one cut per listed segment. Use durations that fit its listed window."""
 
 
 class ModelPlanError(Exception):
@@ -117,43 +117,41 @@ def build_evidence_text(
     show it *before* the request goes out.
     """
     lines: list[str] = []
-    roster: list[str] = []
+    details: list[str] = []
+    limitation_codes: dict[str, int] = {}
     counts = {"shots": 0, "with_static": 0, "with_motion": 0, "with_video": 0,
               "static_ids": 0, "motion_ids": 0, "video_ids": 0}
 
     usable = planning_input.entries
     for idx, e in enumerate(usable, 1):
-        roster.append(json.dumps({
-            "n": idx, "segment_id": e.segment_id, "asset_id": e.asset_id,
-            "window": [e.source_in_sec, e.source_out_sec],
-            "rating": e.human.rating, "private_note_exists": bool(e.human.note),
-            "channels": [e.static.state, e.multiframe.state, e.video_native.state],
-            "limitations": list(dict.fromkeys(
-                e.limitations + e.static.limitations + e.multiframe.limitations
-                + e.video_native.limitations)),
-        }, ensure_ascii=False, separators=(",", ":")))
-        lines.append(f"SHOT {idx} segment_id={e.segment_id}")
-        lines.append(f"  duration={e.source_out_sec - e.source_in_sec:.2f}s "
-                     f"window={e.source_in_sec:.2f}-{e.source_out_sec:.2f}")
+        limits = list(dict.fromkeys(e.limitations + e.static.limitations
+                                    + e.multiframe.limitations + e.video_native.limitations))
+        codes = [limitation_codes.setdefault(limit, len(limitation_codes) + 1)
+                 for limit in limits]
+        lines.append(
+            f"#{idx} segment_id={e.segment_id} asset_id={e.asset_id} "
+            f"window={e.source_in_sec:g}-{e.source_out_sec:g} "
+            f"rating={e.human.rating} role={e.human.story_role[:40] or '-'} "
+            f"private_note_exists={int(bool(e.human.note))} "
+            f"limits={','.join(map(str, codes)) or '-'}"
+            + (" LOCKED" if e.locked_in_base else "")
+        )
         counts["shots"] += 1
 
         if e.static.result_id and e.static.state in (dc.STATE_CURRENT, dc.STATE_UNVERIFIED):
             parts = []
-            tags = (e.static.visual.get("scene_tags") or [])[:MAX_TAGS_PER_SHOT]
+            tags = (e.static.visual.get("scene_tags") or [])[:2]
             if tags:
                 parts.append("tags=" + ",".join(tags))
-            subs = (e.static.visual.get("subjects") or [])[:3]
+            subs = (e.static.visual.get("subjects") or [])[:1]
             if subs:
                 parts.append("subjects=" + "|".join(subs))
-            acts = (e.static.visual.get("visible_actions") or [])[:2]
+            acts = (e.static.visual.get("visible_actions") or [])[:1]
             if acts:
                 parts.append("actions=" + "|".join(acts))
-            moods = (e.static.visual.get("mood") or [])[:3]
-            if moods:
-                parts.append("mood=" + ",".join(moods))
             if parts:
                 lines.append(f"  static_evidence_id={e.static.result_id} "
-                             f"confidence=uncalibrated {' '.join(parts)}")
+                             f"state={e.static.evidence_state or 'unknown'} {' '.join(parts)}")
                 counts["with_static"] += 1
                 counts["static_ids"] += 1
 
@@ -162,15 +160,15 @@ def build_evidence_text(
                 lines.append(f"  motion_evidence_id={e.multiframe.result_id} "
                              f"type={e.multiframe.motion_type} "
                              f"stability_risk={e.multiframe.stability_risk} "
-                             f"summary={e.multiframe.action_summary[:160]}")
+                             f"summary={_shorten(e.multiframe.action_summary, 115)}")
                 counts["with_motion"] += 1
                 counts["motion_ids"] += 1
 
         if e.video_native.result_id and e.video_native.state in (dc.STATE_CURRENT, dc.STATE_UNVERIFIED):
-            evs = e.video_native.events[:MAX_EVENTS_PER_SHOT]
+            evs = e.video_native.events[:MAX_EVENTS_PER_SHOT if idx <= MAX_DETAIL_SHOTS else 1]
             if evs or e.video_native.summary:
                 lines.append(f"  video_evidence_id={e.video_native.result_id} "
-                             f"summary={e.video_native.summary[:160]}")
+                             f"summary={_shorten(e.video_native.summary, 115)}")
                 for ev in evs:
                     lines.append(f"    event {ev.start_sec:.2f}-{ev.end_sec:.2f}s "
                                  f"{ev.event_type}: {ev.description[:120]}")
@@ -179,22 +177,33 @@ def build_evidence_text(
                 counts["with_video"] += 1
                 counts["video_ids"] += 1
 
-        # A human *rating* is a constraint, not content. The note is never sent:
-        # it may contain people, places or contact details.
-        lines.append(f"  human_rating={e.human.rating}"
-                     + (f" human_role={e.human.story_role[:40]}" if e.human.story_role else "")
-                     + (" LOCKED" if e.locked_in_base else ""))
+        if idx <= MAX_DETAIL_SHOTS:
+            extra = {}
+            if e.static.result_id and e.static.visual:
+                extra["static"] = e.static.visual
+            if e.multiframe.result_id and len(e.multiframe.action_summary) > 115:
+                extra["motion_summary"] = e.multiframe.action_summary
+            if extra:
+                details.append(f"#{idx} " + json.dumps(extra, ensure_ascii=False, separators=(",", ":")))
 
     header = [
         f"THEME (creative constraint, not a fact about footage): {brief.theme[:200]}",
         f"TARGET DURATION: {brief.target_duration_sec}s",
         f"REQUESTED STYLE: {brief.style}",
         f"VARIANTS REQUESTED: {brief.variant_count}",
-        f"AUDIO: not analysed for any shot.",
+        "AUDIO: not analysed for any shot.",
+        "Return a concise plan directly. Use about 8–12 shots for a 60-second plan. "
+        "One short evidence-based reason per shot is enough. Avoid repeating evidence verbatim.",
+        f"Candidates listed: {len(usable)}; eligible shots withheld by candidate budget: "
+        f"{planning_input.withheld.get('candidate_budget', 0)}.",
         "",
-        "FULL CANDIDATE ROSTER (channel order: static, multiframe, video_native):",
+        "FULL CANDIDATE ROSTER AND COMPACT EVIDENCE:",
     ]
-    text = "\n".join(header + roster + ["", "SHOT EVIDENCE:"] + lines) + "\n\n" + SCHEMA_HINT
+    legend = ", ".join(f"{code}={reason}" for reason, code in limitation_codes.items())
+    text = "\n".join(header + lines + [
+        "", "LIMITATION CODES: " + legend, "",
+        "EXTRA DETAIL (only where listed; every roster shot is still selectable):",
+    ] + details) + "\n\n" + SCHEMA_HINT
     raw = text.encode("utf-8")
     if len(raw) > MAX_PROMPT_BYTES:
         raise ModelPlanError("MODEL_INPUT_BUDGET_EXCEEDED",
@@ -212,10 +221,19 @@ def build_evidence_text(
         "prompt_version": PROMPT_VERSION,
         "prompt_digest": hashlib.sha256(raw).hexdigest(),
         "sent_segment_ids": [e.segment_id for e in usable],
+        "detail_shots": len(details),
         "input_snapshot": planning_input.audit_snapshot(),
         "brief": brief.audit_summary(),
     }
     return text, summary
+
+
+def _shorten(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    excerpt = text[:limit - 1]
+    boundary = excerpt.rfind(" ")
+    return (excerpt[:boundary] if boundary > limit / 2 else excerpt) + "…"
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +297,23 @@ def _allowed_evidence(planning_input: PlanningInput) -> dict[str, set[str]]:
                 ids.add(channel_ev.result_id)
         out[e.segment_id] = ids
     return out
+
+
+def _anchored_cut(raw: Any, entry: PlanningEntry) -> tuple[float, float]:
+    if not isinstance(raw, dict) or raw.get("anchor") not in ("start", "middle", "end"):
+        raise ModelPlanError("MODEL_CUT_INVALID", "模型给出了无效的镜头截取锚点。")
+    duration = raw.get("duration_sec")
+    if (isinstance(duration, bool) or not isinstance(duration, (int, float))
+            or not math.isfinite(duration) or duration <= 0):
+        raise ModelPlanError("MODEL_CUT_INVALID", "模型给出的镜头时长必须为有限正数。")
+    start, end = entry.source_in_sec, entry.source_out_sec
+    duration = min(duration, end - start)
+    anchor = raw["anchor"]
+    if anchor == "end":
+        return max(start, end - duration), end
+    if anchor == "middle":
+        start += (end - start - duration) / 2
+    return start, min(end, start + duration)
 
 
 def parse_model_plan(
@@ -345,11 +380,16 @@ def parse_model_plan(
                 ))
                 continue
 
-            try:
-                in_sec = float(sraw.get("source_in_sec", entry.source_in_sec))
-                out_sec = float(sraw.get("source_out_sec", entry.source_out_sec))
-            except (TypeError, ValueError):
-                in_sec, out_sec = entry.source_in_sec, entry.source_out_sec
+            if "cut" in sraw:
+                in_sec, out_sec = _anchored_cut(sraw["cut"], entry)
+            else:
+                try:
+                    in_sec = float(sraw.get("source_in_sec", entry.source_in_sec))
+                    out_sec = float(sraw.get("source_out_sec", entry.source_out_sec))
+                except (TypeError, ValueError) as exc:
+                    raise ModelPlanError("MODEL_CUT_INVALID", "模型给出的截取时间无效。") from exc
+                if not (math.isfinite(in_sec) and math.isfinite(out_sec)):
+                    raise ModelPlanError("MODEL_CUT_INVALID", "模型给出的截取时间必须是有限数值。")
 
             # A window that is empty *as the model sent it* is not a rounding
             # problem to be clamped away -- it means the model described no cut.
@@ -391,7 +431,7 @@ def parse_model_plan(
             shots.append(ShotDraft(
                 shot_id=f"{vid}-s{si:02d}", segment_id=seg_id,
                 asset_id=entry.asset_id, section_id=sec_id,
-                source_in_sec=round(in_sec, 3), source_out_sec=round(out_sec, 3),
+                source_in_sec=in_sec, source_out_sec=out_sec,
                 planned_duration_sec=duration, timeline_start_sec=round(timeline, 3),
                 narrative_role=role,  # type: ignore[arg-type]
                 selection_reason=str(sraw.get("selection_reason") or "")[:300],

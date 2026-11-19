@@ -170,7 +170,7 @@ class ExternalPlannerProvider:
         def elapsed_ms():
             return round((time.monotonic() - started) * 1000)
 
-        def record(transport, *, succeeded, error_code="", digest=""):
+        def record(transport, *, succeeded, error_code="", digest="", elapsed=None):
             if not trusted_transport:
                 return
             values = dict(
@@ -179,7 +179,7 @@ class ExternalPlannerProvider:
                 result_digest=digest, error_code=error_code,
                 request_bytes=getattr(transport, "request_bytes", 0),
                 response_bytes=getattr(transport, "response_bytes", 0),
-                elapsed_ms=elapsed_ms(),
+                elapsed_ms=elapsed_ms() if elapsed is None else elapsed,
             )
             try:
                 if self.session is not None:
@@ -217,11 +217,12 @@ class ExternalPlannerProvider:
             return plan  # The route exposes the shared validator's errors.
         if not trusted_transport:
             return plan.model_copy(update={"request_summary": summary})
+        receipt_elapsed = elapsed_ms()
         receipt = {
             "model_id": model_id,
             "provider": "openai_compatible",
             "call_id": call_id,
-            "elapsed_ms": elapsed_ms(),
+            "elapsed_ms": receipt_elapsed,
             "response_digest": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
             "endpoint_digest": hashlib.sha256(self._provider.base_url.encode()).hexdigest(),
             "request_bytes": response.request_bytes,
@@ -231,7 +232,7 @@ class ExternalPlannerProvider:
         }
         plan = plan.model_copy(update={
             "request_summary": {**summary, "receipt": receipt}})
-        record(response, succeeded=True, digest=receipt_digest(plan))
+        record(response, succeeded=True, digest=receipt_digest(plan), elapsed=receipt_elapsed)
         return plan
 
 

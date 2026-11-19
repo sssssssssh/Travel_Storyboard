@@ -102,13 +102,14 @@ def _whole(text: str, limit: int) -> str:
     text = (text or "").strip()
     if len(text) <= limit:
         return text
-    cut = text[:limit]
+    suffix = "…（原文过长，已截断）"
+    cut = text[:max(0, limit - len(suffix))]
     # Prefer the last word boundary so the visible text stays readable.
     for sep in (" ", "，", "、", "；", "."):
         pos = cut.rfind(sep)
-        if pos > limit * 0.6:
-            return cut[:pos].rstrip() + "…（原文过长，已截断）"
-    return cut + "…（原文过长，已截断）"
+        if pos > len(cut) * 0.6:
+            return cut[:pos].rstrip() + suffix
+    return (cut + suffix)[:limit]
 
 
 def _claims_for(entry: PlanningEntry, refs: list[EvidenceRef]) -> list[Claim]:
@@ -132,7 +133,7 @@ def _claims_for(entry: PlanningEntry, refs: list[EvidenceRef]) -> list[Claim]:
             if subjects:
                 bits.append("可见主体 " + "、".join(subjects[:2]))
             claims.append(Claim(
-                text="静帧观察：" + "；".join(bits),
+                text=_whole("静帧观察：" + "；".join(bits), 300),
                 kind="observed_signal",
                 evidence_refs=[by_channel["static"]],
             ))
@@ -145,7 +146,7 @@ def _claims_for(entry: PlanningEntry, refs: list[EvidenceRef]) -> list[Claim]:
         # like a defective one — a reviewer comparing plans would penalise this
         # side for a display artefact that had nothing to do with the plan.
         claims.append(Claim(
-            text=f"多帧模型报告：{_whole(entry.multiframe.action_summary, 600)}",
+            text=_whole(f"多帧模型报告：{entry.multiframe.action_summary}", 300),
             kind="observed_signal",
             evidence_refs=[by_channel["multiframe"]],
         ))
@@ -153,7 +154,7 @@ def _claims_for(entry: PlanningEntry, refs: list[EvidenceRef]) -> list[Claim]:
     if "video_native" in by_channel:
         for ev in entry.video_native.events[:3]:
             claims.append(Claim(
-                text=f"视频事件（源片 {ev.start_sec:.1f}–{ev.end_sec:.1f}s）：{_whole(ev.description, 400)}",
+                text=_whole(f"视频事件（源片 {ev.start_sec:.1f}–{ev.end_sec:.1f}s）：{ev.description}", 300),
                 kind="observed_signal",
                 evidence_refs=[EvidenceRef(
                     channel="video_native", result_id=entry.video_native.result_id or "",

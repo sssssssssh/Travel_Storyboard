@@ -275,6 +275,19 @@ def test_a_faithful_model_reply_parses_and_validates(two_shot_input):
     assert val.validate_plan(plan, pi) == []
 
 
+def test_tsb372_model_end_anchored_cut_resolves_in_source_seconds(two_shot_input):
+    pi, _ = two_shot_input
+    entry = pi.entries[0]
+    shot = {"segment_id": entry.segment_id, "cut": {"anchor": "end", "duration_sec": 1.25}}
+    plan = parse_model_plan({"variants": [{"shots": [shot]}]}, pi, PlanningBrief(),
+                            model_id="test", provider_name="test")
+    result = plan.variants[0].shots[0]
+    assert result.source_out_sec == entry.source_out_sec
+    assert result.source_in_sec == entry.source_out_sec - 1.25
+    assert result.planned_duration_sec == 1.25
+    assert val.validate_plan(plan, pi) == []
+
+
 def test_server_fields_cannot_be_overridden_by_the_model(two_shot_input):
     pi, ids = two_shot_input
     payload = _reply(pi, ids)

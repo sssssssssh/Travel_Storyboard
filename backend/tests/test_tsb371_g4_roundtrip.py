@@ -235,6 +235,35 @@ def test_tsb372_transport_bytes_and_validated_receipt(monkeypatch, client):
         assert ab.has_model_receipt(plan, session=session)
         assert row.request_bytes == len(bodies[0])
         assert row.response_bytes == len(answer.content)
+    base = f"/api/projects/{pid}"
+    offline = client.post(f"{base}/director/plans/preview", json={
+        "max_candidates": 61, "target_duration_sec": 60, "variant_count": 1,
+    })
+    assert offline.status_code == 200, offline.text
+    assert offline.json()["request_summary"]["input_snapshot"] == plan.request_summary["input_snapshot"]
+    pair = client.post(f"{base}/evaluation/ab-sessions", json={
+        "offline_plan": offline.json(), "model_plan": reply.json(),
+    })
+    assert pair.status_code == 201, pair.text
+    assert "mapping" not in pair.json()
+    submitted = client.post(f"{base}/evaluation/ab-sessions/{pair.json()['session_id']}/submit",
+                            json={"preference": "UNABLE"})
+    assert submitted.status_code == 200 and submitted.json()["revealed"]
+
+    changed = offline.json()
+    changed["variants"][0]["shots"][0]["selection_reason"] = "client modified"
+    pair = client.post(f"{base}/evaluation/ab-sessions", json={
+        "offline_plan": changed, "model_plan": reply.json(),
+    })
+    assert pair.status_code == 409
+    assert pair.json()["detail"]["code"] == "AB_OFFLINE_PLAN_CHANGED"
+    with session_scope() as session:
+        session.get(Segment, ids["segments"][0]).user_rating = "favorite"
+    pair = client.post(f"{base}/evaluation/ab-sessions", json={
+        "offline_plan": offline.json(), "model_plan": reply.json(),
+    })
+    assert pair.status_code == 409
+    assert pair.json()["detail"]["code"] == "DIRECTOR_INPUT_CHANGED"
 
 
 # ---------------------------------------------------------------------------

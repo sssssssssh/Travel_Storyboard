@@ -64,7 +64,8 @@ def test_the_english_summary_survives_intact_when_it_fits():
     assert out.endswith("white van.")
 
 
-def test_a_claim_keeps_the_whole_motion_summary():
+@pytest.mark.parametrize("at_limit", [False, True])
+def test_a_claim_keeps_the_whole_motion_summary(at_limit):
     """End-to-end: the claim text must contain the full summary."""
     from app.services.director_plan_input import (
         HumanFacts, MotionEvidence, PlanningEntry, StaticEvidence, TechnicalFacts,
@@ -75,6 +76,8 @@ def test_a_claim_keeps_the_whole_motion_summary():
     summary = ("Camera pans steadily left across the lake: the white pagoda on "
                "the right drifts rightward and exits by t=9.83s, while willow "
                "branches enter from the left edge.")
+    if at_limit:
+        summary = (summary * 2)[:300]
     entry = PlanningEntry(
         segment_id="seg-1", asset_id="a1", asset_display_name="c.mp4",
         source_in_sec=4.0, source_out_sec=11.0, eligibility="eligible",
@@ -99,4 +102,7 @@ def test_a_claim_keeps_the_whole_motion_summary():
         EvidenceRef(channel="multiframe", result_id="res-m", segment_id="seg-1"),
     ])
     text = " ".join(c.text for c in claims)
-    assert summary in text, "the motion summary was truncated"
+    if at_limit:
+        assert len(text) <= 300 and text.endswith("（原文过长，已截断）")
+    else:
+        assert summary in text, "the motion summary was truncated"

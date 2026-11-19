@@ -371,6 +371,10 @@ def validate_plan(plan: PlanDraft, planning_input: PlanningInput) -> list[Proble
 
     entries = {e.segment_id: e for e in planning_input.entries}
     for variant in plan.variants:
+        if plan.planning_mode == "model" and not variant.shots:
+            problems.append(Problem("EMPTY_MODEL_VARIANT",
+                                    "a model variant needs at least one executable shot",
+                                    variant.variant_id))
         _validate_variant(variant, entries, problems)
 
     _validate_distinctness(plan.variants, problems)

@@ -2568,3 +2568,16 @@ RED 5 failed → GREEN → 反向验证 5 failed。
 | `test_a_sub_window_of_a_segment_can_be_clipped` | 支持任意区间 |
 | `test_an_empty_window_is_refused` | 空区间拒绝 |
 | `test_a_window_beyond_the_source_is_refused` | 越界拒绝而非钳制 |
+# TSB-372 策划质量补充映射
+
+| 用例 | 阶段 | 守护的行为 |
+|---|---|---|
+| `test_tsb370_model_plan.py::test_tsb372_prompt_accounts_for_every_candidate` | A | 61 个候选完整进入实际模型文本，保留清单 |
+| `test_tsb371r1_planning_feedback.py::test_tsb372_native_review_survives_event_filtering` 与 unsure 用例 | B | 跨过滤保留事件身份、纠错摘要、不确定带限制、原始证据不改 |
+| `test_tsb371r1_perf.py::test_tsb372_planning_query_budget` | B | 批量评价读取、0 写入、明确 1000 库的候选预算 |
+| `test_tsb371_g4_roundtrip.py::test_tsb372_transport_bytes_and_validated_receipt` 与 `test_tsb371r1_ab_trust.py::test_a_server_recorded_call_is_accepted` | C、D | 正常 HTTP 接线、字节真实、篡改回执失败、非默认候选上限创建盲评、输入变化拒绝 |
+| `test_tsb371r1_ab_resume.py::test_the_api_returns_the_revealed_view_after_a_reload` 与章节 ID 用例 | D | 旁路不能揭盲，提交后恢复，结果统计区别匿名轮次 |
+| `DirectorPlans.test.tsx` 的 TSB-372 用例 | E | 本机执行版本刷新后可打开，保留原始镜头和区间 |
+| `test_tsb371r1_reason_text.py::test_a_claim_keeps_the_whole_motion_summary[True]` 与 `test_tsb370_model_plan.py::test_tsb372_model_end_anchored_cut_resolves_in_source_seconds` | F | 长证据不会导致离线方案崩溃，按锚点换算合法精确切片 |
+
+T25 补充人工走查：从导演「剪辑执行建议」用相同主题、时长与候选上限生成模型方案，打开盲评并按真实画面填四维评价。保存本机副本后刷新，复核区间、原稿、差异和 Markdown 定位信息。真实调用和配对证据见 [TSB-372 验证记录](validation/tsb372/README.md)，真人评价单独记录。

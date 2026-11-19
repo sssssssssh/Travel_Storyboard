@@ -364,3 +364,7 @@ AI 导演与分镜审阅现在可查看旧区间、最新检测候选、收藏�
 父任务结束后继续跟踪活跃的回退子任务，完成时刷新并显示实际多帧结果；失败、取消、空结果与部分成功分别展示。真实 Runner 的父子执行、合成视频抽帧、Mock 模型、实际入库及公开 API 查询已有闭环测试，旧 B23 不再接受 running 作为最终通过。成功安排降级不再误报父部分失败，配置保留 force，已入库状态需本次实际证据支持。
 
 本地 macOS 严格后端 **1349 collected / 1305 passed / 44 Windows 平台 skipped / 0 failed / 0 errors**，前端 typecheck/lint/test/build 全部通过、**98 passed**。最终同 SHA CI 7/7 须另外核验，完整交付链接和回执见 [发布记录](docs/RELEASE_M5_3_R3_2.md)与[证据索引](docs/validation/m5.3-r3.2/README.md)。本轮只使用合成媒体与回环 Mock；G5=blocked_by_endpoint、G6=not_evaluated、Windows 真人验收 not_done，发布门禁未完成。
+
+### TSB-372 导演策划
+
+完整候选摘要、人工纠错、真实模型回执、同输入盲评与本机剪辑执行版本已接通。Windows 前端 186 项测试通过，真实库 61 个候选已完成真实模型策划和盲评创建。人工效果评分仍待完成。见 [TSB-372 发布记录](docs/RELEASE_V2_1_2_TSB372.md)。

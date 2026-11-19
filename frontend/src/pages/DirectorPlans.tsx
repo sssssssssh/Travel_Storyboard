@@ -332,7 +332,7 @@ function DirectorPlansForm() {
   const [target, setTarget] = useState(90)
   const [style, setStyle] = useState<PlanPreviewRequest['style']>('chronological')
   const [variantCount, setVariantCount] = useState(2)
-  const [maxCandidates, setMaxCandidates] = useState(40)
+  const [maxCandidates, setMaxCandidates] = useState(100)
   const [draft, setDraft] = useState<PlanDraft | null>(null)
   const [edited, setEdited] = useState<ExecutionVariant[] | null>(null)
   const [versions, setVersions] = useState<ExecutionVersion[]>(() => {
