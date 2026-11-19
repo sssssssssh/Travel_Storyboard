@@ -186,6 +186,15 @@ def test_preview_matches_the_digest_from_context(client, seeded):
     assert r.json()["source_input_digest"] == ctx["input_digest"]
 
 
+def test_tsb372_context_digest_checks_the_supplied_brief(client, seeded):
+    brief = {"theme": "旅途", "target_duration_sec": 20}
+    ctx = client.get(CONTEXT.format(p=seeded), params=brief).json()
+    body = {**brief, "expected_input_digest": ctx["input_digest"]}
+    assert client.post(PREVIEW.format(p=seeded), json=body).status_code == 200
+    stale = client.post(PREVIEW.format(p=seeded), json={**body, "theme": "到达"})
+    assert stale.status_code == 409
+
+
 def test_a_matching_digest_never_produces_a_false_409(client, seeded):
     """The digest the preview computes must equal the one /context returns."""
     ctx = client.get(CONTEXT.format(p=seeded)).json()

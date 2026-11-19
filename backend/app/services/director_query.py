@@ -174,6 +174,16 @@ def select(
 DIGEST_VERSION = "2"
 
 
+def context_digest(material_digest: str, theme: str, target_duration_sec: float | None) -> str:
+    """Bind any supplied brief to the candidate digest used by plan previews."""
+    if not theme and target_duration_sec is None:
+        return material_digest
+    return input_digest({
+        "material_digest": material_digest,
+        "brief": {"theme": theme, "target_duration_sec": target_duration_sec},
+    })
+
+
 def input_digest(document: dict[str, Any]) -> str:
     """SHA-256 of the normalized planning input the downstream stage will read.
 

@@ -135,9 +135,10 @@ def director_context(
         brief=brief,
         max_candidates=min(max_candidates, dpi.HARD_MAX_CANDIDATES),
     )
-    context["input_digest"] = dpi.build_planning_input(
+    material_digest = dpi.build_planning_input(
         project_id, max_candidates=max_candidates, session=db
     ).source_input_digest
+    context["input_digest"] = dq.context_digest(material_digest, theme, target_duration_sec)
     return context
 
 
@@ -250,8 +251,13 @@ def director_plan_preview(
         raise HTTPException(status_code=404, detail={"code": exc.code,
                                                      "message": exc.message})
 
-    if (body.expected_input_digest
-            and body.expected_input_digest != planning_input.source_input_digest):
+    candidates_digest = planning_input.source_input_digest
+    matching_digests = {
+        dq.context_digest(candidates_digest, theme, target)
+        for theme in ("", brief.theme)
+        for target in (None, brief.target_duration_sec)
+    }
+    if body.expected_input_digest and body.expected_input_digest not in matching_digests:
         raise HTTPException(
             status_code=409,
             detail={
