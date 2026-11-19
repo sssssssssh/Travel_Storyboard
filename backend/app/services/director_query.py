@@ -293,6 +293,8 @@ def build_context(
     withheld_review = int(coverage.get("needs_review_segments", 0))
     withheld_excluded = int(coverage.get("excluded_segments", 0))
     limitations: list[str] = ["no_story_generated_this_round"]
+    if len(usable) > len(chosen):
+        limitations.append("candidate_budget_limited")
     if withheld_review:
         limitations.append("shots_awaiting_review_withheld_from_planning")
     if withheld_excluded:
@@ -319,6 +321,7 @@ def build_context(
         },
         "coverage": coverage,
         "candidate_segment_ids": [c.segment_id for c in chosen],
+        "eligible_candidate_count": len(usable),
         "candidate_summaries": summaries,
         "important_human_labels": labelled,
         "limitations": limitations,
@@ -329,6 +332,7 @@ def build_context(
         "withheld": {
             "needs_review_segments": withheld_review,
             "excluded_segments": withheld_excluded,
+            "candidate_budget": len(usable) - len(chosen),
         },
     }
     # Digest the finished document, so every field the caller receives is covered.

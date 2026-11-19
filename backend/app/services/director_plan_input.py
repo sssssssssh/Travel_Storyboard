@@ -26,7 +26,9 @@ Design rules, each of which is enforced by a test:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
+import hashlib
+import json
 from typing import Any
 
 from sqlalchemy import select
@@ -50,6 +52,7 @@ from . import director_query as dq
 #: nor affordable.
 DEFAULT_MAX_CANDIDATES = 40
 HARD_MAX_CANDIDATES = 100
+INPUT_BUILD_VERSION = "tsb372.1"
 
 MAX_SUBJECTS = 3
 MAX_ACTIONS = 3
@@ -173,6 +176,28 @@ class PlanningInput:
     base_storyboard_version_id: str | None
     storyboard_absent: bool
     entries: list[PlanningEntry] = field(default_factory=list)
+    max_candidates: int = DEFAULT_MAX_CANDIDATES
+    review_digest: str = ""
+
+    def audit_snapshot(self) -> dict[str, Any]:
+        return {
+            "version": INPUT_BUILD_VERSION,
+            "digest": self.source_input_digest,
+            "max_candidates": self.max_candidates,
+            "candidate_count": len(self.entries),
+            "candidates": [
+                {"segment_id": e.segment_id, "asset_id": e.asset_id,
+                 "window": [e.source_in_sec, e.source_out_sec],
+                 "evidence": {
+                     name: {"result_id": reading.result_id, "state": reading.state}
+                     for name, reading in (("static", e.static),
+                                           ("multiframe", e.multiframe),
+                                           ("video_native", e.video_native))
+                 }}
+                for e in self.entries
+            ],
+            "review_digest": self.review_digest,
+        }
 
     # The two shapes callers actually need.
     def as_dict(self) -> dict[str, Any]:
@@ -513,13 +538,14 @@ def _build(session: Session, project_id: str, limit: int) -> PlanningInput:
         base_id, absent, _locked = _storyboard_state(session, project_id)
         return PlanningInput(
             project_id=project_id,
-            source_input_digest=ctx["input_digest"],
+            source_input_digest=_planning_digest(ctx["input_digest"], limit, base_id, [], ""),
             coverage=ctx["coverage"],
             withheld=dict(ctx.get("withheld") or {}),
             limitations=list(ctx.get("limitations") or []),
             base_storyboard_version_id=base_id,
             storyboard_absent=absent,
             entries=[],
+            max_candidates=limit,
         )
 
     segments = {
@@ -630,12 +656,7 @@ def _build(session: Session, project_id: str, limit: int) -> PlanningInput:
 
     # Fold the review facts into the digest: a plan built from filtered evidence
     # must never be indistinguishable from one built from untouched evidence.
-    digest = ctx["input_digest"]
-    if review_digest:
-        import hashlib
-
-        digest = hashlib.sha256(f"{digest}|review:{review_digest}".encode("utf-8")
-                                ).hexdigest()
+    digest = _planning_digest(ctx["input_digest"], limit, base_id, entries, review_digest)
     return PlanningInput(
         project_id=project_id,
         source_input_digest=digest,
@@ -645,7 +666,16 @@ def _build(session: Session, project_id: str, limit: int) -> PlanningInput:
         base_storyboard_version_id=base_id,
         storyboard_absent=absent,
         entries=entries,
+        max_candidates=limit,
+        review_digest=review_digest,
     )
+
+
+def _planning_digest(context_digest, limit, base_id, entries, review_digest) -> str:
+    material = [INPUT_BUILD_VERSION, context_digest, limit, base_id,
+                review_digest, [asdict(entry) for entry in entries]]
+    return hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False,
+                                    separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def _priority_for(rating: str, story_role: str, static: StaticEvidence,

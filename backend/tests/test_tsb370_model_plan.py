@@ -196,6 +196,19 @@ def test_the_theme_is_labelled_as_a_constraint(two_shot_input):
     assert "creative constraint" in text.lower()
 
 
+def test_tsb372_prompt_accounts_for_every_candidate(two_shot_input):
+    from dataclasses import replace
+
+    pi, _ = two_shot_input
+    pi.entries = [replace(pi.entries[i % 2], segment_id=f"candidate-{i}")
+                  for i in range(61)]
+    text, summary = build_evidence_text(pi, PlanningBrief())
+    assert summary["shots_listed"] == 61
+    assert summary["sent_segment_ids"] == [e.segment_id for e in pi.entries]
+    assert "segment_id=candidate-60" in text
+    assert summary["input_snapshot"]["candidate_count"] == 61
+
+
 def test_a_locked_shot_is_flagged_in_the_prompt(two_shot_input):
     pi, _ = two_shot_input
     # Simulate the lock on the entry (input assembly sets it from the version).

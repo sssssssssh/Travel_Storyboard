@@ -11,6 +11,8 @@ future language model) cannot smuggle extra structure past validation.
 
 from __future__ import annotations
 
+import hashlib
+
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -40,6 +42,12 @@ class PlanningBrief(Strict):
     target_duration_sec: float = Field(default=120.0, ge=1, le=36000)
     style: NarrativeAngle = "chronological"
     variant_count: int = Field(default=2, ge=1, le=3)
+
+    def audit_summary(self) -> dict[str, Any]:
+        return {
+            **self.model_dump(exclude={"theme"}),
+            "theme_digest": hashlib.sha256(self.theme.encode("utf-8")).hexdigest(),
+        }
 
 
 class EvidenceRef(Strict):

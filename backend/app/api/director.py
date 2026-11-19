@@ -128,13 +128,17 @@ def director_context(
     candidates = dc.collect_candidates(db, project_id, verify_freshness=False)
     cov = dc.coverage(candidates)
     brief = {"theme": theme, "target_duration_sec": target_duration_sec}
-    return dq.build_context(
+    context = dq.build_context(
         project_id=project_id,
         candidates=candidates,
         coverage=cov,
         brief=brief,
-        max_candidates=max_candidates,
+        max_candidates=min(max_candidates, dpi.HARD_MAX_CANDIDATES),
     )
+    context["input_digest"] = dpi.build_planning_input(
+        project_id, max_candidates=max_candidates, session=db
+    ).source_input_digest
+    return context
 
 
 class PlanRejected(Exception):
@@ -275,6 +279,9 @@ def director_plan_preview(
             },
         )
 
+    if body.planning_mode == "offline_rules":
+        plan.request_summary = {"input_snapshot": planning_input.audit_snapshot(),
+                                "brief": brief.audit_summary()}
     return plan.model_dump(mode="json")
 
 

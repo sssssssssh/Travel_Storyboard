@@ -222,7 +222,10 @@ def test_input_is_built_from_context_candidates(plan_module):
     ctx = _context(pid)
     out = plan_module.build_planning_input(pid, max_candidates=40)
     assert out.project_id == pid
-    assert out.source_input_digest == ctx["input_digest"]
+    assert out.source_input_digest == plan_module._planning_digest(
+        ctx["input_digest"], 40, out.base_storyboard_version_id,
+        out.entries, out.review_digest,
+    )
     ids = [e.segment_id for e in out.entries]
     # Only what the context offered; no extra shots smuggled in.
     assert ids == ctx["candidate_segment_ids"]

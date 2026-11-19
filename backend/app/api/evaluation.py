@@ -199,7 +199,9 @@ def create_ab(project_id: str, body: dict | None = None,
     """
     _project_or_404(db, project_id)
     body = body or {}
-    from ..services.director_plan_input import build_planning_input
+    from ..services.director_plan_input import (
+        DEFAULT_MAX_CANDIDATES, HARD_MAX_CANDIDATES, build_planning_input,
+    )
     from ..services.director_plan_schema import PlanDraft
 
     try:
@@ -209,7 +211,20 @@ def create_ab(project_id: str, body: dict | None = None,
         raise HTTPException(status_code=422,
                             detail={"code": "AB_PLAN_INVALID", "message": str(exc)[:200]})
 
-    planning_input = build_planning_input(project_id, session=db)
+    snapshots = [p.request_summary.get("input_snapshot") for p in (offline, model)]
+    if any(snapshot is not None for snapshot in snapshots):
+        limit = snapshots[0].get("max_candidates") if isinstance(snapshots[0], dict) else None
+        if (snapshots[0] != snapshots[1] or type(limit) is not int
+                or not 1 <= limit <= HARD_MAX_CANDIDATES
+                or offline.request_summary.get("brief") != model.request_summary.get("brief")):
+            raise HTTPException(409, detail={"code": "AB_INPUT_DIGEST_MISMATCH",
+                                            "message": "策划条件不同，请重新生成两份方案。"})
+    else:
+        limit = DEFAULT_MAX_CANDIDATES
+    planning_input = build_planning_input(project_id, max_candidates=limit, session=db)
+    if snapshots[0] is not None and snapshots[0] != planning_input.audit_snapshot():
+        raise HTTPException(409, detail={"code": "DIRECTOR_INPUT_CHANGED",
+                                        "message": "素材或评价已变化，请重新生成两份方案。"})
     try:
         pair = ab.create_ab_session(db, project_id, offline, model, planning_input,
                                     reviewer=str(body.get("reviewer") or "")[:64])

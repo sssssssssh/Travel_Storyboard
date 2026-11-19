@@ -23,6 +23,7 @@ real model's output. The design rules that matter:
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -43,7 +44,8 @@ from .director_plan_schema import (
 
 #: Hard bounds on what one request may contain. These keep the outbound text small
 #: and give the ledger a predictable size.
-MAX_ENTRIES_IN_PROMPT = 40
+PROMPT_VERSION = "tsb372.1"
+MAX_PROMPT_BYTES = 512 * 1024
 MAX_EVENTS_PER_SHOT = 4
 MAX_TAGS_PER_SHOT = 6
 MAX_NOTE_CHARS = 0  # user free-text notes are never sent (privacy)
@@ -109,11 +111,21 @@ def build_evidence_text(
     show it *before* the request goes out.
     """
     lines: list[str] = []
+    roster: list[str] = []
     counts = {"shots": 0, "with_static": 0, "with_motion": 0, "with_video": 0,
               "static_ids": 0, "motion_ids": 0, "video_ids": 0}
 
-    usable = [e for e in planning_input.entries][:MAX_ENTRIES_IN_PROMPT]
+    usable = planning_input.entries
     for idx, e in enumerate(usable, 1):
+        roster.append(json.dumps({
+            "n": idx, "segment_id": e.segment_id, "asset_id": e.asset_id,
+            "window": [e.source_in_sec, e.source_out_sec],
+            "rating": e.human.rating, "private_note_exists": bool(e.human.note),
+            "channels": [e.static.state, e.multiframe.state, e.video_native.state],
+            "limitations": list(dict.fromkeys(
+                e.limitations + e.static.limitations + e.multiframe.limitations
+                + e.video_native.limitations)),
+        }, ensure_ascii=False, separators=(",", ":")))
         lines.append(f"SHOT {idx} segment_id={e.segment_id}")
         lines.append(f"  duration={e.source_out_sec - e.source_in_sec:.2f}s "
                      f"window={e.source_in_sec:.2f}-{e.source_out_sec:.2f}")
@@ -140,21 +152,24 @@ def build_evidence_text(
                 counts["static_ids"] += 1
 
         if e.multiframe.result_id and e.multiframe.state in (dc.STATE_CURRENT, dc.STATE_UNVERIFIED):
-            if e.multiframe.action_summary:
+            if e.multiframe.action_summary or e.multiframe.motion_type or e.multiframe.stability_risk:
                 lines.append(f"  motion_evidence_id={e.multiframe.result_id} "
                              f"type={e.multiframe.motion_type} "
+                             f"stability_risk={e.multiframe.stability_risk} "
                              f"summary={e.multiframe.action_summary[:160]}")
                 counts["with_motion"] += 1
                 counts["motion_ids"] += 1
 
         if e.video_native.result_id and e.video_native.state in (dc.STATE_CURRENT, dc.STATE_UNVERIFIED):
             evs = e.video_native.events[:MAX_EVENTS_PER_SHOT]
-            if evs:
+            if evs or e.video_native.summary:
                 lines.append(f"  video_evidence_id={e.video_native.result_id} "
                              f"summary={e.video_native.summary[:160]}")
                 for ev in evs:
                     lines.append(f"    event {ev.start_sec:.2f}-{ev.end_sec:.2f}s "
                                  f"{ev.event_type}: {ev.description[:120]}")
+                if len(e.video_native.events) > len(evs):
+                    lines.append(f"    detail_events_omitted={len(e.video_native.events) - len(evs)}")
                 counts["with_video"] += 1
                 counts["video_ids"] += 1
 
@@ -166,13 +181,18 @@ def build_evidence_text(
 
     header = [
         f"THEME (creative constraint, not a fact about footage): {brief.theme[:200]}",
-        f"TARGET DURATION: {brief.target_duration_sec:.0f}s",
+        f"TARGET DURATION: {brief.target_duration_sec}s",
+        f"REQUESTED STYLE: {brief.style}",
         f"VARIANTS REQUESTED: {brief.variant_count}",
         f"AUDIO: not analysed for any shot.",
         "",
-        "SHOTS:",
+        "FULL CANDIDATE ROSTER (channel order: static, multiframe, video_native):",
     ]
-    text = "\n".join(header + lines) + "\n\n" + SCHEMA_HINT
+    text = "\n".join(header + roster + ["", "SHOT EVIDENCE:"] + lines) + "\n\n" + SCHEMA_HINT
+    raw = text.encode("utf-8")
+    if len(raw) > MAX_PROMPT_BYTES:
+        raise ModelPlanError("MODEL_INPUT_BUDGET_EXCEEDED",
+                             f"全量候选需要 {len(raw)} 字节，策划输入上限为 {MAX_PROMPT_BYTES} 字节。")
     summary = {
         "shots_listed": counts["shots"],
         "shots_with_static": counts["with_static"],
@@ -183,6 +203,11 @@ def build_evidence_text(
         "sends_user_notes": MAX_NOTE_CHARS > 0,
         "sends_paths": False,
         "chars": len(text),
+        "prompt_version": PROMPT_VERSION,
+        "prompt_digest": hashlib.sha256(raw).hexdigest(),
+        "sent_segment_ids": [e.segment_id for e in usable],
+        "input_snapshot": planning_input.audit_snapshot(),
+        "brief": brief.audit_summary(),
     }
     return text, summary
 
