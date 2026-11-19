@@ -393,6 +393,7 @@ class OpenAICompatibleVisionProvider:
         request_id = uuid.uuid4().hex[:16]
         last: ModelError | None = None
         started = time.monotonic()
+        sent_bytes = received_bytes = 0
 
         for attempt in range(1, self.max_retries + 2):
             try:
@@ -410,6 +411,7 @@ class OpenAICompatibleVisionProvider:
                 # 408 became `RemoteProtocolError`, hence MODEL_NETWORK_ERROR).
                 # Remote endpoints keep the default behaviour, so proxy support for
                 # real cloud providers is unchanged.
+                sent_bytes += len(body_bytes)
                 resp = post_model_request(
                     url, content=body_bytes, headers=headers,
                     timeout=caps.timeout_sec,
@@ -431,14 +433,20 @@ class OpenAICompatibleVisionProvider:
                     request_id=request_id,
                 )
             else:
+                received_bytes += len(getattr(resp, "content", b""))
                 if resp.status_code == 200:
                     # A cancel that arrived while the request was in flight must
                     # not be allowed to publish its answer.
                     try:
                         self._raise_if_cancelled(cancel_check)
-                        return self._parse(resp, request_id, attempt, started)
+                        answer = self._parse(resp, request_id, attempt, started)
+                        answer.request_bytes = sent_bytes
+                        answer.response_bytes = received_bytes
+                        return answer
                     except ModelError as exc:
                         exc.attempts, exc.images_sent = attempt, len(request.images) * attempt
+                        exc.request_bytes = sent_bytes
+                        exc.response_bytes = received_bytes
                         raise
 
                 code = classify_status(resp.status_code, resp.text[:500])
@@ -452,6 +460,8 @@ class OpenAICompatibleVisionProvider:
 
             if last is not None:
                 last.attempts, last.images_sent = attempt, len(request.images) * attempt
+                last.request_bytes = sent_bytes
+                last.response_bytes = received_bytes
             if last is None or not last.retryable or attempt > self.max_retries:
                 raise last
             delay = self._backoff(attempt, last.retry_after)

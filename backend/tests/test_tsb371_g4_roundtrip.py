@@ -200,6 +200,43 @@ def test_the_request_summary_is_populated_without_recomputing_the_prompt():
     assert plan.request_summary["chars"] > 0
 
 
+def test_tsb372_transport_bytes_and_validated_receipt(monkeypatch, client):
+    import httpx
+    from app.config import get_settings
+    from app.models import ModelCallRecord
+    from app.services import evaluation_ab as ab
+    from app.services.director_plan_schema import PlanDraft
+    from app.services.vision.providers import openai_compatible as oc
+
+    pid, ids = _seed()
+    settings = get_settings()
+    for attr, value in (
+        ("model_mode", "on"), ("model_base_url", "https://example.invalid/v1"),
+        ("model_api_key", "unit-test"), ("model_name", "test-planner"),
+    ):
+        monkeypatch.setattr(settings, attr, value)
+    answer = httpx.Response(200, json={"choices": [{"message": {"content": _valid_reply(ids)}}]})
+    bodies = []
+
+    def post(_url, *, content, **_kwargs):
+        bodies.append(content)
+        return answer
+
+    monkeypatch.setattr(oc, "post_model_request", post)
+    reply = client.post(f"/api/projects/{pid}/director/plans/preview", json={
+        "planning_mode": "model", "upload_acknowledged": True, "variant_count": 1,
+        "max_candidates": 61, "target_duration_sec": 60,
+    })
+    assert reply.status_code == 200, reply.text
+    plan = PlanDraft.model_validate(reply.json())
+    receipt = plan.request_summary["receipt"]
+    with session_scope() as session:
+        row = session.get(ModelCallRecord, receipt["call_id"])
+        assert ab.has_model_receipt(plan, session=session)
+        assert row.request_bytes == len(bodies[0])
+        assert row.response_bytes == len(answer.content)
+
+
 # ---------------------------------------------------------------------------
 # Injections that must fail cleanly (never a silent fake success)
 # ---------------------------------------------------------------------------

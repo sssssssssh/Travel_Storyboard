@@ -77,7 +77,8 @@ def _gate_from_records(session, project_id: str, purposes: tuple[str, str]
             "evidence": [],
         }
 
-    succeeded = [r for r in rows if r.succeeded]
+    succeeded = [r for r in rows if r.succeeded and not r.error_code
+                 and (purpose != "director_plan" or len(r.result_digest or "") == 64)]
     if succeeded:
         first = succeeded[0]
         return {

@@ -131,7 +131,7 @@ def has_model_receipt(plan: PlanDraft, *, session=None,
     from ..models import ModelCallRecord
 
     row = session.get(ModelCallRecord, call_id.strip())
-    if row is None or not row.succeeded:
+    if row is None or not row.succeeded or row.error_code:
         return False
     if not row.purpose or row.purpose != "director_plan":
         return False
@@ -140,7 +140,17 @@ def has_model_receipt(plan: PlanDraft, *, session=None,
     # A call recorded for a different project is not evidence for this one.
     if not project_id and row.project_id != plan.project_id:
         return False
-    return True
+    return (row.channel == "plan_text"
+            and row.model_id == receipt.get("model_id")
+            and len(row.result_digest or "") == 64
+            and secrets.compare_digest(row.result_digest, receipt_digest(plan)))
+
+
+def receipt_digest(plan: PlanDraft) -> str:
+    """Bind the full validated plan and request receipt, independent of JSON key order."""
+    material = json.dumps(plan.model_dump(mode="json"), sort_keys=True,
+                          ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
 def record_model_call(session, *, call_id: str, channel: str, project_id: str,

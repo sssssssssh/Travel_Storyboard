@@ -168,16 +168,19 @@ def test_a_receipt_pointing_at_no_server_record_is_rejected():
 def test_a_server_recorded_call_is_accepted():
     """The planner writes this row; a client cannot."""
     call_id = _uid()
+    plan = _plan([_shot(0, "seg-a", start=0, end=4)], mode="model",
+                 summary={"receipt": {"call_id": call_id, "model_id": "test-model"}})
     with session_scope() as s:
         s.add(ModelCallRecord(
             id=call_id, channel="plan_text", project_id="p1",
-            result_digest="", purpose="director_plan", succeeded=True,
+            result_digest=ab.receipt_digest(plan), purpose="director_plan", succeeded=True,
+            model_id="test-model",
             request_bytes=100, response_bytes=200, elapsed_ms=300,
         ))
         s.flush()
-        plan = _plan([_shot(0, "seg-a", start=0, end=4)], mode="model",
-                     summary={"receipt": {"call_id": call_id}})
         assert ab.has_model_receipt(plan, session=s) is True
+        plan.variants[0].shots[0].selection_reason = "client modified"
+        assert ab.has_model_receipt(plan, session=s) is False
 
 
 def test_a_recorded_failed_call_is_not_evidence():

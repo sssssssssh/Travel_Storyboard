@@ -118,7 +118,7 @@ class ExternalPlannerProvider:
 
     def plan(self, planning_input: PlanningInput, brief: PlanningBrief):
         from .director_plan_model import (
-            ModelPlanError, build_evidence_text, extract_json, parse_model_plan,
+            build_evidence_text,
         )
 
         if self._authorized is None:
@@ -141,7 +141,9 @@ class ExternalPlannerProvider:
         from .director_plan_model import (
             ModelPlanError, extract_json, parse_model_plan,
         )
-        from .vision.providers.openai_compatible import VisionRequest
+        from .vision.providers.openai_compatible import (
+            OpenAICompatibleVisionProvider, VisionRequest,
+        )
 
         request = VisionRequest(
             prompt=text,
@@ -155,51 +157,82 @@ class ExternalPlannerProvider:
         )
         from .vision.errors import ModelError
 
+        from ..database import session_scope
+        from .director_plan_validation import validate_plan
+        from .evaluation_ab import receipt_digest, record_model_call
+        from pydantic import ValidationError
+
         started = time.monotonic()
+        call_id = uuid_hex()
+        trusted_transport = type(self._provider) is OpenAICompatibleVisionProvider
+        model_id = getattr(self._provider, "model_id", "") or get_settings().model_name
+
+        def elapsed_ms():
+            return round((time.monotonic() - started) * 1000)
+
+        def record(transport, *, succeeded, error_code="", digest=""):
+            if not trusted_transport:
+                return
+            values = dict(
+                call_id=call_id, channel="plan_text", project_id=planning_input.project_id,
+                purpose="director_plan", succeeded=succeeded, model_id=model_id,
+                result_digest=digest, error_code=error_code,
+                request_bytes=getattr(transport, "request_bytes", 0),
+                response_bytes=getattr(transport, "response_bytes", 0),
+                elapsed_ms=elapsed_ms(),
+            )
+            try:
+                if self.session is not None:
+                    record_model_call(self.session, **values)
+                else:
+                    with session_scope() as session:
+                        record_model_call(session, **values)
+            except Exception as exc:
+                raise ModelPlanError("MODEL_RECEIPT_WRITE_FAILED",
+                                     "无法保存模型回执，策划结果未交付。") from exc
+
         try:
             response = self._provider.complete(request)
-        except ModelError:
+        except ModelError as exc:
+            record(exc, succeeded=getattr(exc, "status", None) == 200,
+                   error_code=exc.code)
             raise
         except Exception as exc:
-            raise ModelPlanError(getattr(exc, "code", "MODEL_CALL_FAILED"),
-                                 str(exc)[:300]) from exc
+            record(exc, succeeded=False, error_code="MODEL_CALL_FAILED")
+            raise ModelPlanError("MODEL_CALL_FAILED", "模型请求失败。") from exc
 
-        payload = extract_json(getattr(response, "text", "") or "")
-        plan = parse_model_plan(
-            payload, planning_input, brief,
-            model_id=get_settings().model_name or "?",
-            provider_name="openai_compatible",
-        )
-        # The receipt proves a real endpoint call produced this draft. It is what
-        # the A/B pairing checks, because `planning_mode == "model"` is a label any
-        # caller can set and TSB-370 shipped "model" drafts from a stub provider.
-        call_id = getattr(response, "request_id", "") or uuid_hex()
+        raw = getattr(response, "text", "") or ""
+        try:
+            plan = parse_model_plan(extract_json(raw), planning_input, brief,
+                                    model_id=model_id or "?",
+                                    provider_name="openai_compatible")
+        except (ModelPlanError, ValidationError, TypeError, ValueError) as exc:
+            code = exc.code if isinstance(exc, ModelPlanError) else "MODEL_SCHEMA_INVALID"
+            record(response, succeeded=True, error_code=code)
+            raise ModelPlanError(code, "模型回复无法形成符合结构的方案。") from exc
+
+        problems = validate_plan(plan, planning_input)
+        if problems:
+            record(response, succeeded=True, error_code="PLAN_REJECTED")
+            return plan  # The route exposes the shared validator's errors.
+        if not trusted_transport:
+            return plan.model_copy(update={"request_summary": summary})
         receipt = {
-            "model_id": get_settings().model_name or "",
+            "model_id": model_id,
             "provider": "openai_compatible",
             "call_id": call_id,
-            "elapsed_ms": int(round((time.monotonic() - started) * 1000)),
+            "elapsed_ms": elapsed_ms(),
+            "response_digest": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+            "endpoint_digest": hashlib.sha256(self._provider.base_url.encode()).hexdigest(),
+            "request_bytes": response.request_bytes,
+            "response_bytes": response.response_bytes,
             "attempts": int(getattr(response, "attempts", 1) or 1),
             "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
-        session = getattr(self, "session", None)
-        if session is not None:
-            from .evaluation_ab import record_model_call
-
-            record_model_call(
-                session, call_id=call_id, channel="plan_text",
-                project_id=plan.project_id, purpose="director_plan",
-                succeeded=True, model_id=receipt["model_id"],
-                result_digest=hashlib.sha256(
-                    plan.model_dump_json(exclude={"request_summary"})
-                    .encode("utf-8")).hexdigest()[:32],
-                request_bytes=receipt["elapsed_ms"],
-                response_bytes=len(str(getattr(response, "text", ""))),
-                elapsed_ms=receipt["elapsed_ms"],
-            )
-
-        return plan.model_copy(update={
+        plan = plan.model_copy(update={
             "request_summary": {**summary, "receipt": receipt}})
+        record(response, succeeded=True, digest=receipt_digest(plan))
+        return plan
 
 
 def provider_for(mode: str) -> PlannerProvider:

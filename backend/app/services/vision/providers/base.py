@@ -79,6 +79,8 @@ class VisionResponse:
     latency_ms: int = 0
     request_id: str = ""
     attempts: int = 1
+    request_bytes: int = 0
+    response_bytes: int = 0
 
 
 class VisionProvider(Protocol):

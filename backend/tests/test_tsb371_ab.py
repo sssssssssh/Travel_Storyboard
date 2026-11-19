@@ -53,22 +53,23 @@ def _with_receipt(plan):
     from app.models import ModelCallRecord
 
     call_id = str(_uuid.uuid4())
-    with session_scope() as s:
-        s.add(ModelCallRecord(
-            id=call_id, channel="plan_text", project_id=plan.project_id,
-            purpose="director_plan", result_digest="", succeeded=True,
-            model_id="GLM-5.3-Flash", request_bytes=1, response_bytes=1,
-            elapsed_ms=10,
-        ))
-        s.flush()
-
     summary = dict(getattr(plan, "request_summary", None) or {})
     summary["receipt"] = {
         "model_id": "GLM-5.3-Flash", "provider": "openai_compatible",
         "call_id": call_id, "elapsed_ms": 10,
         "attempts": 1, "at": "2026-01-01T00:00:00+00:00",
     }
-    return plan.model_copy(update={"request_summary": summary})
+    plan = plan.model_copy(update={"request_summary": summary})
+    with session_scope() as s:
+        s.add(ModelCallRecord(
+            id=call_id, channel="plan_text", project_id=plan.project_id,
+            purpose="director_plan", result_digest=ab.receipt_digest(plan), succeeded=True,
+            model_id="GLM-5.3-Flash", request_bytes=1, response_bytes=1,
+            elapsed_ms=10,
+        ))
+        s.flush()
+
+    return plan
 
 
 def _submit(sid, payload):

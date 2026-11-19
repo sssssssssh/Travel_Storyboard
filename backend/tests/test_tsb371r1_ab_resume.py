@@ -90,21 +90,22 @@ def _plan(shots, *, mode="offline_rules", project_id="p1", target=60.0,
 def _receipted(plan: PlanDraft) -> PlanDraft:
     """A model plan whose receipt names a real server record."""
     call_id = _uid()
-    with session_scope() as s:
-        s.add(ab_call_record(call_id, plan.project_id))
-        s.flush()
     summary = dict(plan.request_summary or {})
     summary["receipt"] = {"call_id": call_id, "model_id": "GLM",
                           "provider": "openai_compatible", "elapsed_ms": 1}
-    return plan.model_copy(update={"request_summary": summary})
+    plan = plan.model_copy(update={"request_summary": summary})
+    with session_scope() as s:
+        s.add(ab_call_record(call_id, plan.project_id, ab.receipt_digest(plan)))
+        s.flush()
+    return plan
 
 
-def ab_call_record(call_id: str, project_id: str):
+def ab_call_record(call_id: str, project_id: str, digest: str):
     from app.models import ModelCallRecord
 
     return ModelCallRecord(
         id=call_id, channel="plan_text", project_id=project_id,
-        purpose="director_plan", result_digest="", succeeded=True,
+        purpose="director_plan", result_digest=digest, succeeded=True,
         model_id="GLM", request_bytes=1, response_bytes=1, elapsed_ms=1,
     )
 

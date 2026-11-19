@@ -46,7 +46,8 @@ def _call(*, purpose="director_plan", channel="plan_text", project_id=None,
         row = ModelCallRecord(
             id=_uid(), channel=channel,
             project_id=project_id or rep._CURRENT_PROJECT, purpose=purpose,
-            result_digest="", succeeded=succeeded, model_id="GLM",
+            result_digest="a" * 64 if succeeded and purpose == "director_plan" else "",
+            succeeded=succeeded, model_id="GLM",
             request_bytes=10, response_bytes=10, elapsed_ms=10,
             error_code=error_code,
         )
