@@ -124,6 +124,16 @@ def test_a_different_reason_is_the_same_edit():
     assert ab.content_fingerprint(a) == ab.content_fingerprint(b)
 
 
+def test_tsb372_section_ids_do_not_reveal_source_or_make_a_distinct_cut():
+    a = _plan([_shot(0, "seg-a", start=0, end=4)])
+    b = a.model_copy(deep=True)
+    b.variants[0].sections[0].section_id = "model-generated-section"
+    b.variants[0].shots[0].section_id = "model-generated-section"
+    assert ab.content_fingerprint(a) == ab.content_fingerprint(b)
+    assert "model-generated-section" not in json.dumps(
+        ab._neutral_variant(b.variants[0], side="B"))
+
+
 def test_identical_content_is_refused_as_an_ab_pair():
     a = _plan([_shot(0, "seg-a", start=0, end=4)])
     b = _plan([_shot(0, "seg-a", start=0, end=4)], mode="model")

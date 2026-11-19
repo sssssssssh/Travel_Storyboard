@@ -116,7 +116,7 @@ def _current_signature(session: Session, asset_id: str) -> str:
 def get_session(session: Session, project_id: str, session_id: str
                 ) -> EvaluationSession | None:
     row = session.get(EvaluationSession, session_id)
-    if row is None or row.project_id != project_id:
+    if row is None or row.project_id != project_id or row.kind != "footage":
         return None
     return row
 

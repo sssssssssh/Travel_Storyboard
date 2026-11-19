@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from .deps import get_db
+from ..database import begin_write
 from ..models import Project
 from ..services import evaluation_clips as clips
 from ..services import evaluation_ab as ab
@@ -202,7 +203,8 @@ def create_ab(project_id: str, body: dict | None = None,
     from ..services.director_plan_input import (
         DEFAULT_MAX_CANDIDATES, HARD_MAX_CANDIDATES, build_planning_input,
     )
-    from ..services.director_plan_schema import PlanDraft
+    from ..services.director_plan_schema import PlanDraft, PlanningBrief
+    from ..services.director_plan_rules import plan_offline
 
     try:
         offline = PlanDraft.model_validate(body.get("offline_plan") or {})
@@ -221,10 +223,27 @@ def create_ab(project_id: str, body: dict | None = None,
                                             "message": "策划条件不同，请重新生成两份方案。"})
     else:
         limit = DEFAULT_MAX_CANDIDATES
+    begin_write(db)
     planning_input = build_planning_input(project_id, max_candidates=limit, session=db)
     if snapshots[0] is not None and snapshots[0] != planning_input.audit_snapshot():
         raise HTTPException(409, detail={"code": "DIRECTOR_INPUT_CHANGED",
                                         "message": "素材或评价已变化，请重新生成两份方案。"})
+    if snapshots[0] is not None:
+        # Rebuild the deterministic arm instead of trusting a client-edited plan.
+        brief_summary = offline.request_summary.get("brief")
+        if not isinstance(brief_summary, dict):
+            raise HTTPException(422, detail={"code": "AB_PLAN_INVALID"})
+        brief_fields = dict(brief_summary)
+        brief_fields.pop("theme_digest", None)  # Offline rules don't consume theme text.
+        try:
+            brief = PlanningBrief.model_validate(brief_fields)
+        except ValueError as exc:
+            raise HTTPException(422, detail={"code": "AB_PLAN_INVALID"}) from exc
+        expected = plan_offline(planning_input, brief)
+        if expected.model_dump(exclude={"request_summary"}) != offline.model_dump(
+                exclude={"request_summary"}):
+            raise HTTPException(409, detail={"code": "AB_OFFLINE_PLAN_CHANGED",
+                                            "message": "离线方案已修改，请重新生成。"})
     try:
         pair = ab.create_ab_session(db, project_id, offline, model, planning_input,
                                     reviewer=str(body.get("reviewer") or "")[:64])
@@ -234,6 +253,12 @@ def create_ab(project_id: str, body: dict | None = None,
                             detail={"code": exc.code, "message": exc.message})
     db.commit()
     return ab.current_view(db.get(type(pair.session), pair.session.id))
+
+
+@router.get("/projects/{project_id}/evaluation/ab-results")
+def ab_results(project_id: str, db: Session = Depends(get_db)):
+    _project_or_404(db, project_id)
+    return ab.experiment_results(db, project_id)
 
 
 @router.get("/projects/{project_id}/evaluation/ab-sessions/{session_id}")
@@ -253,6 +278,7 @@ def submit_ab(project_id: str, session_id: str, body: dict,
               db: Session = Depends(get_db)):
     """Record the blind preference, then return the revealed view."""
     _project_or_404(db, project_id)
+    begin_write(db)
     row = ab.find_ab_session(db, project_id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="evaluation session not found")

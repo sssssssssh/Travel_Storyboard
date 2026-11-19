@@ -21,6 +21,7 @@ import hashlib
 import json
 import secrets
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -32,7 +33,7 @@ from .director_plan_schema import PlanDraft
 
 AB_SCHEMA_VERSION = "1.0"
 DIMENSIONS = ("coherence", "pacing", "reason_credibility", "operability")
-VALID_PREFERENCE = ("A", "B", "TIE", "NEITHER")
+VALID_PREFERENCE = ("A", "B", "TIE", "UNABLE", "NEITHER")
 
 
 class AbError(Exception):
@@ -58,16 +59,19 @@ def _neutral_variant(variant, *, side: str) -> dict[str, Any]:
     variant id, the mode, and the provider. The *content* is preserved exactly —
     rewriting the plans to look alike would defeat the comparison.
     """
+    section_ids = {section.section_id: f"section-{i}"
+                   for i, section in enumerate(variant.sections, 1)}
     return {
         "side": side,
         "sections": [
-            {"section_id": s.section_id, "kind": s.kind, "title": s.title}
+            {"section_id": section_ids[s.section_id], "kind": s.kind, "title": s.title}
             for s in variant.sections
         ],
         "shots": [
             {
                 "order": i + 1,
                 "segment_id": shot.segment_id,
+                "section_id": section_ids.get(shot.section_id),
                 "source_in_sec": shot.source_in_sec,
                 "source_out_sec": shot.source_out_sec,
                 "planned_duration_sec": shot.planned_duration_sec,
@@ -187,10 +191,11 @@ def content_fingerprint(plan: PlanDraft) -> str:
         return hashlib.sha256(b"empty").hexdigest()[:32]
 
     variant = plan.variants[0]
+    section_ids = {section.section_id: i for i, section in enumerate(variant.sections)}
     shape = {
         "total_duration_sec": round(float(variant.total_duration_sec), 3),
         "target_duration_sec": round(float(variant.target_duration_sec), 3),
-        "sections": [s.section_id for s in variant.sections],
+        "sections": [s.kind for s in variant.sections],
         "shots": [
             {
                 "order": index,
@@ -199,7 +204,7 @@ def content_fingerprint(plan: PlanDraft) -> str:
                 "source_in_sec": round(float(shot.source_in_sec), 3),
                 "source_out_sec": round(float(shot.source_out_sec), 3),
                 "narrative_role": shot.narrative_role,
-                "section_id": shot.section_id,
+                "section": section_ids.get(shot.section_id),
             }
             for index, shot in enumerate(variant.shots)
         ],
@@ -224,7 +229,7 @@ def check_pairing(offline: PlanDraft, model: PlanDraft, planning_input,
 
     # Comparability first: "these are two different inputs" is a more actionable
     # finding than "the right side is not backed by a call", so it is reported first.
-    if offline.project_id != model.project_id:
+    if offline.project_id != model.project_id or (project_id and offline.project_id != project_id):
         problems.append({"code": "AB_PROJECT_MISMATCH",
                          "message": "两个方案属于不同项目"})
     if offline.source_input_digest != model.source_input_digest:
@@ -296,7 +301,6 @@ def create_ab_session(
 
     offline_variant = offline.variants[0]
     model_variant = model.variants[0]
-    left_plan, right_plan = ((model, offline) if model_on_left else (offline, model))
     left_variant, right_variant = ((model_variant, offline_variant) if model_on_left
                                    else (offline_variant, model_variant))
 
@@ -309,7 +313,9 @@ def create_ab_session(
         "target_duration_sec": offline_variant.target_duration_sec,
         "offline_fingerprint": _fingerprint(offline),
         "model_fingerprint": _fingerprint(model),
-        "model_id": (model.request_summary or {}).get("model_id", ""),
+        "model_id": model.request_summary["receipt"].get("model_id", ""),
+        "input_version": model.request_summary.get("input_snapshot", {}).get("version"),
+        "prompt_version": model.request_summary.get("prompt_version"),
     }
 
     row = EvaluationSession(
@@ -387,11 +393,18 @@ def submit_preference(pair_row: EvaluationSession, payload: dict) -> dict[str, A
         raise AbError("AB_ALREADY_SUBMITTED",
                       "this session was already submitted; blind results are immutable", 409)
 
+    choices = payload.get("dimension_preferences", {})
+    if (not isinstance(choices, dict)
+            or any(dim not in DIMENSIONS or choice not in VALID_PREFERENCE
+                   for dim, choice in choices.items())):
+        raise AbError("AB_PREFERENCE_INVALID", "invalid dimension preference", 422)
     data["submission"] = {
         "preference": preference,
         "scores": scores,
         "shot_selection": payload.get("shot_selection"),
         "note": str(payload.get("note") or "")[:500],
+        "dimension_preferences": choices,
+        "at": datetime.now(timezone.utc).isoformat(),
     }
     pair_row.context_json = data
     pair_row.status = "SUBMITTED"
@@ -428,7 +441,61 @@ def revealed_view(pair_row: EvaluationSession) -> dict[str, Any]:
         "A": data.get("left"),
         "B": data.get("right"),
         "target_duration_sec": data.get("target_duration_sec"),
+        "input_digest": data.get("input_digest"),
+        "input_version": data.get("input_version"),
+        "prompt_version": data.get("prompt_version"),
+        "model_id": data.get("model_id"),
     }
+
+
+def experiment_results(session: Session, project_id: str) -> dict:
+    """Summarize submitted rounds only, by input and model version."""
+    rows = session.scalars(select(EvaluationSession).where(
+        EvaluationSession.project_id == project_id,
+        EvaluationSession.kind == "ab", EvaluationSession.status == "SUBMITTED",
+    ).order_by(EvaluationSession.created_at, EvaluationSession.id)).all()
+    cohorts: dict[tuple, list[dict]] = {}
+    for row in rows:
+        data = row.context_json or {}
+        if not data.get("submission"):
+            continue
+        result = revealed_view(row)
+        key = tuple(result.get(name) for name in (
+            "input_digest", "input_version", "prompt_version", "model_id"))
+        cohorts.setdefault(key, []).append({
+            "session_id": row.id,
+            "reviewer": row.reviewer.strip() or None,
+            "mapping": result["mapping"], **result["submission"],
+        })
+    groups = []
+    for key, rounds in cohorts.items():
+        reviewers = {r["reviewer"] for r in rounds if r["reviewer"]}
+        distribution: dict[str, int] = {}
+        scores = {mode: {d: [] for d in DIMENSIONS} for mode in ("model", "offline_rules")}
+        for r in rounds:
+            preference = r["mapping"].get(r["preference"], r["preference"])
+            distribution[preference] = distribution.get(preference, 0) + 1
+            for side, mode in r["mapping"].items():
+                for dim, value in r["scores"].get(side, {}).items():
+                    scores[mode][dim].append(value)
+        groups.append({
+            "input_digest": key[0], "input_version": key[1],
+            "prompt_version": key[2], "model_id": key[3],
+            "rounds": rounds, "round_count": len(rounds),
+            "identified_reviewers": len(reviewers),
+            "anonymous_rounds": sum(not r["reviewer"] for r in rounds),
+            "repeat_identified_rounds": sum(bool(r["reviewer"]) for r in rounds) - len(reviewers),
+            "preference_distribution": distribution,
+            "tie_ratio": distribution.get("TIE", 0) / len(rounds),
+            "dimension_scores": {
+                mode: {dim: {"count": len(values),
+                             "mean": sum(values) / len(values) if values else None}
+                       for dim, values in dimensions.items()}
+                for mode, dimensions in scores.items()
+            },
+        })
+    return {"round_count": sum(group["round_count"] for group in groups), "groups": groups,
+            "interpretation": "评价者为自报标识。匿名与重复轮次不能作为独立用户样本。"}
 
 
 def find_ab_session(session: Session, project_id: str,

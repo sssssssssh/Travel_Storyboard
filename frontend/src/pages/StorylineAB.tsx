@@ -16,7 +16,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api, endpoints, withToken } from '../lib/api'
 import type { AbBlindView, AbRevealedView, AbSide, EvalClipStatus } from '../lib/types'
-import { Badge, Button, Card, Spinner } from '../components/ui'
+import { Badge, Button, Card, Spinner, inputClass } from '../components/ui'
 
 const ROLE_LABEL: Record<string, string> = {
   opening: '开场', development: '展开', turning_point: '转折',
@@ -29,6 +29,8 @@ const DIMENSIONS = [
   { key: 'reason_credibility', label: '推荐理由可信度' },
   { key: 'operability', label: '剪辑可操作性' },
 ] as const
+
+const CHOICES = [['A', 'A 更好'], ['B', 'B 更好'], ['TIE', '两者相当'], ['UNABLE', '无法判断']]
 
 
 /**
@@ -175,11 +177,12 @@ export default function StorylineAB() {
   const [a, setA] = useState<Record<string, number>>({})
   const [b, setB] = useState<Record<string, number>>({})
   const [preference, setPreference] = useState<string>('')
+  const [dimensionPreferences, setDimensionPreferences] = useState<Record<string, string>>({})
   const [revealed, setRevealed] = useState<AbRevealedView | null>(null)
 
   const blind = useQuery({
     queryKey: ['ab-blind', id, sessionId],
-    queryFn: () => api<AbBlindView>(`${endpoints.evaluationAbSessions(id)}/${sessionId}`),
+    queryFn: () => api<AbBlindView | AbRevealedView>(`${endpoints.evaluationAbSessions(id)}/${sessionId}`),
     enabled: Boolean(id && sessionId),
     retry: false,
   })
@@ -195,6 +198,8 @@ export default function StorylineAB() {
           preference,
           a_scores: a,
           b_scores: b,
+          dimension_preferences: Object.fromEntries(
+            Object.entries(dimensionPreferences).filter(([, value]) => value)),
         }),
       }),
     onSuccess: (data) => setRevealed(data),
@@ -241,6 +246,7 @@ export default function StorylineAB() {
   }
 
   const data = revealed ?? blind.data
+  const result = data?.revealed ? data : null
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -249,12 +255,12 @@ export default function StorylineAB() {
               className="text-sm text-slate-400 hover:text-slate-200">← 镜头核对</Link>
         <h1 className="text-lg font-semibold text-slate-200">故事线盲评</h1>
         <span className="text-xs text-slate-500">
-          {revealed ? '已提交 · 来源已揭示' : '两侧来源隐藏，提交后揭示'}
+          {result ? '已提交 · 来源已揭示' : '两侧来源隐藏，提交后揭示'}
         </span>
       </div>
 
       <div className="space-y-3 overflow-auto p-6">
-        {!revealed && (
+        {!result && (
           <Card>
             <div className="text-xs text-slate-400" data-testid="blind-note">
               两个方案使用相同的音乐/转场说明字段与相同排版，来源信息不显示。
@@ -265,20 +271,31 @@ export default function StorylineAB() {
 
         <div className="grid gap-3 md:grid-cols-2">
           {data && (
-            <SidePanel side={data.A} scores={a} disabled={Boolean(revealed)} projectId={id}
+            <SidePanel side={data.A} scores={result?.submission.scores?.A ?? a} disabled={Boolean(result)} projectId={id}
                        onScore={(dim, v) => setA((s) => ({ ...s, [dim]: v }))} />
           )}
           {data && (
-            <SidePanel side={data.B} scores={b} disabled={Boolean(revealed)} projectId={id}
+            <SidePanel side={data.B} scores={result?.submission.scores?.B ?? b} disabled={Boolean(result)} projectId={id}
                        onScore={(dim, v) => setB((s) => ({ ...s, [dim]: v }))} />
           )}
         </div>
 
-        {!revealed && (
+        {!result && (
           <Card>
-            <div className="mb-2 text-xs text-slate-400">选镜头是否合理</div>
+            <div className="mb-2 grid gap-2 sm:grid-cols-2">
+              {DIMENSIONS.map(({ key, label }) => (
+                <label key={key} className="text-xs text-slate-400">{label}
+                  <select className={inputClass} value={dimensionPreferences[key] ?? ''}
+                          onChange={(e) => setDimensionPreferences((old) => ({ ...old, [key]: e.target.value }))}>
+                    <option value="">未评价</option>
+                    {CHOICES.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+                  </select>
+                </label>
+              ))}
+            </div>
+            <div className="mb-2 text-xs text-slate-400">总体偏好</div>
             <div className="flex flex-wrap gap-2">
-              {[['A', 'A 更好'], ['B', 'B 更好'], ['TIE', '差不多'], ['NEITHER', '都不满意']]
+              {CHOICES
                 .map(([v, label]) => (
                   <Button key={v} variant={preference === v ? 'primary' : 'ghost'}
                           data-testid={`pref-${v}`}
@@ -326,21 +343,21 @@ export default function StorylineAB() {
           </Card>
         )}
 
-        {revealed && (
+        {result && (
           <Card>
             <div className="text-sm text-slate-200" data-testid="reveal-panel">
               <div>
-                你的偏好：<strong>{revealed.submission.preference}</strong>
-                {revealed.winner_mode && (
-                  <> → <strong>{revealed.winner_mode === 'model' ? '真实模型方案' : '离线规则方案'}</strong></>
+                你的偏好：<strong>{result.submission.preference}</strong>
+                {result.winner_mode && (
+                  <> → <strong>{result.winner_mode === 'model' ? '真实模型方案' : '离线规则方案'}</strong></>
                 )}
               </div>
               <div className="mt-1 text-xs text-slate-500" data-testid="mapping">
-                A = {revealed.mapping.A === 'model' ? '真实模型方案' : '离线规则方案'} ·
-                B = {revealed.mapping.B === 'model' ? '真实模型方案' : '离线规则方案'}
+                A = {result.mapping.A === 'model' ? '真实模型方案' : '离线规则方案'} ·
+                B = {result.mapping.B === 'model' ? '真实模型方案' : '离线规则方案'}
               </div>
               <div className="mt-2 text-xs text-amber-300" data-testid="single-reviewer-note">
-                {revealed.interpretation}
+                {result.interpretation}
               </div>
             </div>
           </Card>

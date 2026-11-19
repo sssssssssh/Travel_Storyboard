@@ -309,9 +309,12 @@ def test_the_api_returns_the_revealed_view_after_a_reload(client):
     assert created.status_code in (200, 201), created.text + " || " + str(created.json())
     sid = created.json()["session_id"]
     assert created.json()["revealed"] is False
+    assert client.get(f"/api/projects/{pid}/evaluation/sessions/{sid}").status_code == 404
+    results_path = f"/api/projects/{pid}/evaluation/ab-results"
+    assert client.get(results_path).json()["round_count"] == 0
 
     sub = client.post(f"{AB_POST.format(p=pid)}/{sid}/submit",
-                      json={"preference": "A"})
+                      json={"preference": "A", "dimension_preferences": {"pacing": "UNABLE"}})
     assert sub.status_code == 200, sub.text
 
     # A reload is just another GET.
@@ -319,6 +322,10 @@ def test_the_api_returns_the_revealed_view_after_a_reload(client):
     assert again.status_code == 200
     assert again.json()["revealed"] is True
     assert set(again.json()["mapping"]) == {"A", "B"}
+    results = client.get(results_path).json()
+    assert results["round_count"] == 1
+    assert results["groups"][0]["anonymous_rounds"] == 1
+    assert results["groups"][0]["rounds"][0]["dimension_preferences"] == {"pacing": "UNABLE"}
 
     # And it stays that way.
     third = client.get(f"{AB_POST.format(p=pid)}/{sid}")
