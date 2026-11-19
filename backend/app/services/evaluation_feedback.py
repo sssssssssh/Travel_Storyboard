@@ -25,6 +25,8 @@ verdict — or deleting it — restores the shot immediately.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from sqlalchemy import select
@@ -165,6 +167,7 @@ def _summarise_verdicts(pairs: list[tuple[EvaluationItem, EvaluationRating | Non
     """Count verdicts for one shot. Shared by the single and batch paths."""
     right = wrong = unsure = 0
     judged_item: EvaluationItem | None = None
+    latest = {}
     for item, rating in pairs:
         if rating is None:
             continue
@@ -172,14 +175,23 @@ def _summarise_verdicts(pairs: list[tuple[EvaluationItem, EvaluationRating | Non
             if not isinstance(entry, dict):
                 continue
             verdict = entry.get("verdict")
-            if verdict == "right":
-                right += 1
-            elif verdict == "wrong":
-                wrong += 1
-            elif verdict == "unsure":
-                unsure += 1
-        if right or wrong or unsure:
-            judged_item = item
+            if verdict not in ("right", "wrong", "unsure"):
+                continue
+            ref = (item.channel, item.result_id, entry.get("key"))
+            order = _rating_order(rating)
+            prior = latest.get(ref)
+            if prior and prior[0] > order:
+                continue
+            if prior and prior[0] == order and prior[1] != verdict:
+                verdict = "unsure"
+            latest[ref] = (order, verdict, item)
+
+    for _, verdict, _ in latest.values():
+        right += verdict == "right"
+        wrong += verdict == "wrong"
+        unsure += verdict == "unsure"
+    if latest:
+        judged_item = max(latest.values(), key=lambda entry: (entry[0], entry[2].id))[2]
 
     judged = right + wrong + unsure
     if judged == 0:
@@ -225,6 +237,94 @@ SCALAR_CLAIMS = ("lighting", "composition", "action_summary",
 
 REASON_WITHHELD = "human_review_withheld_claims"
 REASON_CLAIMS_RIGHT = "human_review_claims_confirmed"
+REASON_UNCERTAIN = "human_review_claims_uncertain"
+
+
+def _rating_order(rating: EvaluationRating) -> tuple:
+    updated = rating.updated_at or rating.created_at
+    return updated.isoformat() if updated else "", rating.version or 0
+
+
+def claim_reviews_for_results(session: Session, project_id: str,
+                              current: dict[str, tuple[str, Any]]) -> dict:
+    """Load ratings once and resolve each claim against the exact current reading."""
+    if not current:
+        return {}
+    from .evaluation_samples import _readings
+
+    pairs = session.execute(
+        select(EvaluationItem, EvaluationRating)
+        .join(EvaluationRating, EvaluationRating.item_id == EvaluationItem.id)
+        .where(EvaluationItem.project_id == project_id,
+               EvaluationRating.project_id == project_id,
+               EvaluationItem.result_id.in_(current))
+    ).all()
+    selected: dict = {}
+    catalogues: dict = {}
+    for item, rating in pairs:
+        channel, row = current[item.result_id]
+        if item.channel != channel or item.segment_id != row.segment_id:
+            continue
+        if row.status != "succeeded":
+            continue
+        if row.id not in catalogues:
+            live = _readings(row, channel)
+            catalogues[row.id] = live, claim_catalogue(live)
+        live, live_catalogue = catalogues[row.id]
+        frozen = item.readings_json or {}
+        frozen_catalogue = claim_catalogue(frozen)
+        for entry in rating.claim_verdicts or []:
+            if not isinstance(entry, dict):
+                continue
+            key, verdict = entry.get("key"), entry.get("verdict")
+            if not isinstance(key, str) or verdict not in ("right", "wrong", "unsure"):
+                continue
+            if channel == "video_native" and key.startswith("events:"):
+                index = key.removeprefix("events:")
+                frozen_refs = frozen.get("_event_refs") or {}
+                live_refs = live.get("_event_refs") or {}
+                ref = frozen_refs.get(index)
+                if ref:
+                    if ref not in live_refs.values():
+                        continue
+                else:
+                    # Old review snapshots had only displayed labels. Resolve only
+                    # identical catalogues and unique labels; duplicates are ambiguous.
+                    labels = frozen.get("events") or []
+                    label = frozen_catalogue.get(key)
+                    if not label or labels != live.get("events") or labels.count(label) != 1:
+                        continue
+                    ref = live_refs.get(int(index)) if index.isdecimal() else None
+                    if ref is None:
+                        continue
+                key = ref
+            elif (not frozen_catalogue.get(key)
+                  or frozen_catalogue.get(key) != live_catalogue.get(key)):
+                continue
+
+            order = _rating_order(rating)
+            previous = selected.setdefault(row.id, {}).get(key)
+            if previous and previous[0] > order:
+                continue
+            if previous and previous[0] == order and previous[1] != verdict:
+                verdict = "unsure"
+            selected[row.id][key] = (order, verdict)
+    return selected
+
+
+def batched_review_signature(reviews: dict) -> str:
+    if not reviews:
+        return ""
+    data = json.dumps(reviews, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+def claim_reasons(verdicts) -> list[str]:
+    values = set(verdicts)
+    return [reason for verdict, reason in (
+        ("wrong", REASON_WITHHELD), ("right", REASON_CLAIMS_RIGHT),
+        ("unsure", REASON_UNCERTAIN),
+    ) if verdict in values]
 
 
 def _claim_key(group: str, index: int) -> str:
@@ -306,13 +406,9 @@ def filter_visual(visual: dict[str, Any],
         elif verdict == "right":
             confirmed += 1
 
-    reasons: list[str] = []
-    if withheld:
-        reasons.append(REASON_WITHHELD)
-    if confirmed and not withheld:
-        reasons.append(REASON_CLAIMS_RIGHT)
-    elif confirmed:
-        reasons.append(REASON_CLAIMS_RIGHT)
+    reasons = claim_reasons(
+        ["wrong"] * withheld + ["right"] * confirmed
+        + (["unsure"] if "unsure" in verdicts.values() else []))
     return filtered, reasons
 
 

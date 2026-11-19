@@ -172,6 +172,40 @@ def test_unsure_is_not_treated_as_wrong(client):
     _review(client, pid, {"subjects:2": "unsure"})
     e = _entry(_plan_input(pid), seg_id)
     assert "white pagoda" in e.static.visual.get("subjects", [])
+    assert "human_review_claims_uncertain" in e.static.limitations
+
+
+def test_tsb372_native_review_survives_event_filtering(client):
+    from app.models import SegmentVideoObservation
+
+    pid, sid, _ = _seed(client)
+    events = [
+        {"description": "invalid window", "start_abs_sec": 1, "end_abs_sec": 2},
+        {"description": "wrong action", "start_abs_sec": 5, "end_abs_sec": 6},
+        {"description": "keep this", "start_abs_sec": 7, "end_abs_sec": 8},
+    ]
+    with session_scope() as s:
+        seg = s.get(Segment, sid)
+        row = SegmentVideoObservation(project_id=pid, segment_id=sid,
+                                      asset_id=seg.asset_id, segment_start_sec=4,
+                                      segment_end_sec=11, events_json=events,
+                                      analysis_json={"summary": "wrong summary"})
+        s.add(row)
+        s.flush()
+        rid = row.id
+    session = client.post(SESSIONS.format(p=pid), json={"limit": 5}).json()
+    item = next(i for i in session["items"] if i["channel"] == "video_native")
+    rated = client.patch(
+        f"{SESSIONS.format(p=pid)}/{session['session_id']}/ratings/{item['item_id']}",
+        json={"claim_verdicts": [{"key": k, "verdict": "wrong"}
+                                for k in ("summary:0", "events:1")]},
+    )
+    assert rated.status_code == 200, rated.text
+    result = _entry(_plan_input(pid), sid).video_native
+    assert result.summary == ""
+    assert [e.description for e in result.events] == ["keep this"]
+    with session_scope() as s:
+        assert s.get(SegmentVideoObservation, rid).events_json == events
 
 
 def test_an_unreviewed_shot_is_unchanged(client):

@@ -39,6 +39,42 @@ def _uid() -> str:
     return str(uuid.uuid4())
 
 
+@pytest.mark.parametrize("size", [61, 100, 1000])
+def test_tsb372_planning_query_budget(size):
+    import json
+    from time import perf_counter
+
+    from app.services import director_plan_input as dpi
+    from app.services.director_plan_model import build_evidence_text
+    from app.services.director_plan_schema import PlanningBrief
+
+    pid, _ = _seed_bulk(size, reviewed=size)
+    statements = []
+
+    def count(_, __, statement, *args):
+        statements.append(statement.upper())
+
+    started = perf_counter()
+    event.listen(engine, "before_cursor_execute", count)
+    try:
+        pi = dpi.build_planning_input(pid, max_candidates=size)
+    finally:
+        event.remove(engine, "before_cursor_execute", count)
+    input_ms = (perf_counter() - started) * 1000
+    started = perf_counter()
+    build_evidence_text(pi, PlanningBrief())
+    prompt_ms = (perf_counter() - started) * 1000
+    reads = sum(sql.lstrip().startswith("SELECT") for sql in statements)
+    review_reads = sum("EVALUATION_RATINGS" in sql for sql in statements)
+    writes = sum(sql.lstrip().startswith(("INSERT", "UPDATE", "DELETE")) for sql in statements)
+    print(f"pool={size} selected={len(pi.entries)} input_ms={input_ms:.1f} "
+          f"selects={reads} review_selects={review_reads} writes={writes} "
+          f"prompt_ms={prompt_ms:.1f} input_json_bytes={len(json.dumps(pi.as_dict()).encode())}")
+    assert len(pi.entries) == min(size, dpi.HARD_MAX_CANDIDATES)
+    assert not writes
+    assert review_reads == 1
+
+
 def _tmp_root() -> Path:
     root = Path(os.environ.get("TEMP") or ".") / "tsb371r1-perf"
     root.mkdir(parents=True, exist_ok=True)

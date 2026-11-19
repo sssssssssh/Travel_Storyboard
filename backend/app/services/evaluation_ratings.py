@@ -243,6 +243,7 @@ def save_rating(
         except (TypeError, ValueError):
             raise RatingError("EVAL_RATING_INVALID", "timing_error_sec must be a number", 422)
 
+    inserted = False
     if existing is None:
         # TSB-371-R1 P2-02: two concurrent first-saves both see "no row" and both
         # INSERT, so the second hit UNIQUE(evaluation_ratings.item_id) and returned
@@ -262,11 +263,25 @@ def save_rating(
             ).first()
             if existing is None:
                 raise
-            existing.version = int(existing.version) + 1
-            existing.updated_at = _now()
         else:
             existing = candidate
-    else:
+            inserted = True
+
+    if not inserted:
+        # Keep the previous judgement with the frozen item, outside the current
+        # rating row. The planner only reads the current row of each item.
+        readings = dict(item.readings_json or {})
+        history = list(readings.get("_rating_history", {}).values())
+        history.append({
+            "rating_id": existing.id, "version": existing.version,
+            "at": existing.updated_at.isoformat() if existing.updated_at else None,
+            "reviewer": existing.reviewer, "claim_verdicts": existing.claim_verdicts or [],
+            **{name: getattr(existing, name) for name in (
+                *DIMENSIONS, "timing_error_sec", "hallucination", "usability",
+            )},
+        })
+        readings["_rating_history"] = {str(entry["version"]): entry for entry in history}
+        item.readings_json = readings
         existing.version = int(existing.version) + 1
         existing.updated_at = _now()
 

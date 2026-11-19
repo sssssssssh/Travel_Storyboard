@@ -557,6 +557,7 @@ def _normalize_video_events(
 
         text = ev.get("description") or ev.get("label") or ev.get("type") or ""
         accepted.append({
+            "claim_ref": video_event_ref(ev),
             "start_sec": round(start, 3),
             "end_sec": round(end, 3),
             "event_type": str(ev.get("event_type") or ev.get("type") or "")[:64],
@@ -570,6 +571,15 @@ def _normalize_video_events(
         counters["accepted"] += 1
 
     return accepted, counters, reasons
+
+
+def video_event_ref(event: dict) -> str:
+    """Content identity inside a specific video result, independent of array position."""
+    import hashlib
+    import json
+
+    material = json.dumps(event, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return "event/" + hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------

@@ -123,6 +123,7 @@ class VideoEvent:
     description: str
     confidence: float | None
     confidence_calibration: str = "uncalibrated"
+    claim_ref: str = ""
 
 
 @dataclass(frozen=True)
@@ -245,6 +246,7 @@ class PlanningInput:
                                 "end_sec": ev.end_sec,
                                 "event_type": ev.event_type,
                                 "description": ev.description,
+                                "claim_ref": ev.claim_ref,
                             }
                             for ev in e.video_native.events
                         ],
@@ -368,22 +370,14 @@ def _apply_review(evidence, verdicts: dict[str, dict[str, str]],
         )
 
     if isinstance(evidence, VideoEvidence):
-        # Events are individual claims: a wrong one is dropped, not the summary.
-        kept_events = []
-        withheld = 0
-        for index, event in enumerate(evidence.events):
-            verdict = judged.get(f"events:{index}")
-            if verdict == "wrong":
-                withheld += 1
-                continue
-            kept_events.append(event)
-        reasons: list[str] = []
-        if withheld:
-            reasons.append(fb.REASON_WITHHELD)
-            limitations.extend(reasons)
-        if not reasons:
-            return evidence
-        return replace(evidence, events=kept_events,
+        verdicts = [judged.get(event.claim_ref) for event in evidence.events]
+        summary_verdict = judged.get("summary:0")
+        reasons = fb.claim_reasons([summary_verdict, *verdicts])
+        limitations.extend(reasons)
+        return replace(evidence,
+                       summary="" if summary_verdict == "wrong" else evidence.summary,
+                       events=[event for event, verdict in zip(evidence.events, verdicts)
+                               if verdict != "wrong"],
                        limitations=list(evidence.limitations) + reasons)
 
     return evidence
@@ -484,6 +478,7 @@ def _video_evidence(rows: list, segment: Segment, limitations: list[str]) -> Vid
             event_type=str(e.get("event_type") or ""),
             description=str(e.get("label") or ""),
             confidence=e.get("confidence"),
+            claim_ref=e["claim_ref"],
         )
         for e in events[:MAX_VIDEO_EVENTS]
     ]
@@ -571,15 +566,19 @@ def _build(session: Session, project_id: str, limit: int) -> PlanningInput:
     # feed this plan, read in ONE batch (P2-01: no per-shot query).
     from . import evaluation_feedback as fb
 
-    review_verdicts: dict[str, dict[str, str]] = {}
-    for rows_by_segment in (static_rows, motion_rows, video_rows):
-        for rows in rows_by_segment.values():
-            for row in rows:
-                if getattr(row, "is_current", False):
-                    review_verdicts[row.id] = fb.claim_verdicts_for_result(
-                        session, project_id, row.id)
-    review_digest = fb.review_signature(
-        session, project_id, sorted(review_verdicts))
+    current = {
+        row.id: (channel, row)
+        for channel, rows_by_segment in (("static", static_rows), ("multiframe", motion_rows),
+                                         ("video_native", video_rows))
+        for rows in rows_by_segment.values()
+        if (row := next((r for r in rows if r.is_current), None)) is not None
+    }
+    reviews = fb.claim_reviews_for_results(session, project_id, current)
+    review_digest = fb.batched_review_signature(reviews)
+    review_verdicts = {
+        rid: {key: value[1] for key, value in claims.items()}
+        for rid, claims in reviews.items()
+    }
 
     from ..models import UserAnnotation
 

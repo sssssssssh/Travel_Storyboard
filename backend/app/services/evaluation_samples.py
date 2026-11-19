@@ -186,6 +186,7 @@ def _video_readings(row) -> dict[str, Any]:
             out["summary"] = [summary.strip()]
 
     events: list[str] = []
+    refs: list[str] = []
     for event in (getattr(row, "events_json", None) or []):
         if not isinstance(event, dict):
             continue
@@ -197,8 +198,12 @@ def _video_readings(row) -> dict[str, Any]:
             event_type = event.get("event_type")
             if isinstance(event_type, str) and event_type.strip():
                 events.append(event_type.strip())
+            else:
+                continue
+        refs.append(dc.video_event_ref(event))
     if events:
         out["events"] = events
+        out["_event_refs"] = dict(enumerate(refs))
 
     # Explicitly declared limitations travel with the reading, and are reviewable.
     evidence = getattr(row, "analysis_json", None) or {}
