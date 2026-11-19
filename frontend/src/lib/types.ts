@@ -826,6 +826,7 @@ export interface PlanPreviewRequest {
   max_candidates?: number
   variant_count?: number
   planning_mode?: 'offline_rules' | 'model'
+  upload_acknowledged?: boolean
 }
 
 

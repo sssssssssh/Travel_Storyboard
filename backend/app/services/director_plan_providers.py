@@ -139,7 +139,7 @@ class ExternalPlannerProvider:
     def _plan_locked(self, planning_input: PlanningInput, brief: PlanningBrief,
                      text: str, summary: dict):
         from .director_plan_model import (
-            ModelPlanError, extract_json, parse_model_plan,
+            SYSTEM_PROMPT, ModelPlanError, extract_json, parse_model_plan,
         )
         from .vision.providers.openai_compatible import (
             OpenAICompatibleVisionProvider, VisionRequest,
@@ -148,7 +148,7 @@ class ExternalPlannerProvider:
         request = VisionRequest(
             prompt=text,
             images=[],
-            system=SYSTEM_PROMPT_TEXT,
+            system=SYSTEM_PROMPT,
             json_object=True,
             max_tokens=get_settings().vision_max_tokens,
             temperature=0.4,

@@ -17,6 +17,7 @@ import type { PlanDraft, PlanShot, PlanVariant } from '../lib/types'
 
 vi.mock('../lib/api', () => ({
   api: vi.fn(),
+  fetchAllSegments: vi.fn(async () => []),
   endpoints: {
     directorCandidates: (id: string) => `/api/projects/${id}/director/candidates`,
     directorContext: (id: string) => `/api/projects/${id}/director/context`,
@@ -40,7 +41,22 @@ const inputStatus = {
 
 afterEach(() => {
   cleanup()
+  localStorage.clear()
   vi.clearAllMocks()
+})
+
+test('TSB-372 saves an execution revision while preserving the original cut', async () => {
+  setup()
+  await generate()
+  fireEvent.click(screen.getByTestId('trim-shorter'))
+  fireEvent.click(screen.getByTestId('save-execution-version'))
+  expect(screen.getByTestId('execution-diff').textContent).toContain('截取区间')
+  cleanup()
+  setup()
+  fireEvent.click(screen.getByTestId('open-execution-version'))
+  expect(screen.getByTestId('shot-duration').textContent).toContain('4.5')
+  fireEvent.click(screen.getByTestId('show-original-version'))
+  expect(screen.getByTestId('shot-duration').textContent).toContain('5.0')
 })
 
 function shot(over: Partial<PlanShot> = {}): PlanShot {

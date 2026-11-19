@@ -18,7 +18,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { api, endpoints } from '../lib/api'
+import { api, endpoints, fetchAllSegments, mediaUrl } from '../lib/api'
 import type {
   DirectorCandidatesOut,
   PlanClaim,
@@ -27,6 +27,8 @@ import type {
   PlanPreviewRequest,
   PlanShot,
   PlanVariant,
+  SegmentListItem,
+  AbBlindView,
 } from '../lib/types'
 import { Badge, Button, Card, Field, Spinner, inputClass } from '../components/ui'
 
@@ -58,12 +60,47 @@ const ROLE_LABEL: Record<string, string> = {
   closing: '收束',
 }
 
+type ExecutionShot = PlanShot & { editor_note?: string; retained?: boolean }
+type ExecutionVariant = Omit<PlanVariant, 'shots'> & { shots: ExecutionShot[] }
+type ExecutionVersion = {
+  id: string; saved_at: string; original: PlanDraft; variants: ExecutionVariant[]; theme: string
+}
+
+function readVersions(projectId: string): ExecutionVersion[] {
+  const raw = localStorage.getItem(`tsb.director.execution.${projectId}`)
+  if (!raw) return []
+  const parsed = JSON.parse(raw) as ExecutionVersion[]
+  if (!Array.isArray(parsed) || parsed.some((v) => v.original?.project_id !== projectId)) {
+    throw new Error('执行版本与当前项目不匹配')
+  }
+  return parsed
+}
+
+function compareExecution(original: PlanVariant, edited: ExecutionVariant) {
+  const previous = new Map(original.shots.map((s, i) => [s.shot_id, { shot: s, index: i }]))
+  const editedIds = new Set(edited.shots.map((s) => s.shot_id))
+  const changes = original.shots.flatMap((shot, i) =>
+    editedIds.has(shot.shot_id) ? [] : [`移除原镜头 #${i + 1}`])
+  edited.shots.forEach((shot, index) => {
+    const old = previous.get(shot.shot_id)
+    if (!old) return
+    const label = `镜头 #${old.index + 1}`
+    if (old.index !== index) changes.push(`${label} → #${index + 1}`)
+    if (old.shot.source_in_sec !== shot.source_in_sec || old.shot.source_out_sec !== shot.source_out_sec) {
+      changes.push(`${label} 截取区间：${old.shot.source_in_sec}–${old.shot.source_out_sec}s → ${shot.source_in_sec}–${shot.source_out_sec}s`)
+    }
+    if (shot.editor_note) changes.push(`${label} 备注：${shot.editor_note}`)
+    if (shot.retained) changes.push(`${label} 已保留`)
+  })
+  return changes
+}
+
 /** Recompute the timeline after a local edit. Never mutates the source data. */
-function retime(shots: PlanShot[]): PlanShot[] {
+function retime(shots: ExecutionShot[]): ExecutionShot[] {
   let t = 0
-  return shots.map((s, i) => {
+  return shots.map((s) => {
     const duration = Math.max(0, s.source_out_sec - s.source_in_sec)
-    const next = { ...s, shot_id: `${s.shot_id.split('#')[0]}#${i}`, timeline_start_sec: round(t), planned_duration_sec: round(duration) }
+    const next = { ...s, timeline_start_sec: round(t), planned_duration_sec: round(duration) }
     t = round(t + duration)
     return next
   })
@@ -93,22 +130,45 @@ function ShotRow({
   total,
   onMove,
   onTrim,
+  projectId,
+  source,
+  onUpdate,
+  onRemove,
 }: {
-  shot: PlanShot
+  shot: ExecutionShot
   index: number
   total: number
   onMove: (from: number, to: number) => void
   onTrim: (index: number, delta: number) => void
+  projectId: string
+  source?: SegmentListItem
+  onUpdate: (change: Partial<ExecutionShot>) => void
+  onRemove: () => void
 }) {
   const [open, setOpen] = useState(false)
+  const [windowError, setWindowError] = useState(false)
+  const editBoundary = (key: 'source_in_sec' | 'source_out_sec', raw: string) => {
+    const value = raw.trim() ? Number(raw) : NaN
+    const start = key === 'source_in_sec' ? value : shot.source_in_sec
+    const end = key === 'source_out_sec' ? value : shot.source_out_sec
+    const valid = source?.status !== 'needs_review' && Number.isFinite(start)
+      && Number.isFinite(end) && start >= (source?.start_sec ?? shot.source_in_sec)
+      && end <= (source?.end_sec ?? shot.source_out_sec) && end - start >= 0.05
+    setWindowError(!valid)
+    if (valid) onUpdate({ [key]: value })
+  }
   return (
     <div className="rounded border border-ink-700 p-2 text-xs" data-testid={`plan-shot-${index}`}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-slate-500" data-testid="shot-index">#{index + 1}</span>
-        <span className="text-slate-300">{shot.segment_id.slice(0, 8)}</span>
+        {source?.thumbnail && <img className="h-12 w-20 rounded object-cover"
+          src={mediaUrl(projectId, source.thumbnail)} alt="镜头缩略图" loading="lazy" />}
+        <span className="text-slate-300" title={shot.segment_id}>
+          {source?.asset_display_name ?? shot.asset_id} · {shot.segment_id.slice(0, 8)}
+        </span>
         <Badge tone="blue">{ROLE_LABEL[shot.narrative_role] ?? shot.narrative_role}</Badge>
         <span className="text-slate-500" data-testid="shot-window">
-          {shot.source_in_sec.toFixed(1)}s–{shot.source_out_sec.toFixed(1)}s
+          {shot.source_in_sec.toFixed(3)}s–{shot.source_out_sec.toFixed(3)}s
         </span>
         <span className="text-slate-400" data-testid="shot-duration">
           {shot.planned_duration_sec.toFixed(1)}s
@@ -119,7 +179,7 @@ function ShotRow({
                   onClick={() => onMove(index, index - 1)}>↑</Button>
           <Button variant="ghost" data-testid="move-down" disabled={index === total - 1}
                   onClick={() => onMove(index, index + 1)}>↓</Button>
-          <Button variant="ghost" data-testid="trim-shorter"
+          <Button variant="ghost" data-testid="trim-shorter" disabled={shot.retained || shot.planned_duration_sec <= 0.5}
                   onClick={() => onTrim(index, -0.5)}>短 0.5s</Button>
           <Button variant="ghost" data-testid="toggle-detail"
                   onClick={() => setOpen((v) => !v)}>{open ? '收起' : '证据'}</Button>
@@ -143,6 +203,27 @@ function ShotRow({
           <div className="mt-1 text-slate-500">
             转场建议：{shot.transition_hint || '（无）'} · 节奏建议：{shot.pacing_hint || '（无）'}
           </div>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            {(['source_in_sec', 'source_out_sec'] as const).map((key) => (
+              <label key={key}>{key === 'source_in_sec' ? '源片入点（秒）' : '源片出点（秒）'}
+                <input key={shot[key]} type="number" step="0.001" disabled={shot.retained}
+                       className={inputClass} defaultValue={shot[key]}
+                       onBlur={(e) => {
+                         editBoundary(key, e.target.value)
+                         e.target.value = String(shot[key])
+                       }} />
+              </label>
+            ))}
+            <label>剪辑备注
+              <input className={inputClass} value={shot.editor_note ?? ''} maxLength={400}
+                     onChange={(e) => onUpdate({ editor_note: e.target.value })} />
+            </label>
+            <Button variant="ghost" onClick={() => onUpdate({ retained: !shot.retained })}>
+              {shot.retained ? '解除保留' : '保留镜头'}
+            </Button>
+            <Button variant="ghost" disabled={shot.retained} onClick={onRemove}>移出方案</Button>
+          </div>
+          {windowError && <p className="text-amber-300" role="alert">截取区间必须位于当前可用镜头范围内。</p>}
         </div>
       )}
     </div>
@@ -152,15 +233,29 @@ function ShotRow({
 function VariantCard({
   variant,
   onEdit,
+  originals,
+  projectId,
+  sources,
 }: {
-  variant: PlanVariant
-  onEdit: (variant: PlanVariant) => void
+  variant: ExecutionVariant
+  onEdit: (variant: ExecutionVariant) => void
+  originals: PlanVariant | undefined
+  projectId: string
+  sources: Map<string, SegmentListItem>
 }) {
+  const update = (shots: ExecutionShot[]) => {
+    const timed = retime(shots)
+    const total = round(timed.reduce((acc, shot) => acc + shot.planned_duration_sec, 0))
+    onEdit({ ...variant, shots: timed, total_duration_sec: total,
+      duration_gap_sec: round(variant.target_duration_sec - total),
+      review_items: variant.review_items.filter((item) =>
+        timed.some((shot) => shot.segment_id === item.segment_id)) })
+  }
   const move = (from: number, to: number) => {
     const next = [...variant.shots]
     const [item] = next.splice(from, 1)
     next.splice(to, 0, item)
-    onEdit({ ...variant, shots: retime(next) })
+    update(next)
   }
   const trim = (index: number, delta: number) => {
     const next = variant.shots.map((s, i) => {
@@ -168,9 +263,10 @@ function VariantCard({
       const out = Math.max(s.source_in_sec + 0.5, round(s.source_out_sec + delta))
       return { ...s, source_out_sec: out }
     })
-    onEdit({ ...variant, shots: retime(next) })
+    update(next)
   }
   const total = variant.shots.reduce((acc, s) => acc + s.planned_duration_sec, 0)
+  const changes = originals ? compareExecution(originals, variant) : []
 
   return (
     <Card className="mb-3">
@@ -185,6 +281,12 @@ function VariantCard({
         </span>
       </div>
       <div className="mb-2 text-xs text-slate-400">{variant.logline}</div>
+      <div className="mb-2 flex flex-wrap gap-2 text-xs text-slate-400">
+        {Object.entries(ROLE_LABEL).map(([role, label]) => {
+          const indices = variant.shots.flatMap((shot, index) => shot.narrative_role === role ? [index + 1] : [])
+          return <span key={role}>{label} {indices.length ? indices.map((i) => `#${i}`).join('、') : '未安排'}</span>
+        })}
+      </div>
       {variant.differences.length > 0 && (
         <div className="mb-2 text-xs text-slate-500" data-testid="variant-differences">
           与其他方案的差异：{variant.differences.join('；')}
@@ -193,9 +295,15 @@ function VariantCard({
       <div className="space-y-2">
         {variant.shots.map((s, i) => (
           <ShotRow key={s.shot_id} shot={s} index={i} total={variant.shots.length}
-                   onMove={move} onTrim={trim} />
+                   onMove={move} onTrim={trim} projectId={projectId} source={sources.get(s.segment_id)}
+                   onUpdate={(change) => update(variant.shots.map((shot) =>
+                     shot.shot_id === s.shot_id ? { ...shot, ...change } : shot))}
+                   onRemove={() => update(variant.shots.filter((shot) => shot.shot_id !== s.shot_id))} />
         ))}
       </div>
+      {changes.length > 0 && <ul className="mt-2 text-xs text-amber-300" data-testid="execution-diff">
+        {changes.map((change, i) => <li key={i}>{change}</li>)}
+      </ul>}
       {variant.review_items.length > 0 && (
         <div className="mt-2 text-xs text-amber-300" data-testid="variant-review">
           需人工复核 {variant.review_items.length} 项
@@ -226,7 +334,15 @@ function DirectorPlansForm() {
   const [variantCount, setVariantCount] = useState(2)
   const [maxCandidates, setMaxCandidates] = useState(40)
   const [draft, setDraft] = useState<PlanDraft | null>(null)
-  const [edited, setEdited] = useState<PlanVariant[] | null>(null)
+  const [edited, setEdited] = useState<ExecutionVariant[] | null>(null)
+  const [versions, setVersions] = useState<ExecutionVersion[]>(() => {
+    try { return readVersions(id) } catch { return [] }
+  })
+  const [workingTheme, setWorkingTheme] = useState('')
+  const [generationRequest, setGenerationRequest] = useState<PlanPreviewRequest | null>(null)
+  const [uploadAcknowledged, setUploadAcknowledged] = useState(false)
+  const [reviewer, setReviewer] = useState('')
+  const [versionMessage, setVersionMessage] = useState('')
   // TSB-370-0: the draft must be bound to the exact input it was built from.
   const [staleDigest, setStaleDigest] = useState<string | null>(null)
   const [error, setError] = useState<{ code: string; message: string } | null>(null)
@@ -255,7 +371,7 @@ function DirectorPlansForm() {
   const digestReady = Boolean(inputDigest)
 
   const preview = useMutation({
-    mutationFn: () => {
+    mutationFn: async (mode: 'offline_rules' | 'model' = 'offline_rules') => {
       const body: PlanPreviewRequest = {
         expected_input_digest: inputDigest,
         max_candidates: maxCandidates,
@@ -263,17 +379,22 @@ function DirectorPlansForm() {
         target_duration_sec: target,
         style,
         variant_count: variantCount,
-        planning_mode: 'offline_rules',
+        planning_mode: mode,
+        ...(mode === 'model' ? { upload_acknowledged: uploadAcknowledged } : {}),
       }
-      return api<PlanDraft>(endpoints.directorPlanPreview(id), {
+      const data = await api<PlanDraft>(endpoints.directorPlanPreview(id), {
         method: 'POST',
         body: JSON.stringify(body),
       })
+      return { data, body }
     },
-    onSuccess: (data) => {
+    onSuccess: ({ data, body }) => {
       setDraft(data)
       setEdited(null)
       setError(null)
+      setGenerationRequest(body)
+      setWorkingTheme(body.theme ?? '')
+      setUploadAcknowledged(false)
     },
     onError: (err) => {
       const anyErr = err as { status?: number; message?: string; detail?: { code?: string } }
@@ -289,12 +410,56 @@ function DirectorPlansForm() {
     },
   })
 
-  const variants = edited ?? draft?.variants ?? []
+  const pair = useMutation({
+    mutationFn: async () => {
+      if (!draft || !generationRequest) throw new Error('请重新生成模型方案')
+      const offline = await api<PlanDraft>(endpoints.directorPlanPreview(id), {
+        method: 'POST',
+        body: JSON.stringify({ ...generationRequest, planning_mode: 'offline_rules',
+          upload_acknowledged: false }),
+      })
+      return api<AbBlindView>(endpoints.evaluationAbSessions(id), {
+        method: 'POST',
+        body: JSON.stringify({ offline_plan: offline, model_plan: draft, reviewer }),
+      })
+    },
+  })
+  const sourceSegments = useQuery({
+    queryKey: ['plan-source-segments', id],
+    queryFn: () => fetchAllSegments(id),
+    enabled: Boolean(id && draft?.variants.length),
+  })
+  const sources = useMemo(() => new Map(
+    (sourceSegments.data ?? []).map((s) => [s.id, s])), [sourceSegments.data])
+
+  const variants = useMemo(() => edited ?? draft?.variants ?? [], [edited, draft])
 
   const exportText = useMemo(() => {
     if (!draft) return ''
-    return buildMarkdown(draft, variants)
-  }, [draft, variants])
+    return buildMarkdown(draft, variants, sources, workingTheme)
+  }, [draft, variants, sources, workingTheme])
+
+  const saveVersion = () => {
+    if (!draft || !edited) return
+    try {
+      const version = { id: crypto.randomUUID(), saved_at: new Date().toISOString(),
+        original: draft, variants: edited, theme: workingTheme }
+      const next = [...readVersions(id), version]
+      localStorage.setItem(`tsb.director.execution.${id}`, JSON.stringify(next))
+      setVersions(next)
+      setVersionMessage(`已保存本机执行版本 ${next.length}`)
+    } catch {
+      setVersionMessage('无法保存本机版本。当前编辑仍可导出。')
+    }
+  }
+
+  const openVersion = (version: ExecutionVersion) => {
+    setDraft(version.original)
+    setEdited(version.variants)
+    setWorkingTheme(version.theme)
+    setGenerationRequest(null)
+    pair.reset()
+  }
 
   // Coverage must be truthful *before* the first plan exists, otherwise the form
   // looks like it is planning over an empty library.
@@ -317,9 +482,7 @@ function DirectorPlansForm() {
           ← 返回候选镜头
         </Link>
         <h1 className="text-lg font-semibold text-slate-200">剪辑结构草案</h1>
-        <span className="text-xs text-slate-500">
-          只读 · 离线规则生成 · 不是 AI 看过素材后的结论
-        </span>
+        <span className="text-xs text-slate-500">剪辑执行建议</span>
       </div>
 
       <div className="space-y-3 overflow-auto p-6">
@@ -366,13 +529,28 @@ function DirectorPlansForm() {
             </Field>
             <Button data-testid="generate"
                     disabled={preview.isPending || !digestReady}
-                    onClick={() => preview.mutate()}>
+                    onClick={() => { pair.reset(); preview.mutate('offline_rules') }}>
               {preview.isPending ? '生成中…' : '开始离线策划'}
             </Button>
           </div>
-          <div className="mt-2 text-xs text-slate-500" data-testid="readonly-note">
-            本页不保存、不应用、不上传。刷新会丢失未导出的草案。
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <label className="text-xs text-slate-400">
+              <input type="checkbox" checked={uploadAcknowledged}
+                     onChange={(e) => setUploadAcknowledged(e.target.checked)} />
+              {' '}授权本次发送主题与候选证据文本
+            </label>
+            <Button data-testid="generate-model" variant="ghost"
+                    disabled={!uploadAcknowledged || preview.isPending || !digestReady}
+                    onClick={() => { pair.reset(); preview.mutate('model') }}>生成模型方案</Button>
           </div>
+          <div className="mt-2 text-xs text-slate-500" data-testid="readonly-note">
+            执行版本保存在当前浏览器。此页不保存到正式故事板。
+          </div>
+          {status.data && <div className="text-xs text-slate-500">
+            本次候选 {status.data.segment_count} 个
+            {Boolean(status.data.withheld.candidate_budget) &&
+              ` · 预算未纳入 ${status.data.withheld.candidate_budget} 个`}
+          </div>}
           <div className="mt-1 text-xs text-slate-500" data-testid="digest-state">
             {status.isError
               ? '无法读取输入摘要，已禁用生成。'
@@ -390,6 +568,14 @@ function DirectorPlansForm() {
             </div>
           )}
         </Card>
+
+        {versions.length > 0 && <Card>
+          <div className="mb-2 text-xs text-slate-400">本机执行版本</div>
+          {versions.map((version, index) => <Button key={version.id} variant="ghost"
+            data-testid="open-execution-version" onClick={() => openVersion(version)}>
+            版本 {index + 1} · {new Date(version.saved_at).toLocaleString()}
+          </Button>)}
+        </Card>}
 
         {ctx.isError && (
           <Card>
@@ -430,19 +616,43 @@ function DirectorPlansForm() {
                 <span className="ml-2 text-amber-300">{draft.warnings.join('；')}</span>
               )}
             </div>
+            {workingTheme && <div className="text-sm text-slate-300">主题：{workingTheme}</div>}
+            {draft.planning_mode === 'model' && generationRequest && <Card>
+              <Field label="评价者标识（可选）">
+                <input className={inputClass} value={reviewer} maxLength={64}
+                       onChange={(e) => setReviewer(e.target.value)} />
+              </Field>
+              <Button variant="ghost" disabled={pair.isPending || preview.isPending}
+                      onClick={() => pair.mutate()}>用原始方案创建同条件盲评</Button>
+              {pair.data && <Link className="ml-2 text-accent"
+                to={`/project/${id}/evaluation/ab?session=${encodeURIComponent(pair.data.session_id)}`}>打开盲评</Link>}
+              {pair.isError && <div className="text-xs text-red-400" role="alert">{pair.error.message}</div>}
+            </Card>}
             {variants.map((v, i) => (
-              <VariantCard key={v.variant_id} variant={v} onEdit={(nv) => {
+              <VariantCard key={v.variant_id} variant={v} originals={draft.variants[i]}
+                           projectId={id} sources={sources} onEdit={(nv) => {
                 const base = edited ?? draft.variants
                 const next = [...base]
                 next[i] = nv
                 setEdited(next)
               }} />
             ))}
+            {(draft.withheld.excluded_segments > 0 || draft.withheld.needs_review_segments > 0) &&
+              <div className="text-xs text-amber-300">
+                人工排除 {draft.withheld.excluded_segments ?? 0} 个，待复核 {draft.withheld.needs_review_segments ?? 0} 个。
+                <Link className="ml-2 underline" to={`/project/${id}/director`}>查看不建议使用的原因</Link>
+              </div>}
             <Card>
               <div className="mb-2 text-xs text-slate-400">导出剪辑指导（只读，不写回系统）</div>
               <div className="flex gap-2">
+                {edited && <>
+                  <Button data-testid="save-execution-version" onClick={saveVersion}>保存本机执行版本</Button>
+                  <Button variant="ghost" data-testid="show-original-version"
+                          onClick={() => setEdited(null)}>查看原始方案</Button>
+                </>}
                 <Button data-testid="export-json" onClick={() => download('tsb369-plan.json',
-                  JSON.stringify({ ...draft, variants }, null, 2), 'application/json')}>
+                  JSON.stringify(edited ? { kind: 'execution_copy', original: draft, variants }
+                    : draft, null, 2), 'application/json')}>
                   导出 JSON
                 </Button>
                 <Button data-testid="export-md" onClick={() => download('tsb369-plan.md',
@@ -450,6 +660,7 @@ function DirectorPlansForm() {
                   导出 Markdown
                 </Button>
               </div>
+              {versionMessage && <p className="text-xs text-slate-400" role="status">{versionMessage}</p>}
               <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs text-slate-500"
                    data-testid="export-preview">{exportText.slice(0, 1200)}</pre>
             </Card>
@@ -470,12 +681,18 @@ function download(name: string, content: string, type: string) {
   URL.revokeObjectURL(url)
 }
 
-export function buildMarkdown(draft: PlanDraft, variants: PlanVariant[]): string {
+export function buildMarkdown(
+  draft: PlanDraft, variants: ExecutionVariant[],
+  sources = new Map<string, SegmentListItem>(), workingTheme = '',
+): string {
   const lines: string[] = []
   lines.push('# 剪辑结构草案')
   lines.push('')
   lines.push(`- 项目：${draft.project_id}`)
-  lines.push(`- 生成方式：${draft.planning_mode}（离线规则，不是 AI 看过素材后的结论）`)
+  lines.push(draft.planning_mode === 'model'
+    ? '- 生成方式：模型策划（基于已有镜头证据）'
+    : '- 生成方式：offline_rules（离线规则，不是 AI 看过素材后的结论）')
+  if (workingTheme) lines.push(`- 剪辑主题：${workingTheme}`)
   lines.push(`- 草案状态：${draft.generation_status}`)
   lines.push(`- 输入摘要：\`${draft.source_input_digest}\``)
   lines.push(
@@ -492,14 +709,24 @@ export function buildMarkdown(draft: PlanDraft, variants: PlanVariant[]): string
     lines.push(`${v.logline}`)
     lines.push('')
     lines.push(`状态：${v.status} · 角度：${v.narrative_angle}`)
+    lines.push(`预计时长：${v.total_duration_sec.toFixed(3)}s / 目标 ${v.target_duration_sec}s`)
+    for (const [role, title] of Object.entries(ROLE_LABEL)) {
+      const orders = v.shots.flatMap((shot, index) => shot.narrative_role === role ? [index + 1] : [])
+      lines.push(`- ${title}：${orders.length ? orders.map((i) => `镜头 #${i}`).join('、') : '未安排'}`)
+    }
     lines.push('')
     for (const [i, s] of v.shots.entries()) {
       lines.push(
         `${i + 1}. **${s.segment_id}** ${ROLE_LABEL[s.narrative_role] ?? s.narrative_role} · ` +
-        `源片 ${s.source_in_sec.toFixed(1)}–${s.source_out_sec.toFixed(1)}s · ` +
-        `时长 ${s.planned_duration_sec.toFixed(1)}s · 时间轴 ${s.timeline_start_sec.toFixed(1)}s`,
+        `源片 ${s.source_in_sec.toFixed(3)}–${s.source_out_sec.toFixed(3)}s · ` +
+        `时长 ${s.planned_duration_sec.toFixed(3)}s · 时间轴 ${s.timeline_start_sec.toFixed(3)}s`,
       )
+      lines.push(`   - 素材：${sources.get(s.segment_id)?.asset_display_name ?? s.asset_id} · ${s.asset_id}`)
       lines.push(`   - 选择理由：${s.selection_reason}`)
+      if (s.transition_hint) lines.push(`   - 转场建议：${s.transition_hint}`)
+      if (s.pacing_hint) lines.push(`   - 节奏建议：${s.pacing_hint}`)
+      if (s.editor_note) lines.push(`   - 人工备注：${s.editor_note}`)
+      if (s.retained) lines.push('   - 已保留')
       for (const c of s.claims) {
         const refs = c.evidence_refs.length
           ? `（证据：${c.evidence_refs.map((r) => r.channel).join(', ')}）`

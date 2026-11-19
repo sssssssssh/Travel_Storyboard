@@ -44,7 +44,7 @@ from .director_plan_schema import (
 
 #: Hard bounds on what one request may contain. These keep the outbound text small
 #: and give the ledger a predictable size.
-PROMPT_VERSION = "tsb372.1"
+PROMPT_VERSION = "tsb372.2"
 MAX_PROMPT_BYTES = 512 * 1024
 MAX_EVENTS_PER_SHOT = 4
 MAX_TAGS_PER_SHOT = 6
@@ -66,7 +66,12 @@ claim the footage contains something merely because the theme mentions it.
 6. A shot window is a real cut: source_out_sec MUST be greater than \
 source_in_sec, and both MUST lie inside that shot's listed window. Never \
 output an empty window. \
-7. Use only the segment_id values listed below. Never invent a segment id."""
+7. Use only the segment_id values listed below. Never invent a segment id.
+8. Each variant should have a concrete narrative angle, opening, development,
+   climax if supported, and closing. Use the requested duration, and explain
+   shot choice, ordering, pacing, and transitions. Treat editing ideas such as
+   slow motion as suggestions. Label uncertain evidence and never present it as
+   confirmed. Do not mention the model name, provider, or generation method."""
 
 SCHEMA_HINT = """Respond with:
 {"variants":[{"title":str,"narrative_angle":"chronological|highlights_first|atmospheric",
@@ -74,6 +79,7 @@ SCHEMA_HINT = """Respond with:
 "shots":[{"segment_id":str,"source_in_sec":num,"source_out_sec":num,
 "section_id":str,"narrative_role":"opening|development|turning_point|climax|closing",
 "selection_reason":str,
+"transition_hint":str,"pacing_hint":str,
 "claims":[{"text":str,"kind":"observed_signal|human_supplied|editorial_suggestion|unknown",
 "evidence_refs":[{"channel":"static|multiframe|video_native","result_id":str}]}],
 "evidence_refs":[{"channel":str,"result_id":str}]}]}]}
