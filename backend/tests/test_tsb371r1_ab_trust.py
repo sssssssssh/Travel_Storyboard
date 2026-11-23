@@ -131,7 +131,7 @@ def test_tsb372_section_ids_do_not_reveal_source_or_make_a_distinct_cut():
     b.variants[0].shots[0].section_id = "model-generated-section"
     assert ab.content_fingerprint(a) == ab.content_fingerprint(b)
     assert "model-generated-section" not in json.dumps(
-        ab._neutral_variant(b.variants[0], side="B"))
+        ab._neutral_variant(ab._variant_snapshot(b.variants[0], side="B"), side="B"))
 
 
 def test_identical_content_is_refused_as_an_ab_pair():

@@ -30,8 +30,9 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from . import director_candidates as dc
+from . import director_plan_content as content
 from .director_plan_input import PlanningEntry, PlanningInput
-from .director_plan_schema import PlanDraft, VariantDraft
+from .director_plan_schema import GROUNDED_MODEL_SCHEMA_VERSION, PlanDraft, VariantDraft
 
 #: Tolerance for float drift when checking the timeline against the shot sum.
 TIMELINE_EPS = 1e-3
@@ -97,8 +98,21 @@ def _validate_variant(
     variant: VariantDraft,
     entries: dict[str, PlanningEntry],
     problems: list[Problem],
+    *,
+    grounded: bool = False,
 ) -> None:
     vid = variant.variant_id
+    if grounded and (
+        vid not in ("m1", "m2", "m3") or variant.title != content.variant_title(vid)
+        or variant.logline != content.ANGLES[variant.narrative_angle]
+        or variant.differences
+        or any(s.title != content.SECTION_TITLES[s.kind] or s.narrative_role
+               for s in variant.sections)
+        or [(item.segment_id, item.reason) for item in variant.review_items] != [
+            (shot.segment_id, shot.needs_review[0]) for shot in variant.shots if shot.needs_review
+        ]
+    ):
+        problems.append(Problem("UNSTRUCTURED_MODEL_TEXT", "方案概述必须使用标准描述。", vid))
 
     section_ids = [s.section_id for s in variant.sections]
     if len(set(section_ids)) != len(section_ids):
@@ -148,6 +162,8 @@ def _validate_variant(
 
         _validate_window(shot, entry, problems, vid, sid)
         _validate_claims(shot, entry, problems, vid, sid)
+        if grounded:
+            _validate_grounded_text(shot, entry, problems, vid)
 
     _validate_timeline(variant, problems, vid)
 
@@ -227,7 +243,7 @@ def _validate_claims(shot, entry: PlanningEntry, problems: list[Problem],
             continue
         for ref in claim.evidence_refs:
             key = (ref.channel, ref.result_id)
-            if key not in available:
+            if ref.segment_id != entry.segment_id or key not in available:
                 problems.append(Problem(
                     "UNSUPPORTED_VISUAL_CLAIM",
                     f"claim cites {ref.channel}/{ref.result_id} which this shot does "
@@ -239,12 +255,31 @@ def _validate_claims(shot, entry: PlanningEntry, problems: list[Problem],
 
     # Shot-level refs are also checked, they are what the UI renders.
     for ref in shot.evidence_refs:
-        if (ref.channel, ref.result_id) not in available:
+        if ref.segment_id != entry.segment_id or (ref.channel, ref.result_id) not in available:
             problems.append(Problem(
                 "UNKNOWN_EVIDENCE_REF",
                 f"evidence {ref.channel}/{ref.result_id} is not usable for this shot",
                 vid, sid,
             ))
+
+
+def _validate_grounded_text(shot, entry: PlanningEntry, problems: list[Problem], vid: str) -> None:
+    if (shot.selection_reason != content.REASONS[shot.narrative_role]
+            or (shot.transition_hint and shot.transition_hint not in content.TRANSITIONS.values())
+            or (shot.pacing_hint and shot.pacing_hint not in content.PACING.values())
+            or shot.audio_hint or any(reason not in entry.limitations for reason in shot.needs_review)):
+        problems.append(Problem("UNSTRUCTURED_MODEL_TEXT", "剪辑建议必须使用标准描述。",
+                                vid, shot.shot_id))
+    catalog = content.claim_catalog(entry)
+    if any(claim not in catalog.values() for claim in shot.claims):
+        problems.append(Problem("UNSUPPORTED_MODEL_CLAIM", "描述必须来自当前镜头的可用证据或标准建议。",
+                                vid, shot.shot_id))
+    refs = [ref for claim in shot.claims for ref in claim.evidence_refs]
+    if any(ref not in refs for ref in shot.evidence_refs) or any(
+        ref not in shot.evidence_refs for ref in refs
+    ):
+        problems.append(Problem("UNKNOWN_EVIDENCE_REF", "镜头引用必须与已验证描述一致。",
+                                vid, shot.shot_id))
 
 
 def _available_refs(entry: PlanningEntry) -> dict[tuple[str, str], object]:
@@ -375,7 +410,9 @@ def validate_plan(plan: PlanDraft, planning_input: PlanningInput) -> list[Proble
             problems.append(Problem("EMPTY_MODEL_VARIANT",
                                     "a model variant needs at least one executable shot",
                                     variant.variant_id))
-        _validate_variant(variant, entries, problems)
+        _validate_variant(variant, entries, problems, grounded=(
+            plan.planning_mode == "model" and plan.schema_version == GROUNDED_MODEL_SCHEMA_VERSION
+        ))
 
     _validate_distinctness(plan.variants, problems)
 

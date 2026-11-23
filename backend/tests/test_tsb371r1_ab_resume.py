@@ -223,6 +223,31 @@ def test_a_client_asking_to_reveal_early_gets_the_blind_view():
         view = ab.current_view(s.get(EvaluationSession, sid),
                                wants_reveal=True)
     assert view["revealed"] is False
+
+
+def test_tsb372r1_legacy_blind_read_normalizes_every_explanation():
+    from app.models import EvaluationSession
+
+    marker = "ONLY-MODEL-CAN-WRITE-THIS"
+    common = {"segment_id": "seg", "section_id": "old-section", "order": 1,
+              "source_in_sec": 1, "source_out_sec": 3, "planned_duration_sec": 2,
+              "timeline_start_sec": 0, "narrative_role": "opening"}
+    labeled = {"sections": [{"section_id": "old-section", "kind": "opening", "title": marker}],
+               "shots": [{**common, "selection_reason": marker, "claims": [marker],
+                          "needs_review": [marker], "transition_hint": marker, "pacing_hint": marker}],
+               "title": marker, "model_id": marker, "provider": marker, "call_id": marker}
+    row = EvaluationSession(id="legacy", project_id="p1", kind="ab", status="IN_PROGRESS",
+                            context_json={"left": labeled, "right": {"shots": [common]},
+                                          "mapping": {"A": "model", "B": "offline_rules"}})
+    view = ab.current_view(row, wants_reveal=True)
+    assert marker not in str(view) and "mapping" not in view
+    assert view["A"]["shots"][0].keys() == view["B"]["shots"][0].keys()
+    assert view["A"]["shots"][0]["selection_reason"] == view["B"]["shots"][0]["selection_reason"]
+    assert view["A"]["shots"][0]["transition_hint"]
+    ab.submit_preference(row, {"preference": "A"})
+    revealed = ab.current_view(row)
+    assert revealed["mapping"]["A"] == "model"
+    assert revealed["A"]["shots"][0]["selection_reason"] == marker
     assert "mapping" not in view
 
 

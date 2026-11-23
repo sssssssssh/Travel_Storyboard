@@ -288,6 +288,42 @@ def test_tsb372_model_end_anchored_cut_resolves_in_source_seconds(two_shot_input
     assert val.validate_plan(plan, pi) == []
 
 
+@pytest.mark.parametrize("state", ["stale", "failed", "uncertain", "not_visible"])
+def test_tsb372r1_unusable_evidence_has_no_selectable_fact(two_shot_input, state):
+    from dataclasses import replace
+
+    pi, _ = two_shot_input
+    entry = next(e for e in pi.entries if e.static.visual.get("scene_tags"))
+    static = (replace(entry.static, state=state) if state in ("stale", "failed")
+              else replace(entry.static, evidence_state=state))
+    pi.entries = [replace(entry, static=static)]
+    shot = {"segment_id": entry.segment_id, "claims": [{"key": "scene_tags:0"}]}
+    with pytest.raises(ModelPlanError, match="MODEL_CLAIM_INVALID"):
+        parse_model_plan({"variants": [{"shots": [shot]}]}, pi, PlanningBrief(),
+                         model_id="test", provider_name="test", grounded=True)
+
+
+def test_tsb372r1_editorial_and_exact_human_inputs_are_distinct_from_observations(two_shot_input):
+    from dataclasses import replace
+
+    pi, _ = two_shot_input
+    entry = pi.entries[0]
+    pi.entries = [replace(entry, human=replace(entry.human, note="旅程第一天"))]
+    shot = {"segment_id": entry.segment_id,
+            "claims": [{"key": "edit:cut"}, {"key": "human:note"}, {"key": "unknown"}]}
+    plan = parse_model_plan({"variants": [{"shots": [shot]}]}, pi, PlanningBrief(),
+                            model_id="test", provider_name="test", grounded=True)
+    claims = plan.variants[0].shots[0].claims
+    assert [(c.kind, c.text) for c in claims] == [
+        ("editorial_suggestion", "建议直接切换。"),
+        ("human_supplied", "人工备注：旅程第一天"),
+        ("unknown", "画面内容待人工复核。"),
+    ]
+    assert not val.validate_plan(plan, pi)
+    claims[1].text = "人工备注：旅程第二天"
+    assert "UNSUPPORTED_MODEL_CLAIM" in {p.code for p in val.validate_plan(plan, pi)}
+
+
 def test_server_fields_cannot_be_overridden_by_the_model(two_shot_input):
     pi, ids = two_shot_input
     payload = _reply(pi, ids)

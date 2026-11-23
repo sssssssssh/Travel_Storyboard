@@ -18,6 +18,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 SCHEMA_VERSION = "1.0"
+GROUNDED_MODEL_SCHEMA_VERSION = "1.1"
 
 PlanningMode = Literal["offline_rules", "model"]
 GenerationStatus = Literal["complete", "provisional", "insufficient_evidence"]

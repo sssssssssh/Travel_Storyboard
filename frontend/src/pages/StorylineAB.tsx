@@ -100,6 +100,7 @@ function SidePanel({
   disabled: boolean
   projectId: string
 }) {
+  const sectionTitles = new Map(side.sections.map((section) => [section.section_id, section.title]))
   return (
     <Card>
       <div className="mb-2 flex items-center gap-2">
@@ -110,6 +111,8 @@ function SidePanel({
           {side.shots.length} 个镜头 · 合计 {side.total_duration_sec.toFixed(1)}s
         </span>
       </div>
+      {disabled && side.title && <p className="mb-2 text-sm text-slate-300">{side.title}</p>}
+      {disabled && side.logline && <p className="mb-2 text-xs text-slate-400">{side.logline}</p>}
       <div className="mb-2 rounded border border-ink-700 p-2">
         {DIMENSIONS.map((d) => (
           <div key={d.key} className="flex items-center gap-1 py-0.5 text-xs">
@@ -143,17 +146,24 @@ function SidePanel({
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-slate-500">#{shot.order}</span>
               <Badge tone="blue">{ROLE_LABEL[shot.narrative_role] ?? shot.narrative_role}</Badge>
+              {shot.section_id && sectionTitles.has(shot.section_id) &&
+                <span className="text-slate-400">
+                  {sectionTitles.get(shot.section_id)}
+                </span>}
               <span className="text-slate-400">
                 {shot.source_in_sec.toFixed(1)}s–{shot.source_out_sec.toFixed(1)}s
               </span>
               <span className="text-slate-500">{shot.planned_duration_sec.toFixed(1)}s</span>
             </div>
             <div className="mt-1 text-slate-400">{shot.selection_reason}</div>
-            {shot.claims.length > 0 && (
+            <div className="text-slate-500">{[shot.pacing_hint, shot.transition_hint].filter(Boolean).join(' · ')}</div>
+            {disabled && shot.claims.length > 0 && (
               <ul className="mt-1 list-disc pl-4 text-slate-500">
                 {shot.claims.map((c, i) => <li key={i}>{c}</li>)}
               </ul>
             )}
+            {disabled && shot.needs_review.length > 0 &&
+              <p className="mt-1 text-amber-300">待复核：{shot.needs_review.join('、')}</p>}
             {/* Pictures, not just timecodes: a blind review of prose is not a
                 review of the cut. The clip is derived and silent. */}
             <ShotClip
@@ -263,8 +273,8 @@ export default function StorylineAB() {
         {!result && (
           <Card>
             <div className="text-xs text-slate-400" data-testid="blind-note">
-              两个方案使用相同的音乐/转场说明字段与相同排版，来源信息不显示。
-              请先看完再评分，提交前可以反复修改。
+              请按画面、截取区间和统一的节奏与连接提示评分。
+              提交后可以查看方案来源和原始解释。
             </div>
           </Card>
         )}

@@ -30,11 +30,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import director_candidates as dc
+from . import director_plan_content as content
 from .director_plan_input import PlanningEntry, PlanningInput
 from .director_plan_schema import (
     Claim,
     CoverageSummary,
     EvidenceRef,
+    GROUNDED_MODEL_SCHEMA_VERSION,
+    SCHEMA_VERSION,
     PlanDraft,
     PlanningBrief,
     ReviewItem,
@@ -45,7 +48,7 @@ from .director_plan_schema import (
 
 #: Hard bounds on what one request may contain. These keep the outbound text small
 #: and give the ledger a predictable size.
-PROMPT_VERSION = "tsb372.4"
+PROMPT_VERSION = "tsb372-r1.1"
 MAX_PROMPT_BYTES = 512 * 1024
 MAX_EVENTS_PER_SHOT = 4
 MAX_DETAIL_SHOTS = 12
@@ -68,24 +71,22 @@ claim the footage contains something merely because the theme mentions it.
    middle or end) inside the listed shot. The server computes source_in_sec and
    source_out_sec. \
 7. Use only the segment_id values listed below. Never invent a segment id.
-8. Each variant should have a concrete narrative angle, opening, development,
-   climax if supported, and closing. Use the requested duration, and explain
-   shot choice, ordering, pacing, and transitions. Treat editing ideas such as
-   slow motion as suggestions. Label uncertain evidence and never present it as
-   confirmed. Do not mention the model name, provider, or generation method."""
+8. Choose a narrative angle, opening, development, climax if supported, and
+   closing. Use the requested duration, choose pacing and transition codes,
+   and select only offered claim keys. The server writes all display text."""
 
 SCHEMA_HINT = """Respond with:
-{"variants":[{"title":str,"narrative_angle":"chronological|highlights_first|atmospheric",
-"logline":str,"sections":[{"section_id":str,"kind":"opening|body|closing|custom","title":str}],
+{"variants":[{"narrative_angle":"chronological|highlights_first|atmospheric",
+"sections":[{"section_id":str,"kind":"opening|body|closing|custom"}],
 "shots":[{"segment_id":str,"cut":{"anchor":"start|middle|end","duration_sec":num},
 "section_id":str,"narrative_role":"opening|development|turning_point|climax|closing",
-"selection_reason":str,
-"transition_hint":str,"pacing_hint":str,
-"claims":[{"text":str,"kind":"observed_signal|human_supplied|editorial_suggestion|unknown",
-"evidence_refs":[{"channel":"static|multiframe|video_native","result_id":str}]}],
-"evidence_refs":[{"channel":str,"result_id":str}]}]}]}
+"transition_code":"cut|dissolve|match_cut","pacing_code":"quick|hold|slow_motion",
+"claims":[{"key":"an offered claim key for this segment"}]}]}]}
 
-Choose one cut per listed segment. Use durations that fit its listed window."""
+Use the offered keys to cite existing evidence ids; the server supplies the exact claim text.
+For editorial suggestions you may also select edit:cut, edit:dissolve, edit:match_cut,
+edit:quick, edit:hold or edit:slow_motion. Omit claims when none fit.
+Never generate prose. Choose durations that fit within the listed shot's window."""
 
 
 class ModelPlanError(Exception):
@@ -185,6 +186,11 @@ def build_evidence_text(
                 extra["motion_summary"] = e.multiframe.action_summary
             if extra:
                 details.append(f"#{idx} " + json.dumps(extra, ensure_ascii=False, separators=(",", ":")))
+        catalog = content.claim_catalog(e)
+        lines.append("  claims=" + json.dumps({
+            key: ("人工输入已存在" if claim.kind == "human_supplied" else _shorten(claim.text, 115))
+            for key, claim in catalog.items() if claim.kind != "editorial_suggestion"
+        }, ensure_ascii=False, separators=(",", ":")))
 
     header = [
         f"THEME (creative constraint, not a fact about footage): {brief.theme[:200]}",
@@ -193,7 +199,7 @@ def build_evidence_text(
         f"VARIANTS REQUESTED: {brief.variant_count}",
         "AUDIO: not analysed for any shot.",
         "Return a concise plan directly. Use about 8–12 shots for a 60-second plan. "
-        "One short evidence-based reason per shot is enough. Avoid repeating evidence verbatim.",
+        "Select only relevant claim keys. The server renders their text.",
         f"Candidates listed: {len(usable)}; eligible shots withheld by candidate budget: "
         f"{planning_input.withheld.get('candidate_budget', 0)}.",
         "",
@@ -318,7 +324,7 @@ def _anchored_cut(raw: Any, entry: PlanningEntry) -> tuple[float, float]:
 
 def parse_model_plan(
     payload: dict, planning_input: PlanningInput, brief: PlanningBrief,
-    *, model_id: str, provider_name: str,
+    *, model_id: str, provider_name: str, grounded: bool = False,
 ) -> PlanDraft:
     """Turn a model payload into a validated-able PlanDraft with server authority."""
 
@@ -349,10 +355,11 @@ def parse_model_plan(
             sections.append(SectionDraft(
                 section_id=str(sraw.get("section_id") or f"{vid}-sec{si}")[:64],
                 kind=kind,  # type: ignore[arg-type]
-                title=str(sraw.get("title") or "")[:80],
+                title=content.SECTION_TITLES[kind] if grounded else str(sraw.get("title") or "")[:80],
             ))
         if not sections:
-            sections = [SectionDraft(section_id=f"{vid}-sec1", kind="body", title="主体")]
+            sections = [SectionDraft(section_id=f"{vid}-sec1", kind="body",
+                                     title=content.SECTION_TITLES["body"] if grounded else "主体")]
 
         shots: list[ShotDraft] = []
         timeline = 0.0
@@ -412,21 +419,23 @@ def parse_model_plan(
             if sec_id not in {s.section_id for s in sections}:
                 sec_id = sections[0].section_id
 
-            refs = _refs_from(sraw.get("evidence_refs") or [], seg_id, allowed)
-            claims: list[Claim] = []
-            for craw in (sraw.get("claims") or [])[:6]:
-                if not isinstance(craw, dict):
-                    continue
-                kind = str(craw.get("kind") or "unknown")
-                if kind not in ("observed_signal", "human_supplied",
-                                "editorial_suggestion", "unknown"):
-                    kind = "unknown"
-                claims.append(Claim(
-                    text=str(craw.get("text") or "")[:300],
-                    kind=kind,  # type: ignore[arg-type]
-                    evidence_refs=_refs_from(
-                        craw.get("evidence_refs") or [], seg_id, allowed),
-                ))
+            if grounded:
+                claims, refs = _grounded_claims(sraw, entry)
+            else:
+                refs = _refs_from(sraw.get("evidence_refs") or [], seg_id, allowed)
+                claims = []
+                for craw in (sraw.get("claims") or [])[:6]:
+                    if not isinstance(craw, dict):
+                        continue
+                    kind = str(craw.get("kind") or "unknown")
+                    if kind not in ("observed_signal", "human_supplied",
+                                    "editorial_suggestion", "unknown"):
+                        kind = "unknown"
+                    claims.append(Claim(
+                        text=str(craw.get("text") or "")[:300],
+                        kind=kind,  # type: ignore[arg-type]
+                        evidence_refs=_refs_from(craw.get("evidence_refs") or [], seg_id, allowed),
+                    ))
 
             shots.append(ShotDraft(
                 shot_id=f"{vid}-s{si:02d}", segment_id=seg_id,
@@ -434,11 +443,14 @@ def parse_model_plan(
                 source_in_sec=in_sec, source_out_sec=out_sec,
                 planned_duration_sec=duration, timeline_start_sec=round(timeline, 3),
                 narrative_role=role,  # type: ignore[arg-type]
-                selection_reason=str(sraw.get("selection_reason") or "")[:300],
+                selection_reason=(content.REASONS[role] if grounded
+                                  else str(sraw.get("selection_reason") or "")[:300]),
                 claims=claims, evidence_refs=refs,
                 needs_review=list(entry.limitations)[:6],
-                transition_hint=str(sraw.get("transition_hint") or "")[:80],
-                pacing_hint=str(sraw.get("pacing_hint") or "")[:80],
+                transition_hint=(content.TRANSITIONS.get(str(sraw.get("transition_code")), "") if grounded
+                                 else str(sraw.get("transition_hint") or "")[:80]),
+                pacing_hint=(content.PACING.get(str(sraw.get("pacing_code")), "") if grounded
+                             else str(sraw.get("pacing_hint") or "")[:80]),
             ))
             timeline = round(timeline + duration, 3)
 
@@ -449,9 +461,9 @@ def parse_model_plan(
 
         variants.append(VariantDraft(
             variant_id=vid,
-            title=str(vraw.get("title") or f"模型方案 {vi}")[:120],
+            title=content.variant_title(vid) if grounded else str(vraw.get("title") or f"模型方案 {vi}")[:120],
             narrative_angle=angle,  # type: ignore[arg-type]
-            logline=str(vraw.get("logline") or "")[:300],
+            logline=content.ANGLES[angle] if grounded else str(vraw.get("logline") or "")[:300],
             status="provisional",
             sections=sections,
             shots=shots,
@@ -502,6 +514,7 @@ def parse_model_plan(
         return int(getattr(cov, name, 0) or 0)
 
     return PlanDraft(
+        schema_version=GROUNDED_MODEL_SCHEMA_VERSION if grounded else SCHEMA_VERSION,
         project_id=planning_input.project_id,
         planning_mode="model",
         generation_status="provisional",
@@ -521,3 +534,23 @@ def parse_model_plan(
                   "结论未经人工观看验证。"]
                  + [f"{q['code']}: {q['detail']}" for q in model_problems],
     )
+
+
+def _grounded_claims(raw: dict, entry: PlanningEntry) -> tuple[list[Claim], list[EvidenceRef]]:
+    catalog = content.claim_catalog(entry)
+    supplied = raw.get("claims", [])
+    if not isinstance(supplied, list) or len(supplied) > 6:
+        raise ModelPlanError("MODEL_CLAIM_INVALID", "模型返回了无效的事实选择列表。")
+    claims: list[Claim] = []
+    refs: list[EvidenceRef] = []
+    for selection in supplied:
+        key = selection.get("key") if isinstance(selection, dict) else None
+        if not isinstance(key, str) or key not in catalog or set(selection) != {"key"}:
+            raise ModelPlanError("MODEL_CLAIM_INVALID", "模型必须选择属于当前镜头的已提供事实键。")
+        claim = catalog[key]
+        if claim not in claims:
+            claims.append(claim)
+            refs.extend(ref for ref in claim.evidence_refs if ref not in refs)
+    if raw.get("evidence_refs"):
+        raise ModelPlanError("MODEL_CLAIM_INVALID", "证据引用由服务端生成，请勿在方案中提供。")
+    return claims, refs

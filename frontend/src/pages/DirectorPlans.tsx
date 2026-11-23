@@ -62,6 +62,13 @@ const ROLE_LABEL: Record<string, string> = {
 
 type ExecutionShot = PlanShot & { editor_note?: string; retained?: boolean }
 type ExecutionVariant = Omit<PlanVariant, 'shots'> & { shots: ExecutionShot[] }
+type Boundary = 'source_in_sec' | 'source_out_sec'
+type WindowEdit = Record<Boundary, string> & { error?: string }
+const MIN_CUT_SEC = 0.05
+const windowKey = (variantId: string, shotId: string) => JSON.stringify([variantId, shotId])
+const parseTime = (value: string) => /^(?:\d+(?:\.\d{0,9})?|\.\d{1,9})$/.test(value.trim())
+  ? Number(value.trim()) : NaN
+const displaySeconds = (value: number) => Number.isInteger(value) ? value.toFixed(1) : String(value)
 type ExecutionVersion = {
   id: string; saved_at: string; original: PlanDraft; variants: ExecutionVariant[]; theme: string
 }
@@ -106,13 +113,19 @@ function retime(shots: ExecutionShot[]): ExecutionShot[] {
   })
 }
 
-const round = (n: number) => Math.round(n * 1000) / 1000
+const round = (n: number) => Number(n.toFixed(9))
 
-function ClaimLine({ claim }: { claim: PlanClaim }) {
+function claimLabel(claim: PlanClaim, historical: boolean) {
+  return historical ? '历史模型描述 · 待复核' : KIND_LABEL[claim.kind] ?? claim.kind
+}
+
+function ClaimLine({ claim, historical }: { claim: PlanClaim; historical: boolean }) {
   return (
     <div className="mb-1 text-xs" data-testid="claim">
       <span data-testid={`claim-kind-${claim.kind}`}>
-        <Badge tone={KIND_TONE[claim.kind] ?? 'slate'}>{KIND_LABEL[claim.kind] ?? claim.kind}</Badge>
+        <Badge tone={historical ? 'yellow' : KIND_TONE[claim.kind] ?? 'slate'}>
+          {claimLabel(claim, historical)}
+        </Badge>
       </span>{' '}
       <span className="text-slate-300">{claim.text}</span>
       {claim.evidence_refs.length > 0 && (
@@ -134,6 +147,10 @@ function ShotRow({
   source,
   onUpdate,
   onRemove,
+  original,
+  windowEdit,
+  onWindowEdit,
+  historical,
 }: {
   shot: ExecutionShot
   index: number
@@ -144,18 +161,37 @@ function ShotRow({
   source?: SegmentListItem
   onUpdate: (change: Partial<ExecutionShot>) => void
   onRemove: () => void
+  original?: PlanShot
+  windowEdit?: WindowEdit
+  onWindowEdit: (edit?: WindowEdit) => void
+  historical: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const [windowError, setWindowError] = useState(false)
-  const editBoundary = (key: 'source_in_sec' | 'source_out_sec', raw: string) => {
-    const value = raw.trim() ? Number(raw) : NaN
-    const start = key === 'source_in_sec' ? value : shot.source_in_sec
-    const end = key === 'source_out_sec' ? value : shot.source_out_sec
-    const valid = source?.status !== 'needs_review' && Number.isFinite(start)
-      && Number.isFinite(end) && start >= (source?.start_sec ?? shot.source_in_sec)
-      && end <= (source?.end_sec ?? shot.source_out_sec) && end - start >= 0.05
-    setWindowError(!valid)
-    if (valid) onUpdate({ [key]: value })
+  const windowValues = windowEdit ?? {
+    source_in_sec: String(shot.source_in_sec), source_out_sec: String(shot.source_out_sec),
+  }
+  const commitWindow = () => {
+    if (!windowEdit || shot.retained) return
+    const start = parseTime(windowEdit.source_in_sec)
+    const end = parseTime(windowEdit.source_out_sec)
+    const low = source?.start_sec ?? original?.source_in_sec ?? shot.source_in_sec
+    const high = source?.end_sec ?? original?.source_out_sec ?? shot.source_out_sec
+    let message = ''
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      message = '请输入非负秒数，最多保留九位小数。'
+    } else if (end <= start) {
+      message = '出点必须晚于入点。'
+    } else if (source?.status === 'needs_review' || start < low || end > high) {
+      message = `截取区间必须位于当前可用镜头范围内（${low}–${high}s）。`
+    } else if (round(end - start) < MIN_CUT_SEC) {
+      message = `镜头至少需要 ${MIN_CUT_SEC} 秒。`
+    }
+    if (message) {
+      onWindowEdit({ ...windowEdit, error: message })
+      return
+    }
+    onUpdate({ source_in_sec: start, source_out_sec: end })
+    onWindowEdit()
   }
   return (
     <div className="rounded border border-ink-700 p-2 text-xs" data-testid={`plan-shot-${index}`}>
@@ -168,18 +204,21 @@ function ShotRow({
         </span>
         <Badge tone="blue">{ROLE_LABEL[shot.narrative_role] ?? shot.narrative_role}</Badge>
         <span className="text-slate-500" data-testid="shot-window">
-          {shot.source_in_sec.toFixed(3)}s–{shot.source_out_sec.toFixed(3)}s
+          {displaySeconds(shot.source_in_sec)}s–{displaySeconds(shot.source_out_sec)}s
         </span>
         <span className="text-slate-400" data-testid="shot-duration">
-          {shot.planned_duration_sec.toFixed(1)}s
+          {displaySeconds(shot.planned_duration_sec)}s
         </span>
-        <span className="text-slate-500">时间轴 {shot.timeline_start_sec.toFixed(1)}s</span>
+        <span className="text-slate-500">时间轴 {displaySeconds(shot.timeline_start_sec)}s</span>
         <span className="ml-auto flex gap-1">
           <Button variant="ghost" data-testid="move-up" disabled={index === 0}
                   onClick={() => onMove(index, index - 1)}>↑</Button>
           <Button variant="ghost" data-testid="move-down" disabled={index === total - 1}
                   onClick={() => onMove(index, index + 1)}>↓</Button>
-          <Button variant="ghost" data-testid="trim-shorter" disabled={shot.retained || shot.planned_duration_sec <= 0.5}
+          <Button variant="ghost" data-testid="trim-shorter"
+                  disabled={shot.retained || !!windowEdit || shot.planned_duration_sec <= 0.5
+                    || source?.status === 'needs_review'
+                    || !!source && (shot.source_in_sec < source.start_sec || shot.source_out_sec > source.end_sec)}
                   onClick={() => onTrim(index, -0.5)}>短 0.5s</Button>
           <Button variant="ghost" data-testid="toggle-detail"
                   onClick={() => setOpen((v) => !v)}>{open ? '收起' : '证据'}</Button>
@@ -198,7 +237,7 @@ function ShotRow({
               该镜头没有任何模型读数，因此没有画面描述。
             </div>
           ) : (
-            shot.claims.map((c, i) => <ClaimLine key={i} claim={c} />)
+            shot.claims.map((c, i) => <ClaimLine key={i} claim={c} historical={historical} />)
           )}
           <div className="mt-1 text-slate-500">
             转场建议：{shot.transition_hint || '（无）'} · 节奏建议：{shot.pacing_hint || '（无）'}
@@ -206,11 +245,14 @@ function ShotRow({
           <div className="mt-2 flex flex-wrap items-end gap-2">
             {(['source_in_sec', 'source_out_sec'] as const).map((key) => (
               <label key={key}>{key === 'source_in_sec' ? '源片入点（秒）' : '源片出点（秒）'}
-                <input key={shot[key]} type="number" step="0.001" disabled={shot.retained}
-                       className={inputClass} defaultValue={shot[key]}
-                       onBlur={(e) => {
-                         editBoundary(key, e.target.value)
-                         e.target.value = String(shot[key])
+                <input type="text" inputMode="decimal" disabled={shot.retained}
+                       aria-invalid={!!windowEdit?.error}
+                       className={inputClass} value={windowValues[key]}
+                       onChange={(e) => onWindowEdit({ ...windowValues, [key]: e.target.value, error: undefined })}
+                       onBlur={commitWindow}
+                       onKeyDown={(e) => {
+                         if (e.key === 'Enter') { e.preventDefault(); commitWindow() }
+                         if (e.key === 'Escape') { e.preventDefault(); onWindowEdit() }
                        }} />
               </label>
             ))}
@@ -218,12 +260,12 @@ function ShotRow({
               <input className={inputClass} value={shot.editor_note ?? ''} maxLength={400}
                      onChange={(e) => onUpdate({ editor_note: e.target.value })} />
             </label>
-            <Button variant="ghost" onClick={() => onUpdate({ retained: !shot.retained })}>
+            <Button variant="ghost" disabled={!!windowEdit} onClick={() => onUpdate({ retained: !shot.retained })}>
               {shot.retained ? '解除保留' : '保留镜头'}
             </Button>
-            <Button variant="ghost" disabled={shot.retained} onClick={onRemove}>移出方案</Button>
+            <Button variant="ghost" disabled={shot.retained || !!windowEdit} onClick={onRemove}>移出方案</Button>
           </div>
-          {windowError && <p className="text-amber-300" role="alert">截取区间必须位于当前可用镜头范围内。</p>}
+          {windowEdit?.error && <p className="text-amber-300" role="alert">{windowEdit.error}</p>}
         </div>
       )}
     </div>
@@ -236,12 +278,18 @@ function VariantCard({
   originals,
   projectId,
   sources,
+  windowEdits,
+  onWindowEdit,
+  historical,
 }: {
   variant: ExecutionVariant
   onEdit: (variant: ExecutionVariant) => void
   originals: PlanVariant | undefined
   projectId: string
   sources: Map<string, SegmentListItem>
+  windowEdits: Record<string, WindowEdit>
+  onWindowEdit: (key: string, edit?: WindowEdit) => void
+  historical: boolean
 }) {
   const update = (shots: ExecutionShot[]) => {
     const timed = retime(shots)
@@ -277,7 +325,7 @@ function VariantCard({
         <Badge tone={variant.status === 'provisional' ? 'yellow' : 'green'}>{variant.status}</Badge>
         <span className="text-xs text-slate-500">{variant.narrative_angle}</span>
         <span className="ml-auto text-xs text-slate-400" data-testid="variant-total">
-          合计 {round(total).toFixed(1)}s / 目标 {variant.target_duration_sec}s
+          合计 {displaySeconds(round(total))}s / 目标 {variant.target_duration_sec}s
         </span>
       </div>
       <div className="mb-2 text-xs text-slate-400">{variant.logline}</div>
@@ -296,6 +344,10 @@ function VariantCard({
         {variant.shots.map((s, i) => (
           <ShotRow key={s.shot_id} shot={s} index={i} total={variant.shots.length}
                    onMove={move} onTrim={trim} projectId={projectId} source={sources.get(s.segment_id)}
+                   original={originals?.shots.find((shot) => shot.shot_id === s.shot_id)}
+                   historical={historical}
+                   windowEdit={windowEdits[windowKey(variant.variant_id, s.shot_id)]}
+                   onWindowEdit={(edit) => onWindowEdit(windowKey(variant.variant_id, s.shot_id), edit)}
                    onUpdate={(change) => update(variant.shots.map((shot) =>
                      shot.shot_id === s.shot_id ? { ...shot, ...change } : shot))}
                    onRemove={() => update(variant.shots.filter((shot) => shot.shot_id !== s.shot_id))} />
@@ -335,6 +387,16 @@ function DirectorPlansForm() {
   const [maxCandidates, setMaxCandidates] = useState(100)
   const [draft, setDraft] = useState<PlanDraft | null>(null)
   const [edited, setEdited] = useState<ExecutionVariant[] | null>(null)
+  const [windowEdits, setWindowEdits] = useState<Record<string, WindowEdit>>({})
+  const hasPendingWindows = Object.keys(windowEdits).length > 0
+  const changeWindowEdit = (key: string, edit?: WindowEdit) => {
+    setWindowEdits((previous) => {
+      const next = { ...previous }
+      if (edit) next[key] = edit
+      else delete next[key]
+      return next
+    })
+  }
   const [versions, setVersions] = useState<ExecutionVersion[]>(() => {
     try { return readVersions(id) } catch { return [] }
   })
@@ -391,6 +453,7 @@ function DirectorPlansForm() {
     onSuccess: ({ data, body }) => {
       setDraft(data)
       setEdited(null)
+      setWindowEdits({})
       setError(null)
       setGenerationRequest(body)
       setWorkingTheme(body.theme ?? '')
@@ -405,6 +468,7 @@ function DirectorPlansForm() {
         setStaleDigest(inputDigest)
         setDraft(null)
         setEdited(null)
+        setWindowEdits({})
       }
       setError({ code, message: anyErr.message ?? '生成草案失败' })
     },
@@ -440,7 +504,7 @@ function DirectorPlansForm() {
   }, [draft, variants, sources, workingTheme])
 
   const saveVersion = () => {
-    if (!draft || !edited) return
+    if (!draft || !edited || hasPendingWindows) return
     try {
       const version = { id: crypto.randomUUID(), saved_at: new Date().toISOString(),
         original: draft, variants: edited, theme: workingTheme }
@@ -456,6 +520,7 @@ function DirectorPlansForm() {
   const openVersion = (version: ExecutionVersion) => {
     setDraft(version.original)
     setEdited(version.variants)
+    setWindowEdits({})
     setWorkingTheme(version.theme)
     setGenerationRequest(null)
     pair.reset()
@@ -616,6 +681,8 @@ function DirectorPlansForm() {
                 <span className="ml-2 text-amber-300">{draft.warnings.join('；')}</span>
               )}
             </div>
+            {draft.planning_mode === 'model' && draft.schema_version === '1.0' &&
+              <p className="text-xs text-amber-300">历史模型原文需人工复核。</p>}
             {workingTheme && <div className="text-sm text-slate-300">主题：{workingTheme}</div>}
             {draft.planning_mode === 'model' && generationRequest && <Card>
               <Field label="评价者标识（可选）">
@@ -630,11 +697,12 @@ function DirectorPlansForm() {
             </Card>}
             {variants.map((v, i) => (
               <VariantCard key={v.variant_id} variant={v} originals={draft.variants[i]}
-                           projectId={id} sources={sources} onEdit={(nv) => {
-                const base = edited ?? draft.variants
-                const next = [...base]
-                next[i] = nv
-                setEdited(next)
+                           projectId={id} sources={sources} windowEdits={windowEdits}
+                           onWindowEdit={changeWindowEdit}
+                           historical={draft.planning_mode === 'model' && draft.schema_version === '1.0'}
+                           onEdit={(nv) => {
+                setEdited((previous) => (previous ?? draft.variants).map(
+                  (variant, index) => index === i ? nv : variant))
               }} />
             ))}
             {(draft.withheld.excluded_segments > 0 || draft.withheld.needs_review_segments > 0) &&
@@ -646,20 +714,23 @@ function DirectorPlansForm() {
               <div className="mb-2 text-xs text-slate-400">导出剪辑指导（只读，不写回系统）</div>
               <div className="flex gap-2">
                 {edited && <>
-                  <Button data-testid="save-execution-version" onClick={saveVersion}>保存本机执行版本</Button>
+                  <Button data-testid="save-execution-version" disabled={hasPendingWindows} onClick={saveVersion}>保存本机执行版本</Button>
                   <Button variant="ghost" data-testid="show-original-version"
-                          onClick={() => setEdited(null)}>查看原始方案</Button>
+                          onClick={() => { setEdited(null); setWindowEdits({}) }}>查看原始方案</Button>
                 </>}
-                <Button data-testid="export-json" onClick={() => download('tsb369-plan.json',
+                <Button data-testid="export-json" disabled={hasPendingWindows} onClick={() => download('tsb369-plan.json',
                   JSON.stringify(edited ? { kind: 'execution_copy', original: draft, variants }
                     : draft, null, 2), 'application/json')}>
                   导出 JSON
                 </Button>
-                <Button data-testid="export-md" onClick={() => download('tsb369-plan.md',
+                <Button data-testid="export-md" disabled={hasPendingWindows} onClick={() => download('tsb369-plan.md',
                   exportText, 'text/markdown')}>
                   导出 Markdown
                 </Button>
               </div>
+              {hasPendingWindows && <p className="text-xs text-amber-300" role="status">
+                请提交时间编辑，或按 Escape 恢复上一次有效值，再保存或导出。
+              </p>}
               {versionMessage && <p className="text-xs text-slate-400" role="status">{versionMessage}</p>}
               <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs text-slate-500"
                    data-testid="export-preview">{exportText.slice(0, 1200)}</pre>
@@ -686,6 +757,7 @@ export function buildMarkdown(
   sources = new Map<string, SegmentListItem>(), workingTheme = '',
 ): string {
   const lines: string[] = []
+  const historical = draft.planning_mode === 'model' && draft.schema_version === '1.0'
   lines.push('# 剪辑结构草案')
   lines.push('')
   lines.push(`- 项目：${draft.project_id}`)
@@ -693,6 +765,7 @@ export function buildMarkdown(
     ? '- 生成方式：模型策划（基于已有镜头证据）'
     : '- 生成方式：offline_rules（离线规则，不是 AI 看过素材后的结论）')
   if (workingTheme) lines.push(`- 剪辑主题：${workingTheme}`)
+  if (historical) lines.push('- 历史模型文本需人工复核。')
   lines.push(`- 草案状态：${draft.generation_status}`)
   lines.push(`- 输入摘要：\`${draft.source_input_digest}\``)
   lines.push(
@@ -709,7 +782,7 @@ export function buildMarkdown(
     lines.push(`${v.logline}`)
     lines.push('')
     lines.push(`状态：${v.status} · 角度：${v.narrative_angle}`)
-    lines.push(`预计时长：${v.total_duration_sec.toFixed(3)}s / 目标 ${v.target_duration_sec}s`)
+    lines.push(`预计时长：${displaySeconds(v.total_duration_sec)}s / 目标 ${v.target_duration_sec}s`)
     for (const [role, title] of Object.entries(ROLE_LABEL)) {
       const orders = v.shots.flatMap((shot, index) => shot.narrative_role === role ? [index + 1] : [])
       lines.push(`- ${title}：${orders.length ? orders.map((i) => `镜头 #${i}`).join('、') : '未安排'}`)
@@ -718,8 +791,8 @@ export function buildMarkdown(
     for (const [i, s] of v.shots.entries()) {
       lines.push(
         `${i + 1}. **${s.segment_id}** ${ROLE_LABEL[s.narrative_role] ?? s.narrative_role} · ` +
-        `源片 ${s.source_in_sec.toFixed(3)}–${s.source_out_sec.toFixed(3)}s · ` +
-        `时长 ${s.planned_duration_sec.toFixed(3)}s · 时间轴 ${s.timeline_start_sec.toFixed(3)}s`,
+        `源片 ${displaySeconds(s.source_in_sec)}–${displaySeconds(s.source_out_sec)}s · ` +
+        `时长 ${displaySeconds(s.planned_duration_sec)}s · 时间轴 ${displaySeconds(s.timeline_start_sec)}s`,
       )
       lines.push(`   - 素材：${sources.get(s.segment_id)?.asset_display_name ?? s.asset_id} · ${s.asset_id}`)
       lines.push(`   - 选择理由：${s.selection_reason}`)
@@ -731,7 +804,7 @@ export function buildMarkdown(
         const refs = c.evidence_refs.length
           ? `（证据：${c.evidence_refs.map((r) => r.channel).join(', ')}）`
           : ''
-        lines.push(`   - [${KIND_LABEL[c.kind] ?? c.kind}] ${c.text}${refs}`)
+        lines.push(`   - [${claimLabel(c, historical)}] ${c.text}${refs}`)
       }
       if (s.needs_review.length) lines.push(`   - 待复核：${s.needs_review.join('；')}`)
       lines.push('')

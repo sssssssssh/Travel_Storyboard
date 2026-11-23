@@ -979,10 +979,13 @@ export interface AbBlindView {
 
 export interface AbSide {
   side: 'A' | 'B'
+  title?: string
+  logline?: string
   sections: { section_id: string; kind: string; title: string }[]
   shots: {
     order: number
     segment_id: string
+    section_id?: string | null
     source_in_sec: number
     source_out_sec: number
     planned_duration_sec: number

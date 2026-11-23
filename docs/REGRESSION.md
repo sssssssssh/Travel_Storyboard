@@ -2581,3 +2581,14 @@ RED 5 failed → GREEN → 反向验证 5 failed。
 | `test_tsb371r1_reason_text.py::test_a_claim_keeps_the_whole_motion_summary[True]` 与 `test_tsb370_model_plan.py::test_tsb372_model_end_anchored_cut_resolves_in_source_seconds` | F | 长证据不会导致离线方案崩溃，按锚点换算合法精确切片 |
 
 T25 补充人工走查：从导演「剪辑执行建议」用相同主题、时长与候选上限生成模型方案，打开盲评并按真实画面填四维评价。保存本机副本后刷新，复核区间、原稿、差异和 Markdown 定位信息。真实调用和配对证据见 [TSB-372 验证记录](validation/tsb372/README.md)，真人评价单独记录。
+
+### TSB-372-R1 可靠性回归
+
+| 用例 | 事项 | 守护行为 |
+|---|---|---|
+| `test_tsb371r1_ab_resume.py::test_tsb372r1_legacy_blind_read_normalizes_every_explanation` | R1-01 | 旧快照原文不能在提交前出现，提交后保持真实映射与原解释 |
+| `test_tsb371_ab.py::test_tsb372r1_experiment_groups_isolate_every_brief_dimension` | R1-02 | 按真实简报、候选、Prompt 和模型分组，缺字段历史隔离 |
+| `test_tsb371_g4_roundtrip.py::test_tsb372r1_model_prose_cannot_bypass_the_claim_contract` 和 `test_tsb370_model_plan.py` 的 R1 用例 | R1-03 | 正常模型接线只接受当前可用事实键，普通文本不能绕过契约 |
+| `DirectorPlans.test.tsx` 的 R1 用例 | R1-04 | 控件保留非法输入，时间轴、版本和两类下载采用同一提交值 |
+
+T25 补充：可用历史盲评验证提交前标准化及提交后原文显示。打开剪辑区间，验证非法输入、Escape 恢复和保存/导出拦截。详见 [TSB-372-R1 记录](validation/tsb372-r1/README.md)。

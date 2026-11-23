@@ -29,9 +29,9 @@ from sqlalchemy.orm import Session
 
 from ..models import EvaluationSession
 from . import director_plan_validation as plan_validation
-from .director_plan_schema import PlanDraft
+from .director_plan_schema import PlanDraft, PlanningBrief
 
-AB_SCHEMA_VERSION = "1.0"
+AB_SCHEMA_VERSION = "1.1"
 DIMENSIONS = ("coherence", "pacing", "reason_credibility", "operability")
 VALID_PREFERENCE = ("A", "B", "TIE", "UNABLE", "NEITHER")
 
@@ -52,17 +52,14 @@ class AbPair:
     mapping: dict[str, str]
 
 
-def _neutral_variant(variant, *, side: str) -> dict[str, Any]:
-    """Project one variant into the blind view.
-
-    Everything that could identify the planner is dropped: the original title, the
-    variant id, the mode, and the provider. The *content* is preserved exactly —
-    rewriting the plans to look alike would defeat the comparison.
-    """
+def _variant_snapshot(variant, *, side: str) -> dict[str, Any]:
+    """Server-only snapshot. Original prose is released after submission."""
     section_ids = {section.section_id: f"section-{i}"
                    for i, section in enumerate(variant.sections, 1)}
     return {
         "side": side,
+        "title": variant.title,
+        "logline": variant.logline,
         "sections": [
             {"section_id": section_ids[s.section_id], "kind": s.kind, "title": s.title}
             for s in variant.sections
@@ -102,6 +99,53 @@ def _neutral_variant(variant, *, side: str) -> dict[str, Any]:
 
 def _roles(variant, role: str) -> list[int]:
     return [i + 1 for i, s in enumerate(variant.shots) if s.narrative_role == role]
+
+
+_ROLE_LABELS = dict(zip(
+    ("opening", "development", "turning_point", "climax", "closing"),
+    ("开场", "展开", "转折", "高潮", "收束"),
+))
+_SECTION_KINDS = ("opening", "body", "closing", "custom")
+
+
+def _neutral_variant(snapshot: dict, *, side: str) -> dict[str, Any]:
+    """Derive the display from cuts alone, including for pre-R1 snapshots."""
+    sections = []
+    ids = {}
+    for index, section in enumerate(snapshot.get("sections") or [], 1):
+        section_id = f"section-{index}"
+        ids[section.get("section_id")] = section_id
+        kind = section.get("kind")
+        sections.append({"section_id": section_id,
+                         "kind": kind if kind in _SECTION_KINDS else "custom",
+                         "title": f"段落 {index}"})
+    shots = []
+    storyline = {role: [] for role in _ROLE_LABELS}
+    for index, shot in enumerate(snapshot.get("shots") or [], 1):
+        role = shot.get("narrative_role")
+        if role not in _ROLE_LABELS:
+            role = "development"
+        storyline[role].append(index)
+        duration = shot["planned_duration_sec"]
+        shots.append({
+            "order": index,
+            "segment_id": shot["segment_id"],
+            "section_id": ids.get(shot.get("section_id")),
+            "source_in_sec": shot["source_in_sec"],
+            "source_out_sec": shot["source_out_sec"],
+            "planned_duration_sec": duration,
+            "timeline_start_sec": shot["timeline_start_sec"],
+            "narrative_role": role,
+            "selection_reason": f"第 {index} 个镜头承担{_ROLE_LABELS[role]}，选用 {duration:.3f} 秒。",
+            "claims": [],
+            "needs_review": [],
+            "transition_hint": "以直接切换预览" if index > 1 else "从此镜头开始",
+            "pacing_hint": f"保留 {duration:.3f} 秒",
+        })
+    return {"side": side, "sections": sections, "shots": shots, "storyline": storyline,
+            **{field: snapshot.get(field, 0) for field in (
+                "total_duration_sec", "target_duration_sec", "duration_gap_sec",
+            )}}
 
 
 #: Fields the real model adapter stamps onto a draft after a successful call.
@@ -218,6 +262,47 @@ def _fingerprint(plan: PlanDraft) -> str:
     return content_fingerprint(plan)
 
 
+def _experiment_metadata(plan: PlanDraft) -> dict[str, Any] | None:
+    """Extract grouping dimensions from the receipt-bound request summary."""
+    summary = plan.request_summary
+    brief, snapshot = summary.get("brief"), summary.get("input_snapshot")
+    if not isinstance(brief, dict) or not isinstance(snapshot, dict):
+        return None
+    theme = brief.get("theme_digest")
+    limit = snapshot.get("max_candidates")
+    if (not isinstance(theme, str) or len(theme) != 64
+            or any(char not in "0123456789abcdef" for char in theme)
+            or type(limit) is not int or limit < 1):
+        return None
+    try:
+        settings = PlanningBrief.model_validate({k: v for k, v in brief.items() if k != "theme_digest"})
+    except ValueError:
+        return None
+    if brief != {**settings.audit_summary(), "theme_digest": theme}:
+        return None
+    target = plan.variants[0].target_duration_sec
+    if settings.target_duration_sec != target or snapshot.get("digest") != plan.source_input_digest:
+        return None
+    metadata = {
+        "input_digest": plan.source_input_digest,
+        "input_version": snapshot.get("version"),
+        "prompt_version": summary.get("prompt_version"),
+        "model_id": summary["receipt"].get("model_id"),
+        "theme_digest": theme,
+        "target_duration_sec": target,
+        "candidate_limit": limit,
+        "brief_digest": hashlib.sha256(json.dumps(
+            settings.audit_summary() | {"theme_digest": theme},
+            sort_keys=True, separators=(",", ":"),
+        ).encode()).hexdigest(),
+    }
+    if not all(isinstance(metadata[key], str) and metadata[key] for key in (
+        "input_digest", "input_version", "prompt_version", "model_id",
+    )):
+        return None
+    return metadata
+
+
 def check_pairing(offline: PlanDraft, model: PlanDraft, planning_input,
                   *, session=None, project_id: str = "") -> list[dict]:
     """Every reason this pair must NOT be presented as a fair A/B."""
@@ -307,8 +392,8 @@ def create_ab_session(
     payload = {
         "schema": AB_SCHEMA_VERSION,
         "mapping": mapping,
-        "left": _neutral_variant(left_variant, side="A"),
-        "right": _neutral_variant(right_variant, side="B"),
+        "left": _variant_snapshot(left_variant, side="A"),
+        "right": _variant_snapshot(right_variant, side="B"),
         "input_digest": offline.source_input_digest,
         "target_duration_sec": offline_variant.target_duration_sec,
         "offline_fingerprint": _fingerprint(offline),
@@ -316,6 +401,7 @@ def create_ab_session(
         "model_id": model.request_summary["receipt"].get("model_id", ""),
         "input_version": model.request_summary.get("input_snapshot", {}).get("version"),
         "prompt_version": model.request_summary.get("prompt_version"),
+        "experiment": _experiment_metadata(model),
     }
 
     row = EvaluationSession(
@@ -343,8 +429,8 @@ def blind_view(pair_row: EvaluationSession) -> dict[str, Any]:
         "project_id": pair_row.project_id,
         "status": pair_row.status,
         "schema": data.get("schema", AB_SCHEMA_VERSION),
-        "A": data.get("left"),
-        "B": data.get("right"),
+        "A": _neutral_variant(data.get("left") or {}, side="A"),
+        "B": _neutral_variant(data.get("right") or {}, side="B"),
         "target_duration_sec": data.get("target_duration_sec"),
         # Deliberately absent: mapping, model_id, planning modes.
         "revealed": False,
@@ -454,14 +540,19 @@ def experiment_results(session: Session, project_id: str) -> dict:
         EvaluationSession.project_id == project_id,
         EvaluationSession.kind == "ab", EvaluationSession.status == "SUBMITTED",
     ).order_by(EvaluationSession.created_at, EvaluationSession.id)).all()
+    dimensions = ("input_digest", "input_version", "prompt_version", "model_id",
+                  "brief_digest", "theme_digest", "target_duration_sec", "candidate_limit")
     cohorts: dict[tuple, list[dict]] = {}
     for row in rows:
         data = row.context_json or {}
         if not data.get("submission"):
             continue
         result = revealed_view(row)
-        key = tuple(result.get(name) for name in (
-            "input_digest", "input_version", "prompt_version", "model_id"))
+        metadata = data.get("experiment") or {}
+        strict = all(metadata.get(name) is not None for name in dimensions)
+        # Missing historical dimensions preclude comparison, even across old rounds.
+        key = ((None if strict else row.id),
+               *(metadata.get(name) if strict else result.get(name) for name in dimensions))
         cohorts.setdefault(key, []).append({
             "session_id": row.id,
             "reviewer": row.reviewer.strip() or None,
@@ -479,8 +570,8 @@ def experiment_results(session: Session, project_id: str) -> dict:
                 for dim, value in r["scores"].get(side, {}).items():
                     scores[mode][dim].append(value)
         groups.append({
-            "input_digest": key[0], "input_version": key[1],
-            "prompt_version": key[2], "model_id": key[3],
+            "experiment_status": "strict" if key[0] is None else "legacy_unknown",
+            **dict(zip(dimensions, key[1:])),
             "rounds": rounds, "round_count": len(rounds),
             "identified_reviewers": len(reviewers),
             "anonymous_rounds": sum(not r["reviewer"] for r in rounds),
@@ -490,8 +581,8 @@ def experiment_results(session: Session, project_id: str) -> dict:
             "dimension_scores": {
                 mode: {dim: {"count": len(values),
                              "mean": sum(values) / len(values) if values else None}
-                       for dim, values in dimensions.items()}
-                for mode, dimensions in scores.items()
+                       for dim, values in mode_dimensions.items()}
+                for mode, mode_dimensions in scores.items()
             },
         })
     return {"round_count": sum(group["round_count"] for group in groups), "groups": groups,

@@ -40,7 +40,7 @@ AB_POST = "/api/projects/{p}/evaluation/ab-sessions"
 from app.models import EvaluationSession  # noqa: E402
 
 
-def _with_receipt(plan):
+def _with_receipt(plan, *, model_id="GLM-5.3-Flash"):
     """Give the draft a receipt *backed by a server record*.
 
     TSB-371-R1 P1-03: a receipt the client types is no longer evidence. The
@@ -55,7 +55,7 @@ def _with_receipt(plan):
     call_id = str(_uuid.uuid4())
     summary = dict(getattr(plan, "request_summary", None) or {})
     summary["receipt"] = {
-        "model_id": "GLM-5.3-Flash", "provider": "openai_compatible",
+        "model_id": model_id, "provider": "openai_compatible",
         "call_id": call_id, "elapsed_ms": 10,
         "attempts": 1, "at": "2026-01-01T00:00:00+00:00",
     }
@@ -64,7 +64,7 @@ def _with_receipt(plan):
         s.add(ModelCallRecord(
             id=call_id, channel="plan_text", project_id=plan.project_id,
             purpose="director_plan", result_digest=ab.receipt_digest(plan), succeeded=True,
-            model_id="GLM-5.3-Flash", request_bytes=1, response_bytes=1,
+            model_id=model_id, request_bytes=1, response_bytes=1,
             elapsed_ms=10,
         ))
         s.flush()
@@ -189,6 +189,36 @@ def _pair_inputs(analysed=2):
     offline = rules.plan_offline(pi, PlanningBrief(theme="t", target_duration_sec=60,
                                                    variant_count=1))
     return pid, pi, offline
+
+
+def test_tsb372r1_experiment_groups_isolate_every_brief_dimension():
+    pid, pi, _ = _pair_inputs()
+    variants = [
+        ("lake", 60, 12, "prompt-1", "model-1"),
+        ("lake", 60, 12, "prompt-1", "model-1"),
+        ("city", 60, 12, "prompt-1", "model-1"),
+        ("lake", 20, 12, "prompt-1", "model-1"),
+        ("lake", 60, 20, "prompt-1", "model-1"),
+        ("lake", 60, 12, "prompt-2", "model-1"),
+        ("lake", 60, 12, "prompt-1", "model-2"),
+    ]
+    for theme, target, limit, prompt, model_id in variants:
+        brief = PlanningBrief(theme=theme, target_duration_sec=target, variant_count=1)
+        offline = rules.plan_offline(pi, brief)
+        plan = _fake_model_plan(pi, target=target)
+        plan.request_summary = {"brief": brief.audit_summary(), "prompt_version": prompt,
+                                "input_snapshot": {**pi.audit_snapshot(), "max_candidates": limit}}
+        plan = _with_receipt(plan, model_id=model_id)
+        _, sid = _create(pid, offline, plan, pi)
+        _submit(sid, {"preference": "A"})
+    _, legacy = _create(pid, offline, _with_receipt(_fake_model_plan(pi, target=target)), pi)
+    _submit(legacy, {"preference": "TIE"})
+    with session_scope() as session:
+        results = ab.experiment_results(session, pid)
+    groups = results["groups"]
+    assert sorted(group["round_count"] for group in groups) == [1, 1, 1, 1, 1, 1, 2]
+    assert sum(group["experiment_status"] == "legacy_unknown" for group in groups) == 1
+    assert len({group["brief_digest"] for group in groups if group["brief_digest"]}) == 3
 
 
 # ---------------------------------------------------------------------------

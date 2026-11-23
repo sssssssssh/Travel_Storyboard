@@ -205,7 +205,7 @@ class ExternalPlannerProvider:
         try:
             plan = parse_model_plan(extract_json(raw), planning_input, brief,
                                     model_id=model_id or "?",
-                                    provider_name="openai_compatible")
+                                    provider_name="openai_compatible", grounded=True)
         except (ModelPlanError, ValidationError, TypeError, ValueError) as exc:
             code = exc.code if isinstance(exc, ModelPlanError) else "MODEL_SCHEMA_INVALID"
             record(response, succeeded=True, error_code=code)

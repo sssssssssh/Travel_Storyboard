@@ -139,12 +139,7 @@ def _valid_reply(ids: dict, *, n_shots: int = 2) -> str:
             "section_id": "s1",
             "narrative_role": "opening" if i == 0 else "development",
             "selection_reason": "有静帧观察记录",
-            "claims": [{
-                "text": "静帧观察：场景标签 lake,boats",
-                "kind": "observed_signal",
-                "evidence_refs": [{"channel": "static", "result_id": ids["results"][i]}],
-            }],
-            "evidence_refs": [{"channel": "static", "result_id": ids["results"][i]}],
+            "claims": [{"key": "scene_tags:0"}],
         })
     return json.dumps({
         "variants": [{
@@ -180,6 +175,20 @@ def test_a_real_shaped_reply_becomes_a_validated_plan():
     assert plan.source_input_digest == pi.source_input_digest
     assert len(plan.variants) == 1
     assert sum(len(v.shots) for v in plan.variants) == 2
+    assert val.validate_plan(plan, pi) == []
+
+
+def test_tsb372r1_model_prose_cannot_bypass_the_claim_contract():
+    pid, ids = _seed()
+    payload = json.loads(_valid_reply(ids))
+    variant = payload["variants"][0]
+    marker = "镜头中人物从雪山下走向湖边"
+    variant["title"] = variant["logline"] = variant["sections"][0]["title"] = marker
+    shot = variant["shots"][0]
+    shot["selection_reason"] = shot["transition_hint"] = shot["pacing_hint"] = marker
+    plan, pi, _ = _run(pid, json.dumps(payload))
+    assert marker not in plan.model_dump_json()
+    assert plan.schema_version == "1.1"
     assert val.validate_plan(plan, pi) == []
 
 
@@ -320,7 +329,10 @@ def test_a_reply_claiming_audio_is_rejected():
     pid, ids = _seed()
     reply = json.loads(_valid_reply(ids))
     reply["variants"][0]["shots"][0]["claims"][0]["text"] = "音乐节拍在 1.2 秒处重击"
-    plan, pi, _ = _run(pid, json.dumps(reply))
+    with pytest.raises(ModelPlanError, match="MODEL_CLAIM_INVALID"):
+        _run(pid, json.dumps(reply))
+    plan, pi, _ = _run(pid, _valid_reply(ids))
+    plan.variants[0].shots[0].claims[0].text = "音乐节拍在 1.2 秒处重击"
     codes = [p.code for p in val.validate_plan(plan, pi)]
     assert "AUDIO_CLAIM_WITHOUT_ANALYSIS" in codes
 
@@ -331,7 +343,10 @@ def test_a_wrong_evidence_id_leaves_the_claim_unsupported():
     # Shot 0 cites shot 1's evidence id: not its own.
     reply["variants"][0]["shots"][0]["claims"][0]["evidence_refs"] = [
         {"channel": "static", "result_id": ids["results"][1]}]
-    plan, pi, _ = _run(pid, json.dumps(reply))
+    with pytest.raises(ModelPlanError, match="MODEL_CLAIM_INVALID"):
+        _run(pid, json.dumps(reply))
+    plan, pi, _ = _run(pid, _valid_reply(ids))
+    plan.variants[0].shots[0].claims[0].evidence_refs[0].result_id = ids["results"][1]
     codes = [p.code for p in val.validate_plan(plan, pi)]
     assert "UNSUPPORTED_VISUAL_CLAIM" in codes
 

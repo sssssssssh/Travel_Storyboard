@@ -7,7 +7,7 @@
  *   - a page that presents structural suggestions as if the system had watched
  *     the footage.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -57,6 +57,104 @@ test('TSB-372 saves an execution revision while preserving the original cut', as
   expect(screen.getByTestId('shot-duration').textContent).toContain('4.5')
   fireEvent.click(screen.getByTestId('show-original-version'))
   expect(screen.getByTestId('shot-duration').textContent).toContain('5.0')
+})
+
+test('R1 keeps an invalid window draft and blocks export until Escape restores it', async () => {
+  setup()
+  await generate()
+  fireEvent.click(screen.getByTestId('toggle-detail'))
+  const field = screen.getByLabelText('源片入点（秒）') as HTMLInputElement
+  fireEvent.change(field, { target: { value: '' } })
+  fireEvent.blur(field)
+  expect(field.value).toBe('')
+  expect((screen.getByTestId('export-json') as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(screen.getByTestId('toggle-detail'))
+  fireEvent.click(screen.getByTestId('toggle-detail'))
+  const restored = screen.getByLabelText('源片入点（秒）') as HTMLInputElement
+  expect(restored.value).toBe('')
+  fireEvent.keyDown(restored, { key: 'Escape' })
+  expect(restored.value).toBe('0')
+  expect((screen.getByTestId('export-json') as HTMLButtonElement).disabled).toBe(false)
+})
+
+test.each([
+  ['错误', '非负秒数'],
+  ['6', '出点必须晚于入点'],
+  ['-1', '非负秒数'],
+  ['4.99', '至少需要 0.05'],
+])('R1 preserves invalid entry %s and its error', async (value, message) => {
+  setup()
+  await generate()
+  fireEvent.click(screen.getByTestId('toggle-detail'))
+  const field = screen.getByLabelText('源片入点（秒）') as HTMLInputElement
+  fireEvent.change(field, { target: { value } })
+  fireEvent.keyDown(field, { key: 'Enter' })
+  expect(field.value).toBe(value)
+  expect(screen.getByRole('alert').textContent).toContain(message)
+  expect((screen.getByTestId('export-md') as HTMLButtonElement).disabled).toBe(true)
+})
+
+test('R1 precise entry retimes following cuts and matches both downloads and saved version', async () => {
+  const first = shot()
+  const next = shot({ shot_id: 'second', segment_id: 'seg-b', source_in_sec: 10,
+    source_out_sec: 15, timeline_start_sec: 5 })
+  setup(draft({ variants: [variant({ shots: [first, next], total_duration_sec: 10 })] }))
+  await generate()
+  const row = within(screen.getByTestId('plan-shot-0'))
+  fireEvent.click(row.getByTestId('toggle-detail'))
+  const start = row.getByLabelText('源片入点（秒）') as HTMLInputElement
+  const end = row.getByLabelText('源片出点（秒）') as HTMLInputElement
+  fireEvent.change(end, { target: { value: '9' } })
+  fireEvent.blur(end)
+  expect(screen.getByRole('alert').textContent).toContain('当前可用镜头范围')
+  fireEvent.change(end, { target: { value: '5' } })
+  fireEvent.change(start, { target: { value: '0.25' } })
+  fireEvent.blur(start)
+  expect(row.getByTestId('shot-duration').textContent).toBe('4.75s')
+  fireEvent.change(start, { target: { value: '0.12' } })
+  fireEvent.change(start, { target: { value: '.1234' } })
+  fireEvent.change(end, { target: { value: '4.1256' } })
+  fireEvent.keyDown(end, { key: 'Enter' })
+  expect(start.value).toBe('0.1234')
+  expect(end.value).toBe('4.1256')
+  expect(screen.getByTestId('plan-shot-1').textContent).toContain('时间轴 4.0022s')
+  expect(screen.getByTestId('variant-total').textContent).toContain('9.0022')
+  fireEvent.click(row.getByText('保留镜头'))
+  expect(start.disabled && end.disabled).toBe(true)
+  expect((row.getByText('移出方案') as HTMLButtonElement).disabled).toBe(true)
+
+  const downloads: Blob[] = []
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  vi.stubGlobal('URL', class extends URL {
+    static createObjectURL(payload: Blob) { downloads.push(payload); return 'blob:unit-test' }
+    static revokeObjectURL() {}
+  })
+  try {
+    fireEvent.click(screen.getByTestId('export-json'))
+    fireEvent.click(screen.getByTestId('export-md'))
+  } finally {
+    vi.unstubAllGlobals()
+    click.mockRestore()
+  }
+  function text(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = reject
+      reader.readAsText(blob)
+    })
+  }
+  const json = JSON.parse(await text(downloads[0]))
+  expect(json.variants[0].shots[0]).toMatchObject({
+    source_in_sec: 0.1234, source_out_sec: 4.1256, planned_duration_sec: 4.0022,
+    timeline_start_sec: 0, retained: true,
+  })
+  expect(json.variants[0].duration_gap_sec).toBe(80.9978)
+  expect(await text(downloads[1])).toContain('源片 0.1234–4.1256s')
+  fireEvent.click(screen.getByTestId('save-execution-version'))
+  const saved = JSON.parse(localStorage.getItem('tsb.director.execution.p1')!)
+  expect(saved[0].variants).toEqual(json.variants)
+  expect(saved[0].original.variants[0].shots[0]).toEqual(first)
 })
 
 function shot(over: Partial<PlanShot> = {}): PlanShot {
