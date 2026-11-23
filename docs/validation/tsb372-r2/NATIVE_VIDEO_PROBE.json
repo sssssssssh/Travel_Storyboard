@@ -1,0 +1,201 @@
+{
+  "task": "TSB-372-R2",
+  "executed": true,
+  "mode": "real_probe",
+  "plan": {
+    "protocol": "video_url_data_uri",
+    "transport": "<redacted>",
+    "mime": "video/mp4",
+    "clip_source": "synthetic_testsrc",
+    "clip_bytes": 3906,
+    "clip_duration_sec": 3.0,
+    "has_audio": false,
+    "endpoint_scheme": "https",
+    "endpoint_host_redacted": "(redacted for committed evidence)",
+    "model_id": "GLM-5.3-Flash",
+    "model_mode": "on",
+    "risks": [
+      "真实执行会把派生短片发送到远端模型服务；dry-run 不会发送任何字节。",
+      "本工具只做能力探测，不会把结果写成对模型的信任；未通过时 video 通道保持禁用。",
+      "探测结论只覆盖本次所用协议与模型 ID，不推断其他部署。",
+      "TRAVELSB_MODEL_MODE=on：授权边界允许本次外发，请求会真正离开本机。",
+      "默认使用合成的静音测试图样，不含任何用户素材。"
+    ],
+    "estimated_video_request_bytes": 6030
+  },
+  "observation": {
+    "attempted": true,
+    "http_status": 400,
+    "error_code": "",
+    "temporal_signal": false,
+    "temporal_signal_basis": "empty response",
+    "usage_present": false,
+    "latency_ms": 1901,
+    "notes": [],
+    "control_http_status": 200,
+    "control_excerpt": "{\"id\":\"<redacted>\",\"object\":\"chat.completion\",\"created\":1795404233,\"model\":\"GLM-5.3-Flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":null,\"refusa",
+    "response_excerpt": "{\"error\":{\"message\":\"At most 0 video(s) may be provided in one prompt. Set `--limit-mm-per-prompt` to increase this limit. (parameter=video)\",\"type\":\"BadRequestError\",\"param\":\"video\",\"code\":400}}",
+    "single_round_signal": false
+  },
+  "capabilities": {
+    "state": "unsupported",
+    "protocol": "video_url_data_uri",
+    "max_duration_sec": null,
+    "max_bytes": null,
+    "accepts_audio": null,
+    "temporal_sampling_disclosed": false,
+    "model_id": "GLM-5.3-Flash",
+    "probe_time": "2026-11-23T03:23:55+00:00",
+    "verification_scope": "endpoint refused the video payload (HTTP 400): vLLM recognises the video content part, but this deployment's per-prompt video limit is 0 — the serving configuration needs `--limit-mm-per-prompt video=1` (a server-side change, not client-side)",
+    "detail": {
+      "temporal_signal_basis": "empty response"
+    },
+    "verified": false,
+    "sendable": false,
+    "unknown_fields": [
+      "accepts_audio",
+      "max_bytes",
+      "max_duration_sec"
+    ]
+  },
+  "not_verified": [
+    "不得由本报告推断其他模型/部署的视频能力",
+    "服务端抽帧 fps/上限未确认时保持 <redacted>false",
+    "未做边界压测，故 max_bytes / max_duration_sec 保持 unknown"
+  ],
+  "budget": {
+    "channel": "capability_probe",
+    "required_attempts": 2,
+    "before": {
+      "used": 2,
+      "cap": 12,
+      "left": 10
+    },
+    "after": {
+      "used": 4,
+      "cap": 12,
+      "left": 8
+    }
+  },
+  "authorization": {
+    "upload_acknowledged": true,
+    "model_mode": "on"
+  },
+  "evidence": {
+    "rounds_total": 0,
+    "rounds_passed": 0,
+    "control_attempted": false,
+    "control_answered_correctly": false,
+    "frame_control_attempted": false,
+    "frame_control_answered_correctly": false,
+    "rounds": []
+  },
+  "redaction": "paths, endpoint hosts and credential-shaped strings replaced; see _REDACTION_PATTERNS",
+  "validation_status": "NATIVE_VIDEO_BLOCKED",
+  "dry_run": {
+    "task": "TSB-325",
+    "executed": false,
+    "mode": "dry_run",
+    "plan": {
+      "protocol": "video_url_data_uri",
+      "transport": "<redacted>",
+      "mime": "video/mp4",
+      "clip_source": "synthetic_testsrc",
+      "clip_bytes": 3906,
+      "clip_duration_sec": 3.0,
+      "has_audio": false,
+      "endpoint_scheme": "https",
+      "endpoint_host_redacted": "(redacted for committed evidence)",
+      "model_id": "GLM-5.3-Flash",
+      "model_mode": "on",
+      "risks": [
+        "真实执行会把派生短片发送到远端模型服务；dry-run 不会发送任何字节。",
+        "本工具只做能力探测，不会把结果写成对模型的信任；未通过时 video 通道保持禁用。",
+        "探测结论只覆盖本次所用协议与模型 ID，不推断其他部署。",
+        "TRAVELSB_MODEL_MODE=on：授权边界允许本次外发，请求会真正离开本机。",
+        "默认使用合成的静音测试图样，不含任何用户素材。"
+      ],
+      "estimated_video_request_bytes": 6030
+    },
+    "observation": {
+      "attempted": false,
+      "http_status": null,
+      "error_code": "",
+      "temporal_signal": false,
+      "temporal_signal_basis": "",
+      "usage_present": false,
+      "latency_ms": 0,
+      "notes": [],
+      "control_http_status": null,
+      "control_excerpt": "",
+      "response_excerpt": "",
+      "single_round_signal": false
+    },
+    "capabilities": {
+      "state": "unverified",
+      "protocol": "",
+      "max_duration_sec": null,
+      "max_bytes": null,
+      "accepts_audio": null,
+      "temporal_sampling_disclosed": false,
+      "model_id": "GLM-5.3-Flash",
+      "probe_time": "",
+      "verification_scope": "",
+      "detail": {
+        "reason": "dry-run only; no authorised probe performed"
+      },
+      "verified": false,
+      "sendable": false,
+      "unknown_fields": [
+        "accepts_audio",
+        "max_bytes",
+        "max_duration_sec"
+      ]
+    },
+    "not_verified": [
+      "不得由本报告推断其他模型/部署的视频能力",
+      "服务端抽帧 fps/上限未确认时保持 <redacted>false",
+      "未做边界压测，故 max_bytes / max_duration_sec 保持 unknown"
+    ],
+    "budget": {
+      "channel": "capability_probe",
+      "required_attempts": 2,
+      "before": {
+        "used": 2,
+        "cap": 12,
+        "left": 10
+      },
+      "after": {
+        "used": 2,
+        "cap": 12,
+        "left": 10
+      }
+    },
+    "authorization": {
+      "upload_acknowledged": false,
+      "model_mode": "on"
+    },
+    "evidence": null,
+    "redaction": "paths, endpoint hosts and credential-shaped strings replaced; see _REDACTION_PATTERNS"
+  },
+  "ledger_charges": [
+    {
+      "channel": "capability_probe",
+      "note": "health_text",
+      "call_id": "13735ef0a0e84a5d",
+      "bytes_sent": 113,
+      "source": "measured",
+      "dispatched": true
+    },
+    {
+      "channel": "capability_probe",
+      "note": "probe_video",
+      "call_id": "dd0d6c79b9a142d1",
+      "bytes_sent": 6030,
+      "source": "measured",
+      "dispatched": true
+    }
+  ],
+  "real_travel_clips_sent": 0,
+  "capability_store_updated": false
+}

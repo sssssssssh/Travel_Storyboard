@@ -1,0 +1,12 @@
+{
+  "status": "BLOCKED",
+  "requested_clip_count": [
+    20,
+    30
+  ],
+  "observed_clip_count": 0,
+  "reason": "The PAI-EAS deployment returned HTTP 400 and reported video=0; the text control returned HTTP 200.",
+  "required_capability_state": "verified_native_video",
+  "real_travel_clips_sent": 0,
+  "records": []
+}

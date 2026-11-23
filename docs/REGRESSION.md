@@ -2592,3 +2592,15 @@ T25 补充人工走查：从导演「剪辑执行建议」用相同主题、时�
 | `DirectorPlans.test.tsx` 的 R1 用例 | R1-04 | 控件保留非法输入，时间轴、版本和两类下载采用同一提交值 |
 
 T25 补充：可用历史盲评验证提交前标准化及提交后原文显示。打开剪辑区间，验证非法输入、Escape 恢复和保存/导出拦截。详见 [TSB-372-R1 记录](validation/tsb372-r1/README.md)。
+
+### TSB-372-R2 真实素材闭环
+
+| 用例 | 任务 | 行为 |
+| --- | --- | --- |
+| `test_tsb372r2_static_requires_explicit_observed_state` | R2-01 | 新读数和历史缺失或非法静帧状态均无法形成确定 Claim |
+| `test_tsb372r2_motion_verdict_controls_final_claim` | R2-01 | 人工否决和不清楚阻止观察事实，人工确认有来源，空值保持模型观察 |
+| `test_tsb372r2_video_claim_requires_a_supported_timed_event` | R2-01 | 视频质量、事件限制、真实窗口与引用之间一致，置信度保持未校准 |
+| `test_tsb372r2_cli_accounts_for_the_health_and_video_requests` | R2-03 | 命令行真实发送接线先记账，单轮信号不授予能力 |
+| `test_tsb372r2_explicit_cut_plays_until_the_parent_window_changes` | R2-04 | 正式 A/B 精确子区间可以播放，父区间变化时旧预览失效 |
+
+T25 补充：在隔离会话完成真人盲评后，按 61 镜头复核表核对 5 个样本的动作连续性、时间点、剪辑理由和导出定位。见 [TSB-372-R2 证据](validation/tsb372-r2/README.md)。
