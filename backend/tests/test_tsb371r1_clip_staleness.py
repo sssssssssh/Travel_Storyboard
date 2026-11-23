@@ -144,6 +144,28 @@ def test_a_fresh_clip_supports_range(client):
     assert 0 < len(r.content) <= 100
 
 
+def test_tsb372r2_explicit_cut_plays_until_the_parent_window_changes(client):
+    pid, seg_id, _aid, _src = _seed(client, start=0.0, end=6.0)
+    request = {"segment_id": seg_id, "start_sec": 1.25, "end_sec": 3.75}
+    route = CLIPS.format(p=pid)
+    response = client.post(route, json=request)
+    assert response.status_code == 200
+    clip = response.json()
+    assert clip["source_window"] == {"start_abs_sec": 1.25, "end_abs_sec": 3.75}
+    assert clip["status"] == "ready"
+    assert _media(client, pid, clip["clip_id"], headers={"Range": "bytes=0-99"}).status_code == 206
+
+    # The cut is still inside the shot, but its original parent window changed.
+    with session_scope() as session:
+        session.get(Segment, seg_id).end_sec = 5.0
+    assert _media(client, pid, clip["clip_id"]).status_code == 409
+
+    regenerated = client.post(route, json=request).json()
+    assert regenerated["clip_id"] != clip["clip_id"]
+    assert _media(client, pid, regenerated["clip_id"]).status_code == 200
+    assert _media(client, pid, clip["clip_id"]).status_code == 409
+
+
 # ---------------------------------------------------------------------------
 # A stale clip is refused
 # ---------------------------------------------------------------------------

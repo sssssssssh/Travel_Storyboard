@@ -75,6 +75,9 @@ class ClipRecord:
     created_at: float
     width: int
     height: int
+    # Parent shot bounds at generation time. Legacy manifests omit the pair.
+    segment_start_sec: float | None = None
+    segment_end_sec: float | None = None
 
 
 def clip_cache_dir(project_id: str) -> Path:
@@ -88,12 +91,13 @@ def _manifest_path(project_id: str) -> Path:
 
 
 def make_clip_id(project_id: str, segment_id: str, signature: str,
-                 start: float, end: float) -> str:
+                 start: float, end: float, seg_start: float, seg_end: float) -> str:
     """A clip id is derived from what the clip *is*, so it cannot be forged.
 
     It is also not a path, so ``../`` has nothing to traverse into.
     """
-    raw = f"{CLIP_SCHEMA_VERSION}|{project_id}|{segment_id}|{signature}|{start:.3f}|{end:.3f}"
+    raw = (f"{CLIP_SCHEMA_VERSION}|{project_id}|{segment_id}|{signature}|"
+           f"{start:.3f}|{end:.3f}|{seg_start.hex()}|{seg_end.hex()}")
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
@@ -192,13 +196,17 @@ def staleness(session: Session, project_id: str,
     if current_signature != record.source_signature:
         reasons.append("source_signature_changed")
 
-    if segment is not None:
-        start_now = float(segment.start_sec)
-        end_now = float(segment.end_sec)
-        if abs(start_now - record.start_abs_sec) > 1e-6:
-            reasons.append("segment_window_changed")
-        elif abs(min(end_now, start_now + MAX_CLIP_SECONDS)
-                 - record.end_abs_sec) > 1e-6:
+    if segment is None or segment.project_id != project_id or segment.asset_id != record.asset_id:
+        reasons.append("segment_window_changed")
+    else:
+        start_now, end_now = float(segment.start_sec), float(segment.end_sec)
+        if record.segment_start_sec is None or record.segment_end_sec is None:
+            # Historical full-window previews retained the default clipped bounds.
+            end_now = min(end_now, start_now + MAX_CLIP_SECONDS)
+            start_then, end_then = record.start_abs_sec, record.end_abs_sec
+        else:
+            start_then, end_then = record.segment_start_sec, record.segment_end_sec
+        if abs(start_now - start_then) > 1e-6 or abs(end_now - end_then) > 1e-6:
             reasons.append("segment_window_changed")
     return bool(reasons), reasons
 
@@ -285,7 +293,7 @@ def ensure_clip(session: Session, project_id: str, segment_id: str, *,
     # The same identity the analysis pipeline records, so a clip made from an
     # older source can be recognised as stale.
     signature = source_identity(asset) or ""
-    clip_id = make_clip_id(project_id, segment_id, signature, start, end)
+    clip_id = make_clip_id(project_id, segment_id, signature, start, end, seg_start, seg_end)
 
     existing = find_clip(project_id, clip_id)
     if existing is not None:
@@ -339,6 +347,7 @@ def ensure_clip(session: Session, project_id: str, segment_id: str, *,
         start_abs_sec=start, end_abs_sec=end, duration_sec=duration,
         source_signature=signature, created_at=time.time(),
         width=asset.width or 0, height=asset.height or 0,
+        segment_start_sec=seg_start, segment_end_sec=seg_end,
     )
     data = _load_manifest(project_id)
     data["clips"][clip_id] = record.__dict__
