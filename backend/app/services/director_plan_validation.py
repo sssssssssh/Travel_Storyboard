@@ -299,28 +299,32 @@ def _available_refs(entry: PlanningEntry) -> dict[tuple[str, str], object]:
 def _validate_upgrade(ref, entry: PlanningEntry, ev, problems: list[Problem],
                       vid: str, sid: str, text: str) -> None:
     """Refuse to turn a hedged reading into a confident assertion."""
-    if ref.channel == "static":
-        state = getattr(ev, "evidence_state", "")
-        if state in ("uncertain", "not_visible"):
-            problems.append(Problem(
-                "SEMANTIC_UPGRADE",
-                f"claim {text[:60]!r} cites a reading whose evidence state is "
-                f"{state!r}; it cannot be stated as observed",
-                vid, sid,
-            ))
-    if ref.channel == "video_native" and ref.event_start_sec is not None:
-        if not _finite(ref.event_start_sec) or not _finite(ref.event_end_sec or 0.0):
+    if ((ref.channel == "static" and not content.static_can_support(ev))
+            or (ref.channel == "multiframe" and not content.motion_can_support(ev))):
+        problems.append(Problem("SEMANTIC_UPGRADE", "该读数不能作为已观察事实。", vid, sid))
+    if (ref.channel == "multiframe" and ref.evidence_state == "human_confirmed"
+            and ev.human_verdict != "confirm"):
+        problems.append(Problem("SEMANTIC_UPGRADE", "该读数未经人工确认。", vid, sid))
+    if ref.channel == "video_native":
+        start, end = ref.event_start_sec, ref.event_end_sec
+        if start is None or end is None or not _finite(start) or not _finite(end):
             problems.append(Problem("INVALID_EVENT_TIME",
                                     "event time is not finite", vid, sid))
             return
-        if not (entry.source_in_sec - TIMELINE_EPS <= ref.event_start_sec
-                and (ref.event_end_sec or 0.0) <= entry.source_out_sec + TIMELINE_EPS):
+        if not (entry.source_in_sec - TIMELINE_EPS <= start < end
+                <= entry.source_out_sec + TIMELINE_EPS):
             problems.append(Problem(
                 "INVALID_EVENT_TIME",
                 f"event {ref.event_start_sec}-{ref.event_end_sec} is outside the shot "
                 f"{entry.source_in_sec}-{entry.source_out_sec}",
                 vid, sid,
             ))
+            return
+        if not any(content.video_event_can_support(ev, event)
+                   and (event.start_sec, event.end_sec) == (start, end)
+                   and event.description.strip()[:300] == text for event in ev.events):
+            problems.append(Problem("UNSUPPORTED_VIDEO_EVENT", "找不到支持此描述和区间的视频事件。",
+                                    vid, sid))
 
 
 def _validate_timeline(variant: VariantDraft, problems: list[Problem], vid: str) -> None:

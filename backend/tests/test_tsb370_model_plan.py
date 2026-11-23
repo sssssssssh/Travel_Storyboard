@@ -24,6 +24,7 @@ from app.models import (
     Asset,
     Project,
     Segment,
+    SegmentMotionReview,
     SegmentSemanticResult,
     SegmentVideoObservation,
     UserAnnotation,
@@ -301,6 +302,104 @@ def test_tsb372r1_unusable_evidence_has_no_selectable_fact(two_shot_input, state
     with pytest.raises(ModelPlanError, match="MODEL_CLAIM_INVALID"):
         parse_model_plan({"variants": [{"shots": [shot]}]}, pi, PlanningBrief(),
                          model_id="test", provider_name="test", grounded=True)
+
+
+def _grounded_plan(pi, key):
+    shot = {"segment_id": pi.entries[0].segment_id, "claims": [{"key": key}]}
+    plan = parse_model_plan({"variants": [{"shots": [shot]}]}, pi, PlanningBrief(),
+                            model_id="test", provider_name="test", grounded=True)
+    assert val.validate_plan(plan, pi) == []
+    return plan
+
+
+def _grounded_claim(pi, key):
+    return _grounded_plan(pi, key).variants[0].shots[0].claims[0]
+
+
+@pytest.mark.parametrize("state", [None, "", "invalid", "uncertain", "not_visible"])
+def test_tsb372r2_static_requires_explicit_observed_state(state):
+    from app.services.vision import schema
+
+    with session_scope() as s:
+        p = _project(s)
+        a = _asset(s, p)
+        g = _segment(s, p, a, 0.0, 6.0)
+        row = _static(s, p, a, g)
+        evidence = {} if state is None else {"state": state}
+        row.evidence_json = evidence
+        pid, gid, aid = p.id, g.id, a.id
+
+    valid = schema.validate_result({"segment_id": gid, "evidence": evidence,
+                                    "visual": {"subjects": ["lake"]}},
+                                   {gid: schema.AllowedSegment(gid, aid, 0.0, 6.0, ["f1"])})
+    assert valid.evidence["state"] == (state if state == "not_visible" else "uncertain")
+    pi = dpi.build_planning_input(pid)
+    with pytest.raises(ModelPlanError, match="MODEL_CLAIM_INVALID"):
+        _grounded_claim(pi, "subjects:0")
+    assert _grounded_claim(pi, "unknown").kind == "unknown"
+
+
+@pytest.mark.parametrize("verdict", ["reject", "unclear", "confirm", ""])
+def test_tsb372r2_motion_verdict_controls_final_claim(verdict):
+    with session_scope() as s:
+        p = _project(s)
+        a = _asset(s, p)
+        g = _segment(s, p, a, 0.0, 6.0)
+        rid = _uid()
+        s.add(SegmentMotionReview(id=rid, project_id=p.id, asset_id=a.id,
+                                  segment_id=g.id, start_sec=0.0, end_sec=6.0,
+                                  action_summary="person walks", human_verdict=verdict))
+        pid = p.id
+    pi = dpi.build_planning_input(pid)
+    if verdict in ("reject", "unclear"):
+        with pytest.raises(ModelPlanError, match="MODEL_CLAIM_INVALID"):
+            _grounded_claim(pi, "motion")
+        assert _grounded_claim(pi, "unknown").kind == "unknown"
+    else:
+        claim = _grounded_claim(pi, "motion")
+        assert claim.kind == "observed_signal"
+        assert claim.evidence_refs[0].result_id == rid
+        assert claim.evidence_refs[0].evidence_state == ("human_confirmed" if verdict else "")
+
+
+@pytest.mark.parametrize("problem", ["missing_time", "event_limitation", "uncertain_evidence",
+                                     "limited_quality", "outside_clip", "invented_key", None])
+def test_tsb372r2_video_claim_requires_a_supported_timed_event(problem):
+    with session_scope() as s:
+        p = _project(s)
+        a = _asset(s, p)
+        g = _segment(s, p, a, 10.0, 18.0)
+        row = _video(s, p, a, g)
+        row.observed_temporal_quality = "limited" if problem == "limited_quality" else "good"
+        event = dict(row.events_json[0])
+        event["confidence"] = 0.01 if problem is None else 1.0
+        if problem == "missing_time":
+            del event["end_abs_sec"]
+        elif problem == "event_limitation":
+            event["limitations"] = ["occluded during the event"]
+        elif problem == "uncertain_evidence":
+            event["evidence"] = ["video_window", "uncertain"]
+        elif problem == "outside_clip":
+            row.clip_end_sec = 11.0
+        row.events_json = [event]
+        pid = p.id
+
+    pi = dpi.build_planning_input(pid)
+    # The prose summary has no timed anchor, even when the clip has usable events.
+    with pytest.raises(ModelPlanError, match="MODEL_CLAIM_INVALID"):
+        _grounded_claim(pi, "video_summary")
+    if problem:
+        with pytest.raises(ModelPlanError, match="MODEL_CLAIM_INVALID"):
+            _grounded_claim(pi, "event:99" if problem == "invented_key" else "event:0")
+        assert _grounded_claim(pi, "unknown").kind == "unknown"
+    else:
+        plan = _grounded_plan(pi, "event:0")
+        claim = plan.variants[0].shots[0].claims[0]
+        assert claim.text == "a person walks past"
+        assert [(r.event_start_sec, r.event_end_sec) for r in claim.evidence_refs] == [(10.5, 11.5)]
+        assert pi.entries[0].video_native.events[0].confidence_calibration == "uncalibrated"
+        claim.evidence_refs[0].event_end_sec = 11.6
+        assert "UNSUPPORTED_VIDEO_EVENT" in {p.code for p in val.validate_plan(plan, pi)}
 
 
 def test_tsb372r1_editorial_and_exact_human_inputs_are_distinct_from_observations(two_shot_input):

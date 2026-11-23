@@ -46,13 +46,14 @@ from ..models import (
 )
 from . import director_candidates as dc
 from . import director_query as dq
+from .vision.schema import EVIDENCE_OBSERVED, normalize_evidence_state
 
 #: Budget limits. The context API caps ``max_candidates`` at 200; planning uses a
 #: tighter default because a planner reading 200 shots of prose is neither useful
 #: nor affordable.
 DEFAULT_MAX_CANDIDATES = 40
 HARD_MAX_CANDIDATES = 100
-INPUT_BUILD_VERSION = "tsb372.1"
+INPUT_BUILD_VERSION = "tsb372-r2.1"
 
 MAX_SUBJECTS = 3
 MAX_ACTIONS = 3
@@ -124,6 +125,8 @@ class VideoEvent:
     confidence: float | None
     confidence_calibration: str = "uncalibrated"
     claim_ref: str = ""
+    limitations: tuple[str, ...] = ()
+    evidence: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -247,6 +250,9 @@ class PlanningInput:
                                 "event_type": ev.event_type,
                                 "description": ev.description,
                                 "claim_ref": ev.claim_ref,
+                                "confidence_calibration": ev.confidence_calibration,
+                                "evidence": ev.evidence,
+                                "limitations": ev.limitations,
                             }
                             for ev in e.video_native.events
                         ],
@@ -397,7 +403,10 @@ def _static_evidence(rows: list, limitations: list[str]) -> StaticEvidence:
                               ["static_analysis_failed"])
 
     visual = dc._visual_payload(row.analysis_json or {})
-    evidence = row.evidence_json or {}
+    evidence = row.evidence_json if isinstance(row.evidence_json, dict) else {}
+    state = normalize_evidence_state(evidence.get("state"))
+    if state != EVIDENCE_OBSERVED:
+        limitations.append("static_observation_needs_review")
     # Reuse the candidate-layer projection rather than inventing a third parser.
     payload = {
         "scene_tags": _bounded_list(visual.get("scene_tags"), 6, 32),
@@ -410,7 +419,7 @@ def _static_evidence(rows: list, limitations: list[str]) -> StaticEvidence:
     return StaticEvidence(
         state=dc.STATE_UNVERIFIED,
         result_id=row.id,
-        evidence_state=str(evidence.get("state") or ""),
+        evidence_state=state,
         visual=payload,
         model={
             "provider": row.model_provider, "id": row.model_id,
@@ -434,13 +443,18 @@ def _motion_evidence(rows: list, limitations: list[str]) -> MotionEvidence:
         limitations.append("multiframe_analysis_failed")
         return MotionEvidence(dc.STATE_FAILED, row.id, "", "", "", "",
                               ["multiframe_analysis_failed"])
+    verdict = str(row.human_verdict or "")[:32]
+    if verdict == "reject":
+        limitations.append("multiframe_human_rejected")
+    elif verdict not in ("", "confirm"):
+        limitations.append("multiframe_observation_needs_review")
     return MotionEvidence(
         state=dc.STATE_UNVERIFIED,
         result_id=row.id,
         motion_type=str(row.motion_type or "")[:32],
         action_summary=str(row.action_summary or "")[:MAX_MOTION_SUMMARY],
         stability_risk=str(row.stability_risk or "")[:32],
-        human_verdict=str(row.human_verdict or "")[:32],
+        human_verdict=verdict,
         limitations=["input_signature_not_recomputable_offline"],
     )
 
@@ -468,20 +482,35 @@ def _video_evidence(rows: list, segment: Segment, limitations: list[str]) -> Vid
 
     # Reuse the R2 normalizer so absolute times and legacy shapes behave exactly
     # as they do on the candidates endpoint — not a third parser.
-    events, _counters, _reasons = dc._normalize_video_events(
+    events, counters, reasons = dc._normalize_video_events(
         row.events_json if isinstance(row.events_json, list) else [], segment
     )
-    mapped = [
-        VideoEvent(
+    quality = row.observed_temporal_quality or "unknown"
+    mapped = []
+    for e in events[:MAX_VIDEO_EVENTS]:
+        event_limits = list(e["limitations"])
+        if e["evidence"] != ["video_window"]:
+            event_limits.append("uncertain_video_evidence")
+        if not (row.clip_start_sec is not None and row.clip_end_sec is not None
+                and row.clip_start_sec - 0.0005 <= e["start_sec"]
+                < e["end_sec"] <= row.clip_end_sec + 0.0005):
+            event_limits.append("event_outside_clip_window")
+        if "event_time_shape_conflict" in reasons:
+            event_limits.append("event_time_shape_conflict")
+        mapped.append(VideoEvent(
             start_sec=float(e["start_sec"]),
             end_sec=float(e["end_sec"]),
             event_type=str(e.get("event_type") or ""),
             description=str(e.get("label") or ""),
             confidence=e.get("confidence"),
+            confidence_calibration=e["confidence_calibration"],
             claim_ref=e["claim_ref"],
-        )
-        for e in events[:MAX_VIDEO_EVENTS]
-    ]
+            limitations=tuple(event_limits),
+            evidence=tuple(e["evidence"]),
+        ))
+    if (quality != "good" or counters["dropped"] or counters["skipped_non_object"]
+            or any(event.limitations for event in mapped)):
+        limitations.append("video_native_events_need_review")
     analysis = row.analysis_json or {}
     return VideoEvidence(
         state=dc.STATE_UNVERIFIED,
@@ -490,7 +519,7 @@ def _video_evidence(rows: list, segment: Segment, limitations: list[str]) -> Vid
         events=mapped,
         audio_analyzed=bool(row.audio_analyzed),
         color_unverified=bool(row.color_unverified),
-        observed_temporal_quality=str(row.observed_temporal_quality or "")[:32],
+        observed_temporal_quality=str(quality)[:32],
         limitations=["source_signature_not_recomputable_without_reanalysis"],
     )
 

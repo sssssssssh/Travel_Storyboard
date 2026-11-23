@@ -158,10 +158,15 @@ def build_evidence_text(
 
         if e.multiframe.result_id and e.multiframe.state in (dc.STATE_CURRENT, dc.STATE_UNVERIFIED):
             if e.multiframe.action_summary or e.multiframe.motion_type or e.multiframe.stability_risk:
-                lines.append(f"  motion_evidence_id={e.multiframe.result_id} "
-                             f"type={e.multiframe.motion_type} "
-                             f"stability_risk={e.multiframe.stability_risk} "
-                             f"summary={_shorten(e.multiframe.action_summary, 115)}")
+                motion = f"  motion_evidence_id={e.multiframe.result_id}"
+                if content.motion_can_support(e.multiframe):
+                    provenance = "human_confirmed" if e.multiframe.human_verdict == "confirm" else "model"
+                    motion += (f" provenance={provenance} type={e.multiframe.motion_type} "
+                               f"stability_risk={e.multiframe.stability_risk} "
+                               f"summary={_shorten(e.multiframe.action_summary, 115)}")
+                else:
+                    motion += " status=needs_review"
+                lines.append(motion)
                 counts["with_motion"] += 1
                 counts["motion_ids"] += 1
 
@@ -169,10 +174,12 @@ def build_evidence_text(
             evs = e.video_native.events[:MAX_EVENTS_PER_SHOT if idx <= MAX_DETAIL_SHOTS else 1]
             if evs or e.video_native.summary:
                 lines.append(f"  video_evidence_id={e.video_native.result_id} "
-                             f"summary={_shorten(e.video_native.summary, 115)}")
+                             f"temporal_quality={e.video_native.observed_temporal_quality} "
+                             f"untimed_summary_for_review={_shorten(e.video_native.summary, 115)}")
                 for ev in evs:
+                    status = "observed" if content.video_event_can_support(e.video_native, ev) else "needs_review"
                     lines.append(f"    event {ev.start_sec:.2f}-{ev.end_sec:.2f}s "
-                                 f"{ev.event_type}: {ev.description[:120]}")
+                                 f"{ev.event_type}: {ev.description[:120]} status={status}")
                 if len(e.video_native.events) > len(evs):
                     lines.append(f"    detail_events_omitted={len(e.video_native.events) - len(evs)}")
                 counts["with_video"] += 1
@@ -182,7 +189,8 @@ def build_evidence_text(
             extra = {}
             if e.static.result_id and e.static.visual:
                 extra["static"] = e.static.visual
-            if e.multiframe.result_id and len(e.multiframe.action_summary) > 115:
+            if (e.multiframe.result_id and content.motion_can_support(e.multiframe)
+                    and len(e.multiframe.action_summary) > 115):
                 extra["motion_summary"] = e.multiframe.action_summary
             if extra:
                 details.append(f"#{idx} " + json.dumps(extra, ensure_ascii=False, separators=(",", ":")))

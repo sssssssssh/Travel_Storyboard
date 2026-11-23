@@ -189,6 +189,10 @@ def _closed(value: Any, allowed: frozenset[str], default: str) -> str:
     return token if token in allowed else default
 
 
+def normalize_evidence_state(value: Any) -> str:
+    return value if isinstance(value, str) and value in EVIDENCE_STATES else EVIDENCE_UNCERTAIN
+
+
 def _closed_list(value: Any, allowed: frozenset[str]) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -329,7 +333,7 @@ def validate_result(item: Any, allowed: dict[str, AllowedSegment]) -> ValidatedS
             warnings.append(f"dropped_identity_claim:{label}")
         bucket[:] = kept
 
-    state = _closed(evidence_raw.get("state"), EVIDENCE_STATES, EVIDENCE_OBSERVED)
+    state = normalize_evidence_state(evidence_raw.get("state"))
     confidence = _confidence(evidence_raw.get("observed_confidence"))
     # An "observed" state with no content is a contradiction; downgrade it.
     if state == EVIDENCE_OBSERVED and not (subjects or actions or visual_raw.get("scene_tags")):

@@ -27,6 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from . import director_candidates as dc
+from . import director_plan_content as content
 from .director_plan_input import PlanningEntry, PlanningInput
 from .director_plan_schema import (
     CoverageSummary,
@@ -123,7 +124,7 @@ def _claims_for(entry: PlanningEntry, refs: list[EvidenceRef]) -> list[Claim]:
     claims: list[Claim] = []
     by_channel = {r.channel: r for r in refs}
 
-    if "static" in by_channel and entry.static.evidence_state not in ("uncertain", "not_visible"):
+    if "static" in by_channel and content.static_can_support(entry.static):
         tags = entry.static.visual.get("scene_tags") or []
         subjects = entry.static.visual.get("subjects") or []
         if tags or subjects:
@@ -138,7 +139,8 @@ def _claims_for(entry: PlanningEntry, refs: list[EvidenceRef]) -> list[Claim]:
                 evidence_refs=[by_channel["static"]],
             ))
 
-    if "multiframe" in by_channel and entry.multiframe.action_summary:
+    if ("multiframe" in by_channel and entry.multiframe.action_summary
+            and content.motion_can_support(entry.multiframe)):
         # Worded as what the model reported, not as an established fact.
         #
         # The summary is kept whole. It used to be sliced at 160 characters, which
@@ -148,20 +150,14 @@ def _claims_for(entry: PlanningEntry, refs: list[EvidenceRef]) -> list[Claim]:
         claims.append(Claim(
             text=_whole(f"多帧模型报告：{entry.multiframe.action_summary}", 300),
             kind="observed_signal",
-            evidence_refs=[by_channel["multiframe"]],
+            evidence_refs=[by_channel["multiframe"].model_copy(update={
+                "evidence_state": "human_confirmed" if entry.multiframe.human_verdict == "confirm" else ""
+            })],
         ))
 
     if "video_native" in by_channel:
-        for ev in entry.video_native.events[:3]:
-            claims.append(Claim(
-                text=_whole(f"视频事件（源片 {ev.start_sec:.1f}–{ev.end_sec:.1f}s）：{ev.description}", 300),
-                kind="observed_signal",
-                evidence_refs=[EvidenceRef(
-                    channel="video_native", result_id=entry.video_native.result_id or "",
-                    segment_id=entry.segment_id,
-                    event_start_sec=ev.start_sec, event_end_sec=ev.end_sec,
-                )],
-            ))
+        claims.extend([claim for key, claim in content.claim_catalog(entry).items()
+                       if key.startswith("event:")][:3])
 
     if entry.human.note:
         claims.append(Claim(
@@ -173,7 +169,7 @@ def _claims_for(entry: PlanningEntry, refs: list[EvidenceRef]) -> list[Claim]:
 
 
 def _needs_review(entry: PlanningEntry) -> list[str]:
-    out: list[str] = []
+    out = list(entry.limitations)
     if entry.static.state == dc.STATE_UNVERIFIED:
         out.append("静帧读数新鲜度未验证")
     if entry.multiframe.state == dc.STATE_UNVERIFIED:
@@ -195,13 +191,18 @@ def _selection_reason(entry: PlanningEntry) -> str:
         bits.append(f"人工设定故事角色「{entry.human.story_role}」")
     if entry.human.note:
         bits.append("包含你的备注")
-    if entry.static.state in (dc.STATE_CURRENT, dc.STATE_UNVERIFIED) and entry.static.result_id:
+    if (entry.static.state in (dc.STATE_CURRENT, dc.STATE_UNVERIFIED) and entry.static.result_id
+            and content.static_can_support(entry.static)):
         tags = entry.static.visual.get("scene_tags") or []
         bits.append("有静帧观察" + (f"（{tags[0]}）" if tags else ""))
-    if entry.multiframe.state in (dc.STATE_CURRENT, dc.STATE_UNVERIFIED) and entry.multiframe.result_id:
+    if (entry.multiframe.state in (dc.STATE_CURRENT, dc.STATE_UNVERIFIED) and entry.multiframe.result_id
+            and content.motion_can_support(entry.multiframe)):
         bits.append(f"有多帧运动结论（{entry.multiframe.motion_type or '类型未知'}）")
     if entry.video_native.state in (dc.STATE_CURRENT, dc.STATE_UNVERIFIED) and entry.video_native.result_id:
-        bits.append(f"有原生视频观察（{len(entry.video_native.events)} 个时序事件）")
+        count = sum(content.video_event_can_support(entry.video_native, event)
+                    for event in entry.video_native.events)
+        if count:
+            bits.append(f"有原生视频观察（{count} 个时序事件）")
     if not bits:
         bits.append("无内容证据，仅按时间线结构建议保留")
     return "；".join(bits)[:300]

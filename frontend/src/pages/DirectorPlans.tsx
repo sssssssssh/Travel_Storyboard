@@ -119,6 +119,10 @@ function claimLabel(claim: PlanClaim, historical: boolean) {
   return historical ? '历史模型描述 · 待复核' : KIND_LABEL[claim.kind] ?? claim.kind
 }
 
+function evidenceLabel(ref: PlanClaim['evidence_refs'][number], label: string) {
+  return ref.evidence_state === 'human_confirmed' ? `${label}（人工确认）` : label
+}
+
 function ClaimLine({ claim, historical }: { claim: PlanClaim; historical: boolean }) {
   return (
     <div className="mb-1 text-xs" data-testid="claim">
@@ -130,7 +134,7 @@ function ClaimLine({ claim, historical }: { claim: PlanClaim; historical: boolea
       <span className="text-slate-300">{claim.text}</span>
       {claim.evidence_refs.length > 0 && (
         <span className="ml-2 text-slate-500">
-          ← {claim.evidence_refs.map((r) => CHANNEL_LABEL[r.channel] ?? r.channel).join(', ')}
+          ← {claim.evidence_refs.map((r) => evidenceLabel(r, CHANNEL_LABEL[r.channel] ?? r.channel)).join(', ')}
         </span>
       )}
     </div>
@@ -802,7 +806,7 @@ export function buildMarkdown(
       if (s.retained) lines.push('   - 已保留')
       for (const c of s.claims) {
         const refs = c.evidence_refs.length
-          ? `（证据：${c.evidence_refs.map((r) => r.channel).join(', ')}）`
+          ? `（证据：${c.evidence_refs.map((r) => evidenceLabel(r, r.channel)).join(', ')}）`
           : ''
         lines.push(`   - [${claimLabel(c, historical)}] ${c.text}${refs}`)
       }
