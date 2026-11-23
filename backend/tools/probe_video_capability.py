@@ -40,11 +40,15 @@ import sys
 import tempfile
 import time
 from dataclasses import asdict, dataclass, field
+from functools import partial
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import get_settings  # noqa: E402
+from app.services.model_call_ledger import (  # noqa: E402
+    BudgetExhausted, BudgetGuardBlocked, ModelCallLedger,
+)
 from app.services.vision import video_capabilities as vc  # noqa: E402
 from app.services.vision.errors import redact  # noqa: E402
 
@@ -465,7 +469,25 @@ class ProbeOutcome:
     frame_control_attempted: bool = False
 
 
-def control_probe(*, model_id: str, timeout_sec: float = 60.0) -> tuple[int | None, str]:
+def _probe_post(url, *, headers, payload, timeout_sec, ledger, label):
+    import httpx
+
+    if ledger is not None:
+        size = len(httpx.Request("POST", url, json=payload).content)
+        ledger.charge("capability_probe", label, size, note=label)
+    return httpx.post(url, json=payload, headers=headers, timeout=timeout_sec)
+
+
+def _probe_payload(model_id, media_part=None):
+    content = [{"type": "text", "text": build_probe_prompt()}]
+    if media_part is not None:
+        content.append(media_part)
+    return {"model": model_id, "messages": [{"role": "user", "content": content}],
+            "max_tokens": 400}
+
+
+def control_probe(*, model_id: str, timeout_sec: float = 60.0,
+                  ledger: ModelCallLedger | None = None) -> tuple[int | None, str]:
     """A text-only request, to tell "endpoint is down" from "video unsupported".
 
     Returns ``(status, redacted_excerpt)``; ``(None, reason)`` when the request
@@ -485,7 +507,10 @@ def control_probe(*, model_id: str, timeout_sec: float = 60.0) -> tuple[int | No
         "max_tokens": 10,
     }
     try:
-        resp = httpx.post(url, json=body, headers=headers, timeout=timeout_sec)
+        resp = _probe_post(url, headers=headers, payload=body, timeout_sec=timeout_sec,
+                           ledger=ledger, label="health_text")
+    except (BudgetExhausted, BudgetGuardBlocked) as exc:
+        return None, exc.code
     except httpx.TimeoutException:
         return None, "control request timed out"
     except httpx.HTTPError as exc:
@@ -692,6 +717,7 @@ def run_probe(
     probe_id: str = "",
     include_video: bool = True,
     frame_only: bool = False,
+    ledger: ModelCallLedger | None = None,
 ) -> ProbeOutcome:
     """Send one video request and report what happened.
 
@@ -748,25 +774,7 @@ def run_probe(
         else:
             media_part = None
 
-        payload = {
-            "model": model_id,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            # TSB-341: ask for the clip's actual colour order, so the
-                            # answer can be checked against ground truth instead of
-                            # scanned for time-ish words.
-                            "text": build_probe_prompt(),
-                        },
-                        *([media_part] if media_part is not None else []),
-                    ],
-                }
-            ],
-            "max_tokens": 400,
-        }
+        payload = _probe_payload(model_id, media_part)
         url = f"{settings.model_base_url.rstrip('/')}/chat/completions"
         headers = {
             "Authorization": f"Bearer {settings.model_api_key}",
@@ -775,7 +783,11 @@ def run_probe(
 
         started = time.monotonic()
         try:
-            resp = httpx.post(url, json=payload, headers=headers, timeout=timeout_sec)
+            label = "frame_control" if frame_only else "probe_video" if include_video else "prompt_control"
+            resp = _probe_post(url, headers=headers, payload=payload, timeout_sec=timeout_sec,
+                               ledger=ledger, label=label)
+        except (BudgetExhausted, BudgetGuardBlocked) as exc:
+            outcome.error_code = exc.code
         except httpx.TimeoutException as exc:
             outcome.error_code = "MODEL_TIMEOUT"
             outcome.notes.append(redact(str(exc), settings.model_api_key))
@@ -1103,6 +1115,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--clip", type=Path, default=None, help="use this clip instead of the synthetic one")
     parser.add_argument("--protocol", default="video_url_data_uri")
     parser.add_argument("--json", type=Path, default=None, help="write the report here")
+    parser.add_argument("--ledger", type=Path, help="charge every outbound request to an existing ledger")
+    parser.add_argument("--measure-synthetic", action="store_true",
+                        help="generate and measure a synthetic clip even for a dry run")
     parser.add_argument("--redact", action="store_true", help="strip endpoint host (for committed evidence)")
     parser.add_argument(
         "--ascii",
@@ -1151,15 +1166,27 @@ def main(argv: list[str] | None = None) -> int:
         safe_print("         (a real video upload is an outbound transfer of media; it needs explicit consent)")
         return 2
 
+    ledger = None
+    budget_before = None
+    expected_attempts = args.rounds + 3 if args.rounds > 1 and args.clip is None else 2
+    if args.ledger:
+        if not args.ledger.is_file():
+            parser.error("existing attempt ledger required")
+        ledger = ModelCallLedger(args.ledger)
+        remaining = ledger.remaining()
+        budget_before = remaining["per_channel"]["capability_probe"]
+        if executed and min(remaining["total_left"], budget_before["left"]) < expected_attempts:
+            parser.error("insufficient existing capability probe budget for this run")
+
     clip: Path | None = None
-    if executed:
+    if executed or args.measure_synthetic:
         if args.clip is not None:
             if not args.clip.is_file():
                 safe_print(f"REFUSED: clip not found: {args.clip}")
                 return 2
             clip = args.clip
         else:
-            clip = build_synthetic_clip()
+            clip = build_synthetic_clip(duration_sec=args.duration)
             safe_print(f"synthetic clip: {clip.name} ({clip.stat().st_size} bytes, silent)")
 
     plan = plan_probe(
@@ -1171,6 +1198,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     outcome = ProbeOutcome()
+    single_round_signal = False
     if executed:
         from app.services.vision.authorization import authorize_upload
 
@@ -1194,7 +1222,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         # Always run the text-only control: it is what makes an outage
         # distinguishable from a real capability answer.
-        control_status, control_excerpt = control_probe(model_id=model_id)
+        control_status, control_excerpt = control_probe(model_id=model_id, ledger=ledger)
+        probe = partial(run_probe, ledger=ledger)
 
         evidence = ProbeEvidence()
         if args.rounds > 1:
@@ -1206,17 +1235,18 @@ def main(argv: list[str] | None = None) -> int:
                 "controls (the order is never stated in the prompt)"
             )
             if clip is not None and clip_source_is_real(clip):
-                outcome = run_probe(clip=clip, model_id=model_id, authorization=context)
+                outcome = probe(clip=clip, model_id=model_id, authorization=context)
             else:
                 evidence = run_multi_round_probe(
                     model_id=model_id,
                     authorization=context,
                     rounds=args.rounds,
                     duration_sec=args.duration,
+                    _probe=probe,
                 )
                 outcome = ProbeOutcome(attempted=True)
                 outcome.probe_id = evidence.rounds[0].probe_id if evidence.rounds else ""
-                outcome.temporal_signal = evidence_supports_verification(evidence)
+                outcome.temporal_signal = control_status == 200 and evidence_supports_verification(evidence)
                 outcome.temporal_signal_basis = (
                     f"{evidence.passed_rounds}/{evidence.rounds_total} rounds correct"
                     + (
@@ -1244,12 +1274,33 @@ def main(argv: list[str] | None = None) -> int:
                         f"({r.basis or r.error_code or 'no reason'})"
                     )
         else:
-            outcome = run_probe(clip=clip, model_id=model_id, authorization=context)
+            outcome = probe(clip=clip, model_id=model_id, authorization=context)
+
+        if args.rounds <= 1 or (clip is not None and clip_source_is_real(clip)):
+            single_round_signal = outcome.temporal_signal
+            if single_round_signal:
+                outcome.temporal_signal = False
+                outcome.temporal_signal_basis += "; a single round cannot verify temporal understanding"
 
         outcome.control_http_status = control_status
         outcome.control_excerpt = control_excerpt
 
     report = build_report(plan=plan, outcome=outcome, executed=executed)
+    report["observation"]["single_round_signal"] = single_round_signal
+    if budget_before is not None:
+        report["budget"] = {
+            "channel": "capability_probe", "required_attempts": expected_attempts,
+            "before": budget_before, "after": ledger.remaining()["per_channel"]["capability_probe"],
+        }
+    report["authorization"] = {"upload_acknowledged": bool(executed and args.authorize_upload),
+                               "model_mode": settings.model_mode}
+    if clip is not None:
+        import httpx
+
+        media = {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,"}}
+        overhead = len(httpx.Request("POST", settings.model_base_url,
+                                     json=_probe_payload(model_id, media)).content)
+        report["plan"]["estimated_video_request_bytes"] = overhead + 4 * ((plan.clip_bytes + 2) // 3)
     # The anonymous, committable view of the battery: rounds and pass counts, no
     # orders, no probe ids, no endpoint.
     report["evidence"] = evidence.public_summary() if executed else None

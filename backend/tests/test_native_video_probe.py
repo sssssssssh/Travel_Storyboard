@@ -316,3 +316,45 @@ def test_a_missing_clip_is_refused_rather_than_silently_substituted():
     )
     assert proc.returncode == 2
     assert "clip not found" in proc.stdout
+
+
+def test_tsb372r2_cli_accounts_for_the_health_and_video_requests(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    import httpx
+
+    from app.services.model_call_ledger import ModelCallLedger
+    from app.services.vision import authorization
+    from tools import probe_video_capability as probe
+
+    settings = SimpleNamespace(model_base_url="https://example.invalid/v1",
+                               model_name="test", model_mode="on", model_api_key="test")
+    monkeypatch.setattr(probe, "get_settings", lambda: settings)
+    monkeypatch.setattr(authorization, "authorize_upload", lambda **_: object())
+    monkeypatch.setattr(authorization, "require_context", lambda _: None)
+    clip = tmp_path / "synthetic.mp4"
+    clip.write_bytes(b"synthetic")
+    monkeypatch.setattr(probe, "build_synthetic_clip", lambda **_: clip)
+    monkeypatch.setattr(probe, "clip_source_is_real", lambda _: False)
+    monkeypatch.setattr(probe, "evaluate_probe_answer", lambda *_, **__: (True, "synthetic evidence"))
+    ledger = ModelCallLedger(tmp_path / "ledger.json")
+    captured = []
+
+    def post(url, *, json, **_):
+        # The charge must exist before making the outgoing request.
+        size = len(httpx.Request("POST", url, json=json).content)
+        captured.append(size)
+        assert ledger.remaining()["per_channel"]["capability_probe"]["used"] == len(captured)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr(httpx, "post", post)
+    report_file = tmp_path / "report.json"
+    assert probe.main(["--execute", "--i-authorize-real-upload", "--rounds", "1",
+                       "--ledger", str(ledger.path), "--json", str(report_file)]) == 0
+    assert len(captured) == 2
+    assert ledger.summary()["by_channel"]["capability_probe"]["bytes"] == sum(captured)
+    report = json.loads(report_file.read_text(encoding="utf-8"))
+    assert report["observation"]["control_http_status"] == 200
+    assert report["observation"]["single_round_signal"] is True
+    assert report["capabilities"]["state"] == vc.VIDEO_ACCEPTED_SAMPLING_UNKNOWN
