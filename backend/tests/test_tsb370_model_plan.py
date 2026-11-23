@@ -29,7 +29,6 @@ from app.models import (
     SegmentVideoObservation,
     UserAnnotation,
 )
-from app.services import director_candidates as dc
 from app.services import director_plan_input as dpi
 from app.services import director_plan_validation as val
 from app.services.director_plan_model import (
@@ -189,6 +188,34 @@ def test_the_prompt_carries_evidence_ids_and_absolute_times(two_shot_input):
     # The 10-18s shot's event must read as absolute source time 10.5, not 0.5.
     assert "10.50-11.50s" in text
     assert summary["shots_listed"] == 2
+
+
+@pytest.mark.parametrize("state", ["observed", "uncertain", "not_visible", "invalid", ""])
+def test_tsb372r2_fix01_static_prompt_keeps_only_eligible_facts(two_shot_input, state):
+    from dataclasses import replace
+
+    pi, _ = two_shot_input
+    entry = pi.entries[0]
+    evidence = replace(entry.static, evidence_state=state, visual={
+        "scene_tags": ["fact-tag"], "subjects": ["fact-subject"],
+        "visible_actions": ["fact-action"], "lighting": "detail-only-light",
+    })
+    pi.entries = [replace(entry, segment_id=f"projection-{index}", static=evidence)
+                  for index in range(13)]
+    pi.entries[12] = replace(pi.entries[12], static=replace(evidence, visual={
+        **evidence.visual, "scene_tags": ["late-roster-only-tag"],
+    }))
+    text, summary = build_evidence_text(pi, PlanningBrief())
+    assert summary["sent_segment_ids"] == [entry.segment_id for entry in pi.entries]
+    assert summary["shots_listed"] == 13
+    assert "segment_id=projection-12" in text
+    assert f"static_evidence_id={evidence.result_id}" in text
+    for marker in ("fact-tag", "fact-subject", "fact-action", "detail-only-light", "late-roster-only-tag"):
+        assert (marker in text) == (state == "observed")
+    assert summary["shots_with_static"] == (13 if state == "observed" else 0)
+    if state != "observed":
+        assert f"static_evidence_id={evidence.result_id} status=needs_review" in text
+        assert '"unknown"' in text
 
 
 def test_the_theme_is_labelled_as_a_constraint(two_shot_input):

@@ -28,18 +28,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
 
 from app.database import session_scope
 from app.models import (
     Asset,
-    Project,
     Segment,
     SegmentMotionReview,
     SegmentSemanticResult,
 )
 from app.services import director_plan_input as dpi
-from app.services import evaluation_feedback as fb
 
 SESSIONS = "/api/projects/{p}/evaluation/sessions"
 
@@ -173,6 +170,23 @@ def test_unsure_is_not_treated_as_wrong(client):
     e = _entry(_plan_input(pid), seg_id)
     assert "white pagoda" in e.static.visual.get("subjects", [])
     assert "human_review_claims_uncertain" in e.static.limitations
+
+
+@pytest.mark.parametrize(("verdict", "allowed_subject"), [("wrong", True), ("unsure", False)])
+def test_tsb372r2_fix01_static_prompt_honors_real_review_filter(client, verdict, allowed_subject):
+    from app.services.director_plan_model import build_evidence_text
+    from app.services.director_plan_schema import PlanningBrief
+
+    pid, sid, rid = _seed(client)
+    before, _ = build_evidence_text(_plan_input(pid), PlanningBrief())
+    assert "white pagoda" in before and "small boats" in before
+    _review(client, pid, {"subjects:2": verdict})
+
+    text, summary = build_evidence_text(_plan_input(pid), PlanningBrief())
+    assert summary["sent_segment_ids"] == [sid]
+    assert f"static_evidence_id={rid}" in text
+    assert "white pagoda" not in text
+    assert ("small boats" in text) == allowed_subject
 
 
 def test_tsb372_native_review_survives_event_filtering(client):

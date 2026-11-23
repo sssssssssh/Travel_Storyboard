@@ -61,16 +61,26 @@ def test_a_2xx_with_temporal_content_can_be_verified():
     assert "mentions motion" in scope
 
 
-@pytest.mark.parametrize("status", [400, 415, 422])
-def test_a_rejection_of_the_payload_is_unsupported(status):
-    state, _ = classify_probe_outcome(_outcome(http_status=status))
-    assert state == vc.UNSUPPORTED
+@pytest.mark.parametrize(("status", "message"), [
+    (400, "invalid JSON"),
+    (400, "this field does not support negative lengths"),
+    (400, "At most 1 video(s) may be provided in one prompt. Set --limit-mm-per-prompt."),
+    (400, "Unsupported chat content part type: 'image_url'."),
+    (422, "invalid content schema"),
+])
+def test_tsb372r2_fix01_generic_request_errors_are_unverified(status, message):
+    state, scope = classify_probe_outcome(
+        _outcome(http_status=status, control_http_status=200, response_excerpt=message)
+    )
+    assert state == vc.UNVERIFIED
+    assert f"HTTP {status}" in scope
+    assert "video=1" not in scope
 
 
-def test_a_413_is_unsupported_because_the_size_was_refused():
-    state, scope = classify_probe_outcome(_outcome(http_status=413))
-    assert state == vc.UNSUPPORTED
-    assert "413" in scope
+def test_a_413_asks_to_retry_with_a_smaller_payload():
+    state, scope = classify_probe_outcome(_outcome(http_status=413, control_http_status=200))
+    assert state == vc.UNVERIFIED
+    assert "413" in scope and "smaller" in scope
 
 
 @pytest.mark.parametrize("status", [401, 403])
@@ -79,9 +89,18 @@ def test_an_auth_failure_is_not_a_capability_verdict(status):
     assert state == vc.UNVERIFIED
 
 
-def test_a_timeout_is_inconclusive():
-    state, _ = classify_probe_outcome(_outcome(http_status=None, error_code="MODEL_TIMEOUT"))
+@pytest.mark.parametrize("code", ["MODEL_TIMEOUT", "MODEL_NETWORK_ERROR"])
+def test_a_transport_failure_is_inconclusive(code):
+    state, scope = classify_probe_outcome(_outcome(http_status=None, error_code=code))
     assert state == vc.UNVERIFIED
+    assert code in scope
+
+
+@pytest.mark.parametrize("status", [404, 429, 500, 502, 503])
+def test_tsb372r2_fix01_http_failures_preserve_the_status(status):
+    state, scope = classify_probe_outcome(_outcome(http_status=status, control_http_status=200))
+    assert state == vc.UNVERIFIED
+    assert f"HTTP {status}" in scope
 
 
 # --- the control request is what makes an outage readable -------------------
@@ -106,8 +125,9 @@ def test_a_control_500_also_poisons_the_video_verdict():
     )
 
 
-def test_a_healthy_control_lets_a_video_rejection_stand():
-    state, _ = classify_probe_outcome(_outcome(http_status=415, control_http_status=200))
+@pytest.mark.parametrize("control_status", [200, 204])
+def test_a_healthy_control_lets_a_video_rejection_stand(control_status):
+    state, _ = classify_probe_outcome(_outcome(http_status=415, control_http_status=control_status))
     assert state == vc.UNSUPPORTED
 
 
@@ -121,17 +141,18 @@ _VLLM_ZERO_VIDEO_LIMIT = (
 )
 
 
-def test_a_zero_video_limit_names_the_serving_flag():
+@pytest.mark.parametrize("body", [_VLLM_ZERO_VIDEO_LIMIT, "--limit-mm-per-prompt video=0"])
+def test_a_zero_video_limit_names_the_serving_flag(body):
     """'HTTP 400' alone sends the operator looking in the wrong place.
 
     The remedy here is a server-side serving flag, not a client-side change, so
     the reason must say so.
     """
     state, scope = classify_probe_outcome(
-        _outcome(http_status=400, control_http_status=200, response_excerpt=_VLLM_ZERO_VIDEO_LIMIT)
+        _outcome(http_status=400, control_http_status=200, response_excerpt=body)
     )
     assert state == vc.UNSUPPORTED
-    assert "limit-mm-per-prompt" in scope
+    assert "--limit-mm-per-prompt video=1" in scope
     assert "server-side" in scope, "the fix is server-side; the reason must not imply otherwise"
 
 
@@ -152,7 +173,7 @@ def test_an_unparsed_rejection_still_reports_the_status():
     state, scope = classify_probe_outcome(
         _outcome(http_status=400, control_http_status=200, response_excerpt="something odd")
     )
-    assert state == vc.UNSUPPORTED
+    assert state == vc.UNVERIFIED
     assert "HTTP 400" in scope
     assert "limit-mm-per-prompt" not in scope
 
@@ -164,10 +185,56 @@ def test_a_healthy_control_lets_a_verification_stand():
     assert state == vc.VERIFIED_NATIVE_VIDEO
 
 
-def test_a_control_404_does_not_poison_the_verdict():
-    """Only server-side failure means "the endpoint is broken"."""
-    state, _ = classify_probe_outcome(_outcome(http_status=415, control_http_status=404))
-    assert state == vc.UNSUPPORTED
+@pytest.mark.parametrize("control_status", [301, 401, 403, 404, 429, 503])
+def test_tsb372r2_fix01_unhealthy_control_blocks_a_video_rejection(control_status):
+    state, scope = classify_probe_outcome(_outcome(http_status=415, control_http_status=control_status))
+    assert state == vc.UNVERIFIED
+    assert "HTTP 415" in scope and f"HTTP {control_status}" in scope
+
+
+def test_tsb372r2_fix01_missing_control_blocks_a_video_rejection():
+    state, scope = classify_probe_outcome(_outcome(http_status=415))
+    assert state == vc.UNVERIFIED
+    assert "text-only control" in scope
+
+
+@pytest.mark.parametrize(("status", "code", "body", "expected"), [
+    (400, "", _VLLM_ZERO_VIDEO_LIMIT, vc.UNSUPPORTED),
+    (400, "", "bad request schema", vc.UNVERIFIED),
+    (None, "MODEL_TIMEOUT", "", vc.UNVERIFIED),
+])
+def test_tsb372r2_fix01_multi_round_cli_preserves_failed_video_diagnosis(
+    tmp_path, monkeypatch, status, code, body, expected,
+):
+    import json
+    from types import SimpleNamespace
+
+    from app.services.vision import authorization
+    from tools import probe_video_capability as probe
+
+    settings = SimpleNamespace(model_base_url="https://example.invalid/v1",
+                               model_name="test", model_mode="on")
+    clip = tmp_path / "synthetic.mp4"
+    clip.write_bytes(b"synthetic")
+    monkeypatch.setattr(probe, "get_settings", lambda: settings)
+    monkeypatch.setattr(probe, "build_synthetic_clip", lambda **_: clip)
+    monkeypatch.setattr(probe, "clip_source_is_real", lambda _: False)
+    monkeypatch.setattr(probe, "control_probe", lambda **_: (200, ""))
+    monkeypatch.setattr(authorization, "authorize_upload", lambda **_: object())
+
+    def probe_round(*, include_video=True, frame_only=False, **_):
+        if include_video and not frame_only:
+            return _outcome(http_status=status, error_code=code, response_excerpt=body)
+        return _outcome()
+
+    monkeypatch.setattr(probe, "run_probe", probe_round)
+    report_file = tmp_path / "report.json"
+    assert probe.main(["--execute", "--i-authorize-real-upload", "--json", str(report_file)]) == 0
+    report = json.loads(report_file.read_text(encoding="utf-8"))
+    assert report["capabilities"]["state"] == expected
+    assert report["observation"]["http_status"] == status
+    assert report["observation"]["error_code"] == code
+    assert report["observation"]["response_excerpt"] == body
 
 
 # --- report assembly --------------------------------------------------------

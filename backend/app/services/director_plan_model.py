@@ -139,7 +139,12 @@ def build_evidence_text(
         )
         counts["shots"] += 1
 
-        if e.static.result_id and e.static.state in (dc.STATE_CURRENT, dc.STATE_UNVERIFIED):
+        has_static = bool(e.static.result_id) and e.static.state in (dc.STATE_CURRENT, dc.STATE_UNVERIFIED)
+        static_facts_allowed = has_static and content.static_can_support(e.static)
+        if has_static and not static_facts_allowed:
+            lines.append(f"  static_evidence_id={e.static.result_id} status=needs_review")
+            counts["static_ids"] += 1
+        if static_facts_allowed:
             parts = []
             tags = (e.static.visual.get("scene_tags") or [])[:2]
             if tags:
@@ -187,7 +192,7 @@ def build_evidence_text(
 
         if idx <= MAX_DETAIL_SHOTS:
             extra = {}
-            if e.static.result_id and e.static.visual:
+            if static_facts_allowed and e.static.visual:
                 extra["static"] = e.static.visual
             if (e.multiframe.result_id and content.motion_can_support(e.multiframe)
                     and len(e.multiframe.action_summary) > 115):

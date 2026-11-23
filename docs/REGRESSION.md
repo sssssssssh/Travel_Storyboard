@@ -2604,3 +2604,11 @@ T25 补充：可用历史盲评验证提交前标准化及提交后原文显示�
 | `test_tsb372r2_explicit_cut_plays_until_the_parent_window_changes` | R2-04 | 正式 A/B 精确子区间可以播放，父区间变化时旧预览失效 |
 
 T25 补充：在隔离会话完成真人盲评后，按 61 镜头复核表核对 5 个样本的动作连续性、时间点、剪辑理由和导出定位。见 [TSB-372-R2 证据](validation/tsb372-r2/README.md)。
+
+### TSB-372-R2-FIX-01 视频分类与静帧投影
+
+| 用例 | 任务 | 行为 |
+| --- | --- | --- |
+| `test_tsb372r2_fix01_generic_request_errors_are_unverified`、`test_tsb372r2_fix01_unhealthy_control_blocks_a_video_rejection` | P0 | 模糊的错误、无健康对照的拒绝保持未验证 |
+| `test_a_zero_video_limit_names_the_serving_flag`、`test_tsb372r2_fix01_multi_round_cli_preserves_failed_video_diagnosis` | P0 | 保留明确的部署阻塞、原始状态和超时错误码 |
+| `test_tsb372r2_fix01_static_prompt_keeps_only_eligible_facts`、`test_tsb372r2_fix01_static_prompt_honors_real_review_filter` | P1 | 精简与详细投影都阻挡不确定的事实，候选与人工纠错保留 |

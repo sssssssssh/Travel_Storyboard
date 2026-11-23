@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import tempfile
 import time
@@ -347,6 +348,7 @@ class ProbeEvidence:
     control_answered_correctly: bool = False
     frame_control_attempted: bool = False
     frame_control_answered_correctly: bool = False
+    first_failed_video: ProbeOutcome | None = field(default=None, repr=False)
 
     @property
     def rounds_total(self) -> int:
@@ -528,17 +530,25 @@ def _classify_video_rejection(body: str) -> str:
     the second needs a serving flag. So the body is inspected for that.
     """
     lowered = (body or "").lower()
-    if "limit-mm-per-prompt" in lowered or "may be provided in one prompt" in lowered:
+    if (re.search(r"\bat most 0 video(?:\(s\)|s)? may be provided\b", lowered)
+            or re.search(r"\bvideo limit(?: is|\s*[:=])\s*0\b", lowered)
+            or ("limit-mm-per-prompt" in lowered and re.search(r"\bvideo\s*=\s*0\b", lowered))):
         return (
             "vLLM recognises the video content part, but this deployment's "
             "per-prompt video limit is 0 — the serving configuration needs "
             "`--limit-mm-per-prompt video=1` (a server-side change, not client-side)"
         )
-    if "unsupported chat content part type" in lowered:
+    if re.search(r"\b(?:unknown|unsupported|unrecogni[sz]ed) (?:chat )?content part type"
+                 r"\s*:?\s*['\"]?video(?:_url)?\b", lowered):
         return "server does not recognise this content part type at all"
-    if "not support" in lowered:
-        return "server states the model does not support this input"
+    if re.search(r"\b(?:does not support video (?:input|content)|video (?:input|content) is not supported)\b",
+                 lowered):
+        return "server states the model does not support video input"
     return ""
+
+
+def _http_success(status: int | None) -> bool:
+    return status is not None and 200 <= status < 300
 
 
 def classify_probe_outcome(outcome: ProbeOutcome) -> tuple[str, str]:
@@ -553,31 +563,41 @@ def classify_probe_outcome(outcome: ProbeOutcome) -> tuple[str, str]:
     if not outcome.attempted:
         return vc.UNVERIFIED, ""
 
-    if outcome.http_status is None:
+    status = outcome.http_status
+    if status is None:
         return vc.UNVERIFIED, f"probe did not complete: {outcome.error_code or 'unknown'}"
 
-    # A failing *control* request proves the endpoint is unhealthy, which makes
-    # the video attempt uninformative: we cannot claim the endpoint rejected
-    # video, and we certainly cannot claim it accepted it.
-    if outcome.control_http_status is not None and outcome.control_http_status >= 500:
+    if status == 413:
+        return vc.UNVERIFIED, "payload too large (HTTP 413); retry with a smaller video request"
+
+    control_status = outcome.control_http_status
+    if control_status is not None and not _http_success(control_status):
         return (
             vc.UNVERIFIED,
-            f"endpoint unhealthy: text-only control also returned HTTP "
-            f"{outcome.control_http_status}; the video attempt is inconclusive",
+            f"endpoint unhealthy: text-only control returned HTTP {control_status}; "
+            f"video returned HTTP {status}; the video attempt is inconclusive",
         )
 
-    if outcome.http_status in (415, 422, 400):
-        precise = _classify_video_rejection(outcome.response_excerpt)
-        base = f"endpoint refused the video payload (HTTP {outcome.http_status})"
-        return vc.UNSUPPORTED, f"{base}: {precise}" if precise else base
-    if outcome.http_status in (401, 403):
-        return vc.UNVERIFIED, f"probe was not accepted for auth reasons (HTTP {outcome.http_status})"
-    if outcome.http_status == 413:
-        return vc.UNSUPPORTED, "endpoint rejected the payload as too large (HTTP 413)"
-    if outcome.http_status >= 500:
-        return vc.UNVERIFIED, f"endpoint error (HTTP {outcome.http_status}); inconclusive"
-    if outcome.http_status != 200:
-        return vc.UNVERIFIED, f"unexpected status HTTP {outcome.http_status}"
+    if status in (400, 415, 422):
+        base = f"endpoint refused the video payload (HTTP {status})"
+        if not _http_success(control_status):
+            return vc.UNVERIFIED, f"{base}; a successful text-only control is required"
+        if status == 415:
+            return vc.UNSUPPORTED, f"{base}: unsupported video media type for this protocol"
+        precise = _classify_video_rejection(outcome.response_excerpt) if status == 400 else ""
+        if precise:
+            return vc.UNSUPPORTED, f"{base}: {precise}"
+        return vc.UNVERIFIED, f"{base}; check the request format and parameters"
+    if status in (401, 403):
+        return vc.UNVERIFIED, f"probe was not accepted for auth reasons (HTTP {status})"
+    if status == 404:
+        return vc.UNVERIFIED, "probe route not found (HTTP 404); check the configured endpoint path"
+    if status == 429:
+        return vc.UNVERIFIED, "probe was rate limited (HTTP 429); retry when capacity is available"
+    if status >= 500:
+        return vc.UNVERIFIED, f"endpoint error (HTTP {status}); inconclusive"
+    if status != 200:
+        return vc.UNVERIFIED, f"unexpected status HTTP {status}"
 
     if not outcome.temporal_signal:
         return (
@@ -886,6 +906,8 @@ def run_multi_round_probe(
             clip=clip, model_id=model_id, authorization=authorization,
             timeout_sec=timeout_sec, round_order=order, probe_id=probe_id,
         )
+        if evidence.first_failed_video is None and not out.temporal_signal:
+            evidence.first_failed_video = out
         evidence.rounds.append(
             RoundEvidence(
                 round_index=index,
@@ -1246,7 +1268,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 outcome = ProbeOutcome(attempted=True)
                 outcome.probe_id = evidence.rounds[0].probe_id if evidence.rounds else ""
-                outcome.temporal_signal = control_status == 200 and evidence_supports_verification(evidence)
+                outcome.temporal_signal = (_http_success(control_status)
+                                           and evidence_supports_verification(evidence))
                 outcome.temporal_signal_basis = (
                     f"{evidence.passed_rounds}/{evidence.rounds_total} rounds correct"
                     + (
@@ -1261,13 +1284,11 @@ def main(argv: list[str] | None = None) -> int:
                 outcome.frame_control_attempted = evidence.frame_control_attempted
                 outcome.frame_control_signal = evidence.frame_control_answered_correctly
                 # A round that did not pass must not look like a clean 200.
-                failed = [r for r in evidence.rounds if not r.passed]
-                if failed and failed[0].http_status is not None:
-                    outcome.http_status = failed[0].http_status
-                else:
-                    outcome.http_status = 200
-                if failed and failed[0].error_code:
-                    outcome.error_code = failed[0].error_code
+                failed = evidence.first_failed_video
+                outcome.http_status = failed.http_status if failed else 200
+                if failed:
+                    outcome.error_code = failed.error_code
+                    outcome.response_excerpt = failed.response_excerpt
                 for r in evidence.rounds:
                     outcome.notes.append(
                         f"round {r.round_index}: {'pass' if r.passed else 'FAIL'} "
